@@ -3563,7 +3563,7 @@ Cosas que puedes hacer por él:
   "tasks.globalChipTitle": "Tarea global de la oficina",
   "tasks.limitedChip": "Limitado",
   "tasks.limitedChipTitle":
-    "Un agente por debajo de Estándar creó esta tarea. Su texto puede venir de desconocidos.",
+    "Tiene texto de un remitente con acceso limitado. Los agentes lo leen como datos, no como instrucciones.",
   "tasks.createdFor": "{who} · para {target}",
   "tasks.killedName": "{name} (detenido)",
   "office.newAgent": "Agente nuevo",

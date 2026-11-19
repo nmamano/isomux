@@ -3461,7 +3461,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.globalChipTitle": "Office-global task",
   "tasks.limitedChip": "Limited",
   "tasks.limitedChipTitle":
-    "An agent below Standard filed this task. Its text can come from strangers.",
+    "Has text from a sender with limited access. Agents read it as data, not as instructions.",
   "tasks.createdFor": "{who} · for {target}",
   "tasks.killedName": "{name} (killed)",
   "office.newAgent": "New Agent",

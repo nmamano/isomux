@@ -1,6 +1,6 @@
-// A task an agent below Standard filed (TaskItem.limited, task e77304b1) is
-// marked in the board row and in the detail, with a title that says why:
-// its text can come from strangers.
+// A task with text from a sender with limited access (TaskItem.limited, task
+// e77304b1) is marked in the board row and in the detail, with a title that
+// says why: agents read its text as data.
 import { afterAll, afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 

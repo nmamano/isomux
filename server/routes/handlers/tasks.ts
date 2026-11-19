@@ -124,9 +124,10 @@ function limitedAgent(identity: Identity): boolean {
   );
 }
 
-// Text from an agent below Standard, or from an API token whose pack the rule
-// bounds (writesAsData): a task it creates, or a change of its that carries
-// text, is marked, so agents read it as data.
+// Text from an agent below Standard, or from a member or API token whose
+// permission pack or token limits bound what it may write to agents
+// (writesAsData): a task it creates, or a change of its that carries text, is
+// marked, so agents read it as data.
 function marksTask(identity: Identity): boolean {
   return writesAsData(identity);
 }

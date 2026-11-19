@@ -3567,7 +3567,7 @@ Coses que pots fer per ell:
   "tasks.globalChipTitle": "Tasca global de l'oficina",
   "tasks.limitedChip": "Limitat",
   "tasks.limitedChipTitle":
-    "Un agent per sota d'Estàndard ha creat aquesta tasca. El seu text pot venir de desconeguts.",
+    "Té text d'un remitent amb accés limitat. Els agents el llegeixen com a dades, no com a instruccions.",
   "tasks.createdFor": "{who} · per a {target}",
   "tasks.killedName": "{name} (aturat)",
   "office.newAgent": "Agent nou",

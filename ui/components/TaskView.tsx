@@ -1981,8 +1981,8 @@ export function TaskView({
   );
 }
 
-// The mark of a task an agent below Standard filed (data-limited-task): its
-// text can come from strangers.
+// The mark of a task with text from a sender with limited access
+// (data-limited-task, writesAsData): agents read its text as data.
 export function LimitedTaskChip({ task }: { task: Pick<TaskItem, "limited"> }) {
   const { t } = useI18n();
   if (!task.limited) return null;

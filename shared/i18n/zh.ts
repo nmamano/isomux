@@ -3192,7 +3192,7 @@ export const zh: Catalog = {
   "tasks.globalChipTitle": "办公室全局任务",
   "tasks.limitedChip": "受限",
   "tasks.limitedChipTitle":
-    "一个标准以下的智能体创建了此任务。其内容可能来自陌生人。",
+    "包含来自访问受限的发送者的文本。智能体将其视为数据，而非指令。",
   "tasks.createdFor": "{who} · 为 {target}",
   "tasks.killedName": "{name}（已终止）",
   "office.newAgent": "新智能体",
