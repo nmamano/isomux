@@ -4846,6 +4846,7 @@ Cosas que puedes hacer por él:
   "sidebar.recent": "Recientes",
   "sidebar.pin": "Fijar en la barra lateral",
   "sidebar.unpin": "Quitar de la barra lateral",
+  "sidebar.showRoom": "Mostrar la sala",
   "sidebar.roomSettings": "Ajustes de la sala",
   "sidebar.officeSettings": "Ajustes de la oficina",
   "sidebar.agentSettings": "Ajustes del agente",

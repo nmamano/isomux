@@ -815,6 +815,19 @@ export function App({ routing = true }: { routing?: boolean }) {
       dispatch({ type: "set_lobby_open", open: true });
     else if (roomId !== null) dispatch({ type: "set_current_room", roomId });
   }, [focusedAgent, focusedInBack, applyPage, dispatch, leaveToOffice]);
+  // A room header's building in the sidebar (task 82997335): that room's
+  // office view, or the Lobby.
+  // Like the Office row from a front agent: whatever is open closes, then
+  // the named room shows (its front, even from a back agent's chat).
+  const showRoom = useCallback(
+    (roomId: string) => {
+      leaveToOffice();
+      if (roomId === LOBBY_ROOM_ID)
+        dispatch({ type: "set_lobby_open", open: true });
+      else dispatch({ type: "set_current_room", roomId });
+    },
+    [dispatch, leaveToOffice],
+  );
   // A human chat, full screen in the main pane (task 019e4d7c): every page
   // and the agent chat close, as for openAgentChat; the room in view stays,
   // so Back lands where the member was.
@@ -1496,6 +1509,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       viewReady={restored || (!persistEnabled && hasReceivedInitialState)}
       onCollapse={onCollapse}
       onOffice={() => then(goOffice)}
+      onShowRoom={(roomId) => then(() => showRoom(roomId))}
       onNewAgent={canSpawn ? spawnFromSidebar : null}
       onOpenPage={(target) => then(() => openSidebarPage(target))}
       onOpenAgent={(agentId) => then(() => openAgentChat(agentId))}

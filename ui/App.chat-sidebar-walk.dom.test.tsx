@@ -31,6 +31,8 @@ it("no entry outside an agent row and the page rows hides the sidebar: the walk 
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-room-settings=${id}`),
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-back-room=${id}`),
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-new-agent=${id}`),
+    // Task 82997335: a room's show-room button, and the Lobby's.
+    ...["lobby", "r1", "r2", "r3"].map((id) => `data-sidebar-show-room=${id}`),
   ];
   expect(expected.filter((key) => !visited.has(key))).toEqual([]);
 });

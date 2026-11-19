@@ -4307,6 +4307,7 @@ export const zh: Catalog = {
   "sidebar.recent": "最近",
   "sidebar.pin": "固定到侧边栏",
   "sidebar.unpin": "从侧边栏取消固定",
+  "sidebar.showRoom": "显示房间",
   "sidebar.roomSettings": "房间设置",
   "sidebar.officeSettings": "办公室设置",
   "sidebar.agentSettings": "智能体设置",

@@ -4849,6 +4849,7 @@ Coses que pots fer per ell:
   "sidebar.recent": "Recents",
   "sidebar.pin": "Fixa a la barra lateral",
   "sidebar.unpin": "Treu de la barra lateral",
+  "sidebar.showRoom": "Mostra la sala",
   "sidebar.roomSettings": "Configuració de la sala",
   "sidebar.officeSettings": "Configuració de l'oficina",
   "sidebar.agentSettings": "Configuració de l'agent",

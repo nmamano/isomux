@@ -4746,6 +4746,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "sidebar.recent": "Recent",
   "sidebar.pin": "Pin to sidebar",
   "sidebar.unpin": "Unpin from sidebar",
+  "sidebar.showRoom": "Show room",
   "sidebar.roomSettings": "Room settings",
   "sidebar.officeSettings": "Office settings",
   "sidebar.agentSettings": "Agent settings",

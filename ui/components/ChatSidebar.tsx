@@ -118,6 +118,9 @@ export interface ChatSidebarProps {
   onOfficeSettings: () => void;
   // A room header's sliders: Settings on that room.
   onRoomSettings: (roomId: string) => void;
+  // A room header's building (task 82997335): that room's office view, or
+  // the Lobby for LOBBY_ROOM_ID.
+  onShowRoom: (roomId: string) => void;
   // The member's Pinned (agents and members) and Recent agents
   // (ui/sidebar-pins.ts).
   pins: SidebarPins;
@@ -1001,6 +1004,7 @@ export function ChatSidebar({
   onOpenSettings,
   onOfficeSettings,
   onRoomSettings,
+  onShowRoom,
   pins,
   closing = false,
 }: ChatSidebarProps): React.ReactElement {
@@ -1145,7 +1149,7 @@ export function ChatSidebar({
   const roomInView = openAgent
     ? openRoomId
     : lobbyInView
-      ? null
+      ? LOBBY_ROOM_ID
       : currentRoomId;
   const anchored = sidebarSectionsForAnchor(
     sections,
@@ -1316,6 +1320,20 @@ export function ChatSidebar({
     );
   };
   const workingLabel = t("office.status.working");
+  // A room header's first action: the room's office view.
+  const showRoomButton = (roomId: string) => (
+    <button
+      type="button"
+      tabIndex={-1}
+      className="chat-sidebar-row-action"
+      data-sidebar-show-room={roomId}
+      title={t("sidebar.showRoom")}
+      aria-label={t("sidebar.showRoom")}
+      onClick={() => onShowRoom(roomId)}
+    >
+      {BuildingIcon}
+    </button>
+  );
 
   const roomSection = (room: RoomWire) => {
     const { front, back } = roomAgents(agents, room.id);
@@ -1361,6 +1379,7 @@ export function ChatSidebar({
             className="chat-sidebar-row-actions"
             data-in-view={room.id === roomInView && open ? "" : undefined}
           >
+            {showRoomButton(room.id)}
             <button
               type="button"
               tabIndex={-1}
@@ -1763,12 +1782,24 @@ export function ChatSidebar({
               </div>
               {shown.map(roomSection)}
               <div>
-                <SectionHeader
-                  label={t("common.lobby")}
-                  open={sections.lobby}
-                  onToggle={() => flip("lobby")}
-                  attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
-                />
+                <div className="chat-sidebar-room-row">
+                  <SectionHeader
+                    label={t("common.lobby")}
+                    open={sections.lobby}
+                    onToggle={() => flip("lobby")}
+                    attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
+                  />
+                  <span
+                    className="chat-sidebar-row-actions"
+                    data-in-view={
+                      roomInView === LOBBY_ROOM_ID && sections.lobby
+                        ? ""
+                        : undefined
+                    }
+                  >
+                    {showRoomButton(LOBBY_ROOM_ID)}
+                  </span>
+                </div>
                 {sections.lobby &&
                   receptionist &&
                   agentRow(receptionist, "room")}
