@@ -122,8 +122,8 @@ function pieces(clone: HTMLElement): Piece[] {
   // Sprites that stand on the floor, re-ranked in depth each frame.
   const sprites: Sprite[] = [];
   for (const el of children) {
-    // A snapshot is a still picture: a transition left on a piece (a desk's
-    // hover lift) eases each frame's move, so the piece trails the floor and
+    // A snapshot is a still picture: a transition left on a piece eases each
+    // frame's move, so the piece trails the floor and
     // the live scene jumps into place when the turn ends.
     el.style.transition = "none";
     const kind = el.getAttribute("data-turn");
