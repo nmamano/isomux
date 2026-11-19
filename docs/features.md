@@ -49,7 +49,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room access** - owners pick which rooms each member sees: when they create the member (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-member room display** - each member picks which of their accessible rooms actually show in their own view.
 - **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, and walk through the door when they change rooms. Click a ghost to open that member's settings.
-- **Room chats** - each room has a group chat for its people and agents. Agents get no notification of a post: they read the chat when they need it.
+- **Room chats** - each room has a group chat for its people and agents.
 - **Direct messages between members** - each member has a 1:1 chat with each other member.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **Agent managers** - an office owner can give an agent another manager in its settings.
