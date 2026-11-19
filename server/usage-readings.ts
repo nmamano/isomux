@@ -33,6 +33,44 @@ import { CONTEXT_NOTICE_BANDS } from "./agent-turn.ts";
 import { officeAgentHost } from "./agent-host.ts";
 import { usageAccountKey, usageKeyOnDirectory } from "./usage-account.ts";
 
+// Which window the pill's NUMBER comes from: the one closest to its limit,
+// among the windows that limit the agent's model (a window with no
+// modelFamily limits every model). The alternative (always the weekly window)
+// can read green while a 5-hour or per-model window sits at 95%, which is
+// precisely the situation the pill exists to surface; another model's window
+// says nothing about this agent. Ties go to the earlier window in the
+// backend's display order, so the choice is stable across samples. When no
+// window applies, the pick is over all of them, so the pill keeps a number.
+// The popover still lists every window, and the pill's accessible name says
+// which one it's showing.
+export function pickPrimaryWindow(
+  windows: SubscriptionWindowWire[],
+  modelFamily: string,
+): number {
+  const argmax = (applies: (w: SubscriptionWindowWire) => boolean): number => {
+    let best = -1;
+    windows.forEach((w, i) => {
+      if (!applies(w)) return;
+      if (best < 0 || w.usedPercent > windows[best].usedPercent) best = i;
+    });
+    return best;
+  };
+  const best = argmax(
+    (w) => w.modelFamily === undefined || w.modelFamily === modelFamily,
+  );
+  return best >= 0
+    ? best
+    : Math.max(
+        0,
+        argmax(() => true),
+      );
+}
+
+// An account's reading before it is shown on an agent: the headline window
+// (primaryIndex) depends on the agent's model, so only the agent's copy has
+// one.
+type AccountSubscriptionWire = Omit<SubscriptionUsageWire, "primaryIndex">;
+
 export interface UsageReadingsDeps {
   agents: Map<string, ManagedAgent>;
   officeState: OfficeState;
@@ -363,20 +401,6 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   // each backend decides what that costs it: Codex reads rate limits its
   // app-server already pushed, Claude throttles its control RPC internally.
 
-  // Which window the pill's NUMBER comes from: the one closest to its limit.
-  // The alternative (always the weekly window) can read green while a 5-hour
-  // or per-model window sits at 95%, which is precisely the situation the pill
-  // exists to surface. Ties go to the earlier window in the backend's display
-  // order, so the choice is stable across samples. The popover still lists
-  // every window, and the pill's accessible name says which one it's showing.
-  function pickPrimaryWindow(windows: SubscriptionWindowWire[]): number {
-    let best = 0;
-    for (let i = 1; i < windows.length; i++) {
-      if (windows[i].usedPercent > windows[best].usedPercent) best = i;
-    }
-    return best;
-  }
-
   // Whether two readings differ in anything the pill or its popover DISPLAY
   // (plan, which window leads, labels and tags, rounded percentages, reset times). Used
   // to skip dead agent_updated events on the high-frequency usage_update path.
@@ -439,7 +463,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   // observation time of a reading, the commit time of a clear.
   const accountUsage = new Map<
     string,
-    { wire: SubscriptionUsageWire | null; atMs: number }
+    { wire: AccountSubscriptionWire | null; atMs: number }
   >();
 
   // Drop the cached next account and idle usage key: an env change, a
@@ -516,23 +540,44 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     return key;
   }
 
-  // Show a committed reading, or clear it when `wire` is null. `always`
+  // Show a committed reading, or clear it when `reading` is null. `always`
   // broadcasts an unchanged reading too, so the popover's age stays true.
   function showSubscriptionReading(
     managed: ManagedAgent,
-    wire: SubscriptionUsageWire | null,
+    reading: AccountSubscriptionWire | null,
     always: boolean,
   ): void {
-    if (!wire) {
+    if (!reading) {
       // Skip the broadcast when nothing was shown.
       if (managed.subscriptionUsage !== null) clearSubscriptionUsage(managed);
       return;
     }
+    const wire: SubscriptionUsageWire = {
+      ...reading,
+      primaryIndex: pickPrimaryWindow(
+        reading.windows,
+        managed.info.modelFamily,
+      ),
+    };
     const shouldBroadcast =
       always ||
       displayedSubscriptionChanged(managed.info.subscriptionUsage, wire);
     managed.subscriptionUsage = wire;
     if (shouldBroadcast) broadcastSubscriptionUsage(managed);
+  }
+
+  // The agent's model changed (same engine, so the same account and reading):
+  // pick its headline window again. Broadcasts only when the pick moved.
+  function repickSubscriptionWindow(managed: ManagedAgent): void {
+    const current = managed.subscriptionUsage;
+    if (!current) return;
+    const primaryIndex = pickPrimaryWindow(
+      current.windows,
+      managed.info.modelFamily,
+    );
+    if (primaryIndex === current.primaryIndex) return;
+    managed.subscriptionUsage = { ...current, primaryIndex };
+    broadcastSubscriptionUsage(managed);
   }
 
   // A sign-in or sign-out at `dir` (ProviderAccountManager.onAccountChanged):
@@ -645,7 +690,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   function subscriptionWire(
     usage: SubscriptionUsage,
     observedAtMs: number | undefined,
-  ): SubscriptionUsageWire {
+  ): AccountSubscriptionWire {
     const windows: SubscriptionWindowWire[] = usage.windows.map((w) => ({
       label: w.label,
       shortLabel: w.shortLabel,
@@ -653,12 +698,12 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
       // malformed reading must never paint a negative or overflowing gauge.
       usedPercent: Math.max(0, Math.min(100, w.usedPercent)),
       resetsAtMs: w.resetsAtMs,
+      ...(w.modelFamily === undefined ? {} : { modelFamily: w.modelFamily }),
     }));
     const committedAtMs = Date.now();
     return {
       plan: usage.plan,
       windows,
-      primaryIndex: pickPrimaryWindow(windows),
       sampledAtMs: committedAtMs,
       observedAtMs: observedAtMs ?? committedAtMs,
     };
@@ -829,6 +874,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     maybeEmitUiContextNotice,
     refreshContextUsage,
     resetSubscriptionUsage,
+    repickSubscriptionWindow,
     syncUsageKey,
     forgetIdleAccount,
     providerAccountChanged,

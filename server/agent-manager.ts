@@ -963,6 +963,7 @@ export function createAgentManager(deps: ManagerDeps) {
     maybeEmitUiContextNotice,
     refreshContextUsage,
     resetSubscriptionUsage,
+    repickSubscriptionWindow,
     syncUsageKey,
     forgetIdleAccount,
     providerAccountChanged,
@@ -2290,7 +2291,11 @@ export function createAgentManager(deps: ManagerDeps) {
     // conversation. Effort/permission/sandbox changes preserve it - same
     // window, same transcript. Runs only after the replace above succeeded
     // (a throw rolled the edit back, so the old measurement still stands).
-    if (updated.modelFamily) invalidateContextMeasurement(managed);
+    if (updated.modelFamily) {
+      invalidateContextMeasurement(managed);
+      // The headline usage window depends on the model.
+      repickSubscriptionWindow(managed);
+    }
     // A new token value, or the switch going on, arms at once when the
     // latest sample is already at or above the trigger: the next message
     // starts the handoff. After the invalidation, so a model change in the
@@ -7722,6 +7727,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // invalidate the measurement (the conversation itself continues -
           // no gen bump). Repopulates at the end of the next completed turn.
           invalidateContextMeasurement(managed);
+          repickSubscriptionWindow(managed);
           addLogEntry(
             agentId,
             "system",
@@ -9522,6 +9528,9 @@ export function createAgentManager(deps: ManagerDeps) {
       capabilities: getBackend(stored.agentType).capabilities,
     }))
       emit(event);
+    // A same-engine resume can change the model, and the headline usage
+    // window with it.
+    repickSubscriptionWindow(managed);
     return { prevConfig, switched: true };
   }
 
@@ -9549,6 +9558,7 @@ export function createAgentManager(deps: ManagerDeps) {
       capabilities: getBackend(prevConfig.agentType).capabilities,
     }))
       emit(event);
+    if (managed) repickSubscriptionWindow(managed);
   }
 
   // An explicit resume of a session its backend no longer stores here: the

@@ -649,6 +649,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
         shortLabel: "WK",
         usedPercent: 51,
         resetsAtMs: null,
+        modelFamily: "opus",
       },
     ]);
   });
@@ -677,6 +678,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
         shortLabel: "WK",
         usedPercent: 88,
         resetsAtMs: null,
+        modelFamily: "fable",
       },
     ]);
   });
@@ -747,6 +749,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
           shortLabel: "WK",
           usedPercent: 64,
           resetsAtMs: Date.parse("2026-09-19T19:00:00Z"),
+          modelFamily: "fable",
         },
       ]);
     }
@@ -781,12 +784,14 @@ describe("normalizeClaudeSubscriptionUsage", () => {
         shortLabel: "WK",
         usedPercent: 43,
         resetsAtMs: null,
+        modelFamily: "fable",
       },
       {
         label: "Weekly (Sonnet)",
         shortLabel: "WK",
         usedPercent: 12,
         resetsAtMs: null,
+        modelFamily: "sonnet",
       },
     ]);
   });
@@ -846,7 +851,53 @@ describe("normalizeClaudeSubscriptionUsage", () => {
         shortLabel: "WK",
         usedPercent: 64,
         resetsAtMs: null,
+        modelFamily: "fable",
       },
+    ]);
+  });
+
+  // Task 965cc1e8: a per-model window names the model family it limits, in
+  // the Claude modelFamily vocabulary, so the pill's headline pick can skip
+  // it for an agent of another model. The account windows name none.
+  it("names the model family of each per-model window, whatever its source", () => {
+    const out = usageOf({
+      rate_limits_available: true,
+      rate_limits: {
+        seven_day: { utilization: 1, resets_at: null },
+        five_hour: { utilization: 2, resets_at: null },
+        seven_day_opus: { utilization: 3, resets_at: null },
+        seven_day_sonnet: { utilization: 4, resets_at: null },
+        model_scoped: [
+          { display_name: "Claude Fable 5", utilization: 5, resets_at: null },
+        ],
+        limits: [
+          {
+            kind: "weekly_scoped",
+            percent: 6,
+            resets_at: null,
+            scope: { model: { display_name: "Haiku 4.5" } },
+          },
+          {
+            kind: "weekly_scoped",
+            percent: 7,
+            resets_at: null,
+            scope: { model: { display_name: "Mythos" } },
+          },
+        ],
+      },
+    });
+    // usedPercent identifies the source row; labels are not under test here.
+    expect(
+      out.windows.map((w) => [w.usedPercent, w.modelFamily ?? "absent"]),
+    ).toEqual([
+      [1, "absent"],
+      [2, "absent"],
+      [3, "opus"],
+      [4, "sonnet"],
+      [5, "fable"],
+      [6, "haiku"],
+      // A model Isomux has no family for limits no agent.
+      [7, "mythos"],
     ]);
   });
 

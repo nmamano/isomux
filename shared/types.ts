@@ -770,6 +770,9 @@ export interface SubscriptionWindowWire {
   shortLabel?: string | null;
   usedPercent: number;
   resetsAtMs: number | null; // epoch ms, or null when the backend omits it
+  // The model family the window limits, in the engine's modelFamily
+  // vocabulary ("fable", "opus"). Absent: the window limits every model.
+  modelFamily?: string;
 }
 
 // How much of the BACKEND ACCOUNT's subscription allowance has been burned.

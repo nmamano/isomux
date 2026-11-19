@@ -465,16 +465,35 @@ const CLAUDE_RATE_LIMIT_WINDOWS: {
   key: string;
   label: string;
   short: string;
+  // The model family the window limits; absent for an account window.
+  family?: ModelFamily;
 }[] = [
   { key: "seven_day", label: "Weekly", short: WEEKLY_SHORT_LABEL },
   { key: "five_hour", label: "5-hour", short: "5h" },
-  { key: "seven_day_opus", label: "Weekly (Opus)", short: WEEKLY_SHORT_LABEL },
+  {
+    key: "seven_day_opus",
+    label: "Weekly (Opus)",
+    short: WEEKLY_SHORT_LABEL,
+    family: "opus",
+  },
   {
     key: "seven_day_sonnet",
     label: "Weekly (Sonnet)",
     short: WEEKLY_SHORT_LABEL,
+    family: "sonnet",
   },
 ];
+
+// The model family a per-model window limits, from the server's display name
+// ("Fable", "Claude Fable 5" -> "fable"). A name that names no family gives
+// the name lower-cased, which equals no agent's modelFamily.
+function claudeWindowFamily(displayName: string): string {
+  const words = displayName.toLowerCase().split(/[^a-z0-9]+/);
+  return (
+    MODEL_FAMILIES.find((m) => words.includes(m.family))?.family ??
+    displayName.toLowerCase()
+  );
+}
 
 // Minimum gap between actual /usage control RPCs per conversation. The
 // orchestrator refreshes on every cumulative-usage event (many per turn) so a
@@ -500,6 +519,7 @@ function claudeWindow(
   raw: unknown,
   label: string,
   shortLabel: string,
+  modelFamily?: string,
 ): SubscriptionUsageWindow | null {
   if (!raw || typeof raw !== "object") return null;
   const { utilization, resets_at } = raw as {
@@ -513,6 +533,7 @@ function claudeWindow(
     shortLabel,
     usedPercent: Math.max(0, Math.min(100, utilization)),
     resetsAtMs: parseResetsAt(resets_at),
+    ...(modelFamily === undefined ? {} : { modelFamily }),
   };
 }
 
@@ -541,20 +562,25 @@ export function normalizeClaudeSubscriptionUsage(
   if (!limits || typeof limits !== "object") return { kind: "unavailable" };
   const byKey = limits as Record<string, unknown>;
   const windows: SubscriptionUsageWindow[] = [];
-  for (const { key, label, short } of CLAUDE_RATE_LIMIT_WINDOWS) {
-    const win = claudeWindow(byKey[key], label, short);
+  for (const { key, label, short, family } of CLAUDE_RATE_LIMIT_WINDOWS) {
+    const win = claudeWindow(byKey[key], label, short, family);
     if (win) windows.push(win);
   }
   // Per-model weekly windows the server sends as a list. Additive and
-  // server-labelled ("Fable"), and they DO gate this session, so they belong
-  // on screen - the pill's number comes from whichever window is closest to
-  // its limit, and one of these can be it.
+  // server-labelled ("Fable"). Each limits only its own model, so it carries
+  // that model's family: the pill's number comes from the window closest to
+  // its limit among those that apply to the agent's model.
   const modelScopedNames = new Set<string>();
   if (Array.isArray(byKey.model_scoped)) {
     for (const entry of byKey.model_scoped) {
       const name = (entry as { display_name?: unknown } | null)?.display_name;
       if (typeof name !== "string" || name.length === 0) continue;
-      const win = claudeWindow(entry, `Weekly (${name})`, WEEKLY_SHORT_LABEL);
+      const win = claudeWindow(
+        entry,
+        `Weekly (${name})`,
+        WEEKLY_SHORT_LABEL,
+        claudeWindowFamily(name),
+      );
       if (!win) continue;
       windows.push(win);
       modelScopedNames.add(name);
@@ -590,6 +616,7 @@ export function normalizeClaudeSubscriptionUsage(
         { utilization: row.percent, resets_at: row.resets_at },
         `Weekly (${name})`,
         WEEKLY_SHORT_LABEL,
+        claudeWindowFamily(name),
       );
       if (!win) continue;
       windows.push(win);

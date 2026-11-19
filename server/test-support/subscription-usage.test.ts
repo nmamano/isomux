@@ -7,7 +7,8 @@
 //     AgentInfo (which is what reaches the browser over agent_updated),
 //     clamped to 0..100.
 //   - The pill's number comes from the window closest to its limit, not from
-//     whichever window the backend listed first.
+//     whichever window the backend listed first. A window for another model
+//     is skipped, also after a model change (task 965cc1e8).
 //   - An "unknown" answer (call failed, nothing reported yet) leaves the
 //     previous value standing instead of blanking the pill, while an
 //     "unavailable" answer (authoritatively no plan allowance) clears it.
@@ -123,6 +124,7 @@ let spawned = 0;
 async function spawn(
   mgr: ReturnType<typeof createAgentManager>,
   agentType: AgentInfo["agentType"] = "claude",
+  modelFamily?: string,
 ): Promise<AgentInfo> {
   const info = await mgr.spawn(
     `Worker ${++spawned}`,
@@ -132,7 +134,7 @@ async function spawn(
     undefined,
     "room-a",
     undefined,
-    undefined,
+    modelFamily,
     undefined,
     undefined,
     agentType,
@@ -1173,5 +1175,266 @@ describe("subscription usage shared by the agents of one account", () => {
     // Sharing runs in the same commit that set the taker's reading.
     await waitUntil(() => percent(mgr, taker.id) === 40, "own reading");
     expect(mgr.getAgent(sibling.id)?.subscriptionUsage).toBeFalsy();
+  });
+});
+
+// Task 965cc1e8: the pill's headline window is picked per agent. A per-model
+// window (modelFamily set by the backend) is a candidate only for an agent of
+// that model, so one account reading gives an Opus agent and a Fable agent
+// different headlines, and a model change picks again with no new reading.
+describe("subscription usage headline window follows the agent's model", () => {
+  // Weekly 20, 5-hour 10, Weekly (Fable) 88, Weekly (Opus) 30.
+  // Opus agent -> 3 (Opus 30 beats Weekly 20; Fable 88 is not its window).
+  // Fable agent -> 2. The old account-wide argmax gives 2 to every agent.
+  const OPUS = 3;
+  const FABLE = 2;
+  function perModelReading(): SubscriptionUsageResult {
+    return {
+      kind: "usage",
+      usage: {
+        plan: "max",
+        windows: [
+          {
+            label: "Weekly",
+            shortLabel: "WK",
+            usedPercent: 20,
+            resetsAtMs: null,
+          },
+          {
+            label: "5-hour",
+            shortLabel: "5h",
+            usedPercent: 10,
+            resetsAtMs: null,
+          },
+          {
+            label: "Weekly (Fable)",
+            shortLabel: "WK",
+            usedPercent: 88,
+            resetsAtMs: null,
+            modelFamily: "fable",
+          },
+          {
+            label: "Weekly (Opus)",
+            shortLabel: "WK",
+            usedPercent: 30,
+            resetsAtMs: null,
+            modelFamily: "opus",
+          },
+        ],
+      },
+    };
+  }
+
+  // The first read answers the reading; every later read learns nothing, so
+  // a headline change after it can only come from a re-pick.
+  function oneReadingBackend(): { fake: FakeBackend; reads: () => number } {
+    let reads = 0;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: async () =>
+          ++reads === 1 ? perModelReading() : { kind: "unknown" as const },
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    return { fake, reads: () => reads };
+  }
+
+  type Event = { type: string; agentId?: string; changes?: unknown };
+  // The primaryIndex of the last subscriptionUsage broadcast for one agent:
+  // what the browser's pill shows.
+  function lastBroadcastIndex(events: Event[], id: string): number | undefined {
+    let index: number | undefined;
+    for (const e of events) {
+      if (e.type !== "agent_updated" || e.agentId !== id) continue;
+      const usage = (
+        e.changes as { subscriptionUsage?: { primaryIndex: number } }
+      )?.subscriptionUsage;
+      if (usage) index = usage.primaryIndex;
+    }
+    return index;
+  }
+
+  const primary = (
+    mgr: ReturnType<typeof createAgentManager>,
+    id: string,
+  ): number | undefined => mgr.getAgent(id)?.subscriptionUsage?.primaryIndex;
+
+  it("gives two agents of one account their own headline from one reading", async () => {
+    wireClaudeHome();
+    const events: Event[] = [];
+    const b = oneReadingBackend();
+    const mgr = makeManager(b.fake, (e) => events.push(e));
+    const opus = await spawn(mgr, "claude", "opus");
+    const fable = await spawn(mgr, "claude", "fable");
+    expect(mgr.getAgent(opus.id)?.modelFamily).toBe("opus");
+    expect(mgr.getAgent(fable.id)?.modelFamily).toBe("fable");
+
+    await runTurn(mgr, opus.id, "take a reading");
+    await waitUntil(
+      () =>
+        primary(mgr, opus.id) !== undefined &&
+        primary(mgr, fable.id) !== undefined,
+      "reading reached both agents",
+    );
+    // One sample, from the Opus agent; the Fable agent has no session.
+    expect(b.reads()).toBe(1);
+    expect(mgr.getCurrentSessionId(fable.id)).toBeFalsy();
+    // The wire carries each window's model family.
+    expect(
+      mgr
+        .getAgent(fable.id)!
+        .subscriptionUsage!.windows.map((w) => w.modelFamily),
+    ).toEqual([undefined, undefined, "fable", "opus"]);
+
+    expect(primary(mgr, opus.id)).toBe(OPUS);
+    expect(primary(mgr, fable.id)).toBe(FABLE);
+    expect(lastBroadcastIndex(events, opus.id)).toBe(OPUS);
+    expect(lastBroadcastIndex(events, fable.id)).toBe(FABLE);
+    // The self-check gives each agent its own pick too: cached for the agent
+    // with no session, after a (learns-nothing) refresh for the other.
+    expect(await mgr.getAgentSubscriptionUsage(fable.id)).toMatchObject({
+      available: true,
+      primaryIndex: FABLE,
+    });
+    expect(await mgr.getAgentSubscriptionUsage(opus.id)).toMatchObject({
+      available: true,
+      primaryIndex: OPUS,
+    });
+  });
+
+  it("picks again when an edit changes the model, with no new reading", async () => {
+    const claudeHome = wireClaudeHome();
+    const events: Event[] = [];
+    const b = oneReadingBackend();
+    const mgr = makeManager(b.fake, (e) => events.push(e));
+    const info = await spawn(mgr, "claude", "opus");
+    await runTurn(mgr, info.id, "take a reading");
+    await waitUntil(() => primary(mgr, info.id) !== undefined, "reading");
+    expect(primary(mgr, info.id)).toBe(OPUS);
+
+    seedClaudeFile(
+      claudeHome,
+      mgr.getAgent(info.id)!.cwd,
+      mgr.getCurrentSessionId(info.id)!,
+    );
+    await mgr.editAgent(info.id, { modelFamily: "fable" });
+    expect(mgr.getAgent(info.id)?.modelFamily).toBe("fable");
+    expect(primary(mgr, info.id)).toBe(FABLE);
+    expect(lastBroadcastIndex(events, info.id)).toBe(FABLE);
+    // The windows did not change; only the pick did.
+    expect(
+      mgr
+        .getAgent(info.id)!
+        .subscriptionUsage!.windows.map((w) => w.usedPercent),
+    ).toEqual([20, 10, 88, 30]);
+  });
+
+  it("picks again when a same-engine resume takes the session's model", async () => {
+    const claudeHome = wireClaudeHome();
+    const events: Event[] = [];
+    const b = oneReadingBackend();
+    const mgr = makeManager(b.fake, (e) => events.push(e));
+    const info = await spawn(mgr, "claude", "opus");
+    await runTurn(mgr, info.id, "take a reading");
+    await waitUntil(() => primary(mgr, info.id) !== undefined, "reading");
+    expect(primary(mgr, info.id)).toBe(OPUS);
+
+    // A Claude session that ran on Fable.
+    const fableSessionId = "33333333-3333-4333-8333-333333333333";
+    stampSessionEngineConfig(info.id, fableSessionId, {
+      agentType: "claude",
+      modelFamily: "fable",
+      effort: mgr.getAgent(info.id)!.effort,
+      permissionMode: mgr.getAgent(info.id)!.permissionMode,
+      codexSandbox: undefined,
+    });
+    seedClaudeFile(claudeHome, mgr.getAgent(info.id)!.cwd, fableSessionId);
+    await mgr.resume(info.id, fableSessionId);
+    expect(mgr.getAgent(info.id)?.agentType).toBe("claude");
+    expect(mgr.getAgent(info.id)?.modelFamily).toBe("fable");
+    // Same engine: the reading stays, and its headline follows the model.
+    expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeTruthy();
+    expect(primary(mgr, info.id)).toBe(FABLE);
+    expect(lastBroadcastIndex(events, info.id)).toBe(FABLE);
+  });
+
+  it("picks again when a failed same-engine resume rolls the model back", async () => {
+    wireClaudeHome();
+    const events: Event[] = [];
+    const b = oneReadingBackend();
+    const mgr = makeManager(b.fake, (e) => events.push(e));
+    const info = await spawn(mgr, "claude", "opus");
+    await runTurn(mgr, info.id, "take a reading");
+    await waitUntil(() => primary(mgr, info.id) !== undefined, "reading");
+    expect(primary(mgr, info.id)).toBe(OPUS);
+
+    // A Fable session with no transcript file: the resume switches the model,
+    // then fails, and the rollback restores Opus.
+    const fableSessionId = "44444444-4444-4444-8444-444444444444";
+    stampSessionEngineConfig(info.id, fableSessionId, {
+      agentType: "claude",
+      modelFamily: "fable",
+      effort: mgr.getAgent(info.id)!.effort,
+      permissionMode: mgr.getAgent(info.id)!.permissionMode,
+      codexSandbox: undefined,
+    });
+    const before = events.length;
+    await mgr.resume(info.id, fableSessionId);
+    expect(mgr.getCurrentSessionId(info.id)).not.toBe(fableSessionId);
+    expect(mgr.getAgent(info.id)?.modelFamily).toBe("opus");
+    // The switch picked the Fable window, so the rollback has to pick again.
+    expect(
+      events
+        .slice(before)
+        .some(
+          (e) =>
+            e.type === "agent_updated" &&
+            e.agentId === info.id &&
+            (e.changes as { modelFamily?: string })?.modelFamily === "fable",
+        ),
+    ).toBe(true);
+    expect(primary(mgr, info.id)).toBe(OPUS);
+    expect(lastBroadcastIndex(events, info.id)).toBe(OPUS);
+  });
+
+  it("picks again when the /model picker changes the model", async () => {
+    const claudeHome = wireClaudeHome();
+    const events: Event[] = [];
+    const b = oneReadingBackend();
+    const mgr = makeManager(b.fake, (e) => events.push(e));
+    const info = await spawn(mgr, "claude", "opus");
+    await runTurn(mgr, info.id, "take a reading");
+    await waitUntil(() => primary(mgr, info.id) !== undefined, "reading");
+    expect(primary(mgr, info.id)).toBe(OPUS);
+    seedClaudeFile(
+      claudeHome,
+      mgr.getAgent(info.id)!.cwd,
+      mgr.getCurrentSessionId(info.id)!,
+    );
+
+    void mgr.sendMessage(info.id, "/model", "Morgan");
+    await waitUntil(
+      () => mgr.getPendingInteractions().some((i) => i.agentId === info.id),
+      "model picker open",
+    );
+    const picker = mgr
+      .getPendingInteractions()
+      .find((i) => i.agentId === info.id)!;
+    expect(picker.kind).toBe("model");
+    expect(
+      mgr.respondToChoiceInteraction(info.id, picker.id, "fable", "Morgan"),
+    ).toMatchObject({ ok: true });
+    await waitUntil(
+      () => mgr.getAgent(info.id)?.modelFamily === "fable",
+      "model switched",
+    );
+    // modelFamily changes before the session swap ends; the re-pick follows
+    // the swap with no new reading. 2 s is ample for the fake swap.
+    await waitUntil(
+      () => primary(mgr, info.id) === FABLE,
+      "headline re-picked after the /model switch",
+      2_000,
+    );
+    expect(lastBroadcastIndex(events, info.id)).toBe(FABLE);
   });
 });

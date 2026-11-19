@@ -71,7 +71,8 @@ type SubscriptionSelfCheck = {
 | `windows[].usedPercent` | Provider percentage | Finite, clamped to 0–100 at the adapter and wire boundary. This is usage, not remaining allowance or a token count. |
 | `windows[].resetsAtMs` | Provider reset time converted to epoch milliseconds | Null if absent or invalid. Do not infer a reset from the window duration or polling time. |
 | `windows[].observedAtMs` | Adapter field provenance | Oldest receipt time among that window's percentage, label metadata and non-null reset. Null if any contributing field lacks provenance. |
-| `primaryIndex` | Existing `pickPrimaryWindow` | Index of the most-used window, not a filter on returned windows; null without a sample. |
+| `windows[].modelFamily` | Claude per-model windows | The model family the window limits (`fable`, `opus`). Absent on a window that limits every model. |
+| `primaryIndex` | Existing `pickPrimaryWindow` | Index of the most-used window among those that apply to the agent's `modelFamily`, not a filter on returned windows; null without a sample. |
 
 Without a valid sample, `delivery` is `none`, all sample timestamps, age, plan
 and primary index are null, and windows is empty. Do not return prior-account

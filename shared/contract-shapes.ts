@@ -477,6 +477,7 @@ export type AgentSubscriptionUsageResp = { signIn?: SignIn } & (
         shortLabel?: string | null;
         usedPercent: number;
         resetsAtMs: number | null;
+        modelFamily?: string;
       }>;
       primaryIndex: number;
       sampledAtMs: number;
@@ -492,6 +493,7 @@ export type AgentSubscriptionUsageResp = { signIn?: SignIn } & (
         shortLabel?: string | null;
         usedPercent: number;
         resetsAtMs: number | null;
+        modelFamily?: string;
       }>;
       primaryIndex: number;
       sampledAtMs: number;

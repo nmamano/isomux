@@ -11,8 +11,9 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 // of the context battery. It answers a different question than its neighbor:
 // the battery is "how full is THIS conversation", this pill is "how much of
 // the PLAN the backend account is signed in to has been burned". The number
-// comes from whichever window is closest to its limit (the server picks it and
-// says so in `primaryIndex`); every window the backend reports is a popover
+// comes from whichever window is closest to its limit, among the windows for
+// the agent's model (the server picks it and says so in `primaryIndex`); every
+// window the backend reports is a popover
 // row, and the leading one is marked there. The pill itself carries that
 // window's short tag ("5h", "WK") beside the ring, so the number is never
 // ambiguous at a glance.

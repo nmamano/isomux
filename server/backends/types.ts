@@ -482,6 +482,9 @@ export interface SubscriptionUsageWindow {
   shortLabel: string | null;
   usedPercent: number;
   resetsAtMs: number | null;
+  // The model family the window limits, in the engine's modelFamily
+  // vocabulary ("fable", "opus"). Absent: the window limits every model.
+  modelFamily?: string;
 }
 
 export interface SubscriptionUsage {
