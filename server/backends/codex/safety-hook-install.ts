@@ -579,7 +579,8 @@ async function repairInstalledArtifact(
 }
 
 // The hooks.json and config.toml merge in CODEX_HOME, which is agent space:
-// in split mode the agent user runs it (server/agent-runner/entries).
+// in split mode the agent user runs it (server/agent-runner/entries). Its
+// logs name only the failure: the caller decides whether Codex runs.
 export function configureCodexHooks(
   codexHome: string,
   hookPath: string,
@@ -589,9 +590,7 @@ export function configureCodexHooks(
   try {
     merged = mergeHooksFile(codexHome, hookPath);
   } catch (err) {
-    console.error(
-      `[codex safety] hooks.json merge failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
-    );
+    console.error(`[codex safety] hooks.json merge failed: ${errMessage(err)}`);
     return { warning: SAFETY_WARNING, hookIdentity: null };
   }
   try {
@@ -605,7 +604,7 @@ export function configureCodexHooks(
     );
   } catch (err) {
     console.error(
-      `[codex safety] config.toml write failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+      `[codex safety] config.toml write failed: ${errMessage(err)}`,
     );
     return { warning: SAFETY_WARNING, hookIdentity: null };
   }
@@ -622,7 +621,7 @@ export function configureCodexHooks(
     };
   } catch (err) {
     console.error(
-      `[codex safety] hook configuration verification failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+      `[codex safety] hook configuration verification failed: ${errMessage(err)}`,
     );
     return { warning: SAFETY_WARNING, hookIdentity: null };
   }
@@ -646,9 +645,11 @@ async function configureInAgentSpace(
     return { warning: SAFETY_WARNING, hookIdentity: null };
   }
   const hookIdentity = completeIdentity(result);
-  return hookIdentity
-    ? { warning: null, hookIdentity }
-    : { warning: SAFETY_WARNING, hookIdentity: null };
+  if (hookIdentity) return { warning: null, hookIdentity };
+  console.error(
+    `[codex safety] the hook configuration returned no identity; ${SAFETY_WARNING}`,
+  );
+  return { warning: SAFETY_WARNING, hookIdentity: null };
 }
 
 // Agent-space data: accept only a complete identity.

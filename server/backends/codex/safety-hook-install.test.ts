@@ -610,8 +610,43 @@ describe("Codex safety hook installation", () => {
     const badHome = join(STATE_ROOT, "bad-codex-home");
     mkdirSync(badHome, { recursive: true });
     writeFileSync(join(badHome, "hooks.json"), "not json");
-    const result = configure(badHome);
+    const errors = spyOn(console, "error");
+    let lines: string[];
+    let result: ReturnType<typeof configure>;
+    try {
+      result = configure(badHome);
+    } finally {
+      lines = errors.mock.calls.map((call) => call.join(" "));
+      errors.mockRestore();
+    }
     expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
+    // The merge runs in agent space and does not know the outcome: a
+    // member's preflight refuses on this reply (task 5beaa7a5). It logs the
+    // failure only, never that the call ran unchecked.
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.filter((line) => line.includes(SAFETY_WARNING)).length).toBe(
+      0,
+    );
+  });
+
+  // The office preflight decides the warn outcome, so it logs it, once.
+  it("logs the unchecked outcome once when the office preflight cannot merge hooks.json", async () => {
+    const badHome = join(STATE_ROOT, "bad-codex-home-office");
+    mkdirSync(badHome, { recursive: true });
+    writeFileSync(join(badHome, "hooks.json"), "not json");
+    const errors = spyOn(console, "error");
+    let lines: string[];
+    let result: Awaited<ReturnType<typeof ensureCodexSafetyHook>>;
+    try {
+      result = await ensureCodexSafetyHook(badHome);
+    } finally {
+      lines = errors.mock.calls.map((call) => call.join(" "));
+      errors.mockRestore();
+    }
+    expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
+    expect(lines.filter((line) => line.includes(SAFETY_WARNING)).length).toBe(
+      1,
+    );
   });
 
   // Only the boot trust probe and the opt-in live probe may skip the

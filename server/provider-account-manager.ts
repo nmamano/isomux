@@ -327,10 +327,9 @@ export class ProviderAccountManager {
           key: `codex:${officeDir}`,
           dir: officeDir,
           shared: this.users().length > 1,
-          env: {
-            ...(this.envForUser(userId) ?? officeAgentHost().baseEnv()),
-            CODEX_HOME: officeDir,
-          },
+          // The office's env, as for Claude: a member's env would start the
+          // reader on their host, which cannot reach the office's folder.
+          env: { ...officeEnv, CODEX_HOME: officeDir },
           externalCli: officeDir === resolve(homedir(), ".codex"),
           explicitDirectory: false,
         };

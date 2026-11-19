@@ -72,7 +72,7 @@ Codex fails open when a hook executable is missing, exits with an error, times o
 
 > Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the Isomux service logs.
 
-The Codex session still starts after a pre-spawn failure; the only exception is the refusal of a process other than the office server described above. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
+The Codex session still starts after a pre-spawn failure, except for the refusal of a process other than the office server described above and for an isolated member's Codex, which does not start on any hook setup failure (member-os-user-design.md, 2d-i). The hook config step logs only its cause; the office preflight logs that the call runs unchecked. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
 
 OpenCode also fails open when a permission envelope no longer matches the pinned contract or its adapter throws. Isomux answers the owned request once and puts the same warning in the transcript, at most once per turn. The agent then works without Isomux enforcement. That degraded state is the OpenCode coverage that existed before this adapter, so it is not a regression from the prior status quo. A real policy denial still rejects the call.
 

@@ -13,6 +13,8 @@ import type { ProviderLoginWire } from "../shared/types.ts";
 import { ClaudeAccountClient } from "./backends/claude/account.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import { writeManagedUserEnv, removeManagedUserEnv } from "./user-env.ts";
+import { tagMemberEnv } from "./agent-host.ts";
+import { isMemberEnv } from "./member-hosts.ts";
 import {
   setProviderFallbackForTests,
   type ProviderFallback,
@@ -239,6 +241,57 @@ describe("ProviderAccountManager", () => {
       );
     } finally {
       removeManagedUserEnv(id);
+    }
+  });
+
+  // Task 5beaa7a5: the office Codex card reads the office's sign-in on the
+  // office host. A member env (tagged for an isolated member) sent its
+  // reader to the member's runner, which cannot write the office Codex home.
+  it("reads the office Codex card with the office env, the personal card with the member's", async () => {
+    const id = "isolated-codex-member";
+    const officeDir = resolve("/tmp/t-5beaa7a5-office-codex");
+    const personalDir = resolve("/tmp/t-5beaa7a5-personal-codex");
+    const memberEnv = tagMemberEnv(
+      { MEMBER_SENTINEL: "member-only", PATH: "/usr/bin" },
+      id,
+    );
+    expect(isMemberEnv(memberEnv)).toBe(true);
+    const seen: Array<Record<string, string | undefined>> = [];
+    const codex = (env: Record<string, string | undefined>) => {
+      seen.push(env);
+      return disconnectedAccountClient();
+    };
+    const manager = new ProviderAccountManager(
+      () => {},
+      codex as never,
+      undefined,
+      (userId) => userId,
+      () => memberEnv,
+      disconnectedAccountClient as never,
+      () => ({ CODEX_HOME: officeDir, PATH: "/usr/bin" }),
+      () => ({}),
+      () => ({}),
+      () => [{ id }],
+      () => personalDir,
+      () => personalDir,
+      () => true,
+      () => {},
+      () => {},
+      undefined,
+      () => null,
+    );
+    await manager.list(id);
+    const office = seen.filter((env) => env.CODEX_HOME === officeDir);
+    const personal = seen.filter((env) => env.CODEX_HOME === personalDir);
+    expect(office.length).toBeGreaterThan(0);
+    expect(personal.length).toBeGreaterThan(0);
+    for (const env of office) {
+      expect(isMemberEnv(env)).toBe(false);
+      expect(env.MEMBER_SENTINEL).toBeUndefined();
+    }
+    for (const env of personal) {
+      expect(isMemberEnv(env)).toBe(true);
+      expect(env.MEMBER_SENTINEL).toBe("member-only");
     }
   });
 
@@ -828,50 +881,53 @@ describe("ProviderAccountManager", () => {
     await manager.cancel("user-b", "codex", "office");
   });
 
-  it("does not share cached status across user environment sources", async () => {
+  // The cache key carries the member's environment source, so a changed env
+  // file or secret reads the status again. Only the personal card reads with
+  // the member's env (task 5beaa7a5).
+  it("reads a personal Codex card again when the user's environment source changes", async () => {
+    const personalDir = resolve("/tmp/t-5beaa7a5-env-source-codex");
+    let revision = "r1";
     let starts = 0;
     const fake = (env?: Record<string, string | undefined>) => ({
       start: async () => {
-        starts++;
+        if (env?.CODEX_HOME === personalDir) starts++;
       },
-      read: async () => ({
-        connected: Boolean(env?.OPENAI_API_KEY),
-        label: env?.OPENAI_API_KEY ? "API key" : undefined,
-      }),
+      read: async () =>
+        env?.SOURCE_REVISION === "r2"
+          ? { connected: true, label: "API key" }
+          : { connected: false },
       close: async () => {},
     });
     const manager = new ProviderAccountManager(
       () => {},
       fake as never,
       undefined,
-      (userId) => `env-${userId}`,
-      (userId) => ({
-        CODEX_HOME: `/tmp/${userId}-codex`,
-        ...(userId === "user-a" ? { OPENAI_API_KEY: "test-key" } : {}),
-      }),
+      () => revision,
+      () => ({ SOURCE_REVISION: revision }),
       disconnectedAccountClient as never,
       () => ({}),
       () => ({}),
-      (userId) => ({ CODEX_HOME: `/tmp/${userId}-codex` }),
-      () => [{ id: "user-a" }, { id: "user-b" }],
+      () => ({ CODEX_HOME: personalDir }),
+      () => [{ id: "user-a" }],
     );
-    const userA = await manager.list("user-a");
-    const userB = await manager.list("user-b");
-    expect(
-      userA.find(
-        (account) => account.provider === "codex" && account.scope === "office",
-      ),
-    ).toMatchObject({
+    const personal = (accounts: Awaited<ReturnType<typeof manager.list>>) =>
+      accounts.find(
+        (account) =>
+          account.provider === "codex" && account.scope === "personal",
+      );
+    expect(personal(await manager.list("user-a"))).toMatchObject({
+      accountStatus: "not_connected",
+    });
+    expect(personal(await manager.list("user-a"))).toMatchObject({
+      accountStatus: "not_connected",
+    });
+    expect(starts).toBe(1);
+    revision = "r2";
+    expect(personal(await manager.list("user-a"))).toMatchObject({
       accountStatus: "connected",
       accountLabel: "API key",
     });
-    expect(
-      userB.find(
-        (account) => account.provider === "codex" && account.scope === "office",
-      ),
-    ).toMatchObject({ accountStatus: "not_connected" });
-    // Two users times two independently resolved Codex targets.
-    expect(starts).toBe(4);
+    expect(starts).toBe(2);
   });
 
   for (const value of [undefined, "   "] as const) {
