@@ -490,9 +490,15 @@ describe("every identity of the member is capped to the pack, read live", () => 
 });
 
 describe("the messaging rule for a member with a pack", () => {
-  // Covers the fixed grant of an agent at Office.
+  // Covers the fixed grant of an agent at Office (the room chats at read,
+  // task 5b055cf3).
   const TALK: MemberPack = {
-    areas: { agents: "write", asks: "write", tasks: "write" },
+    areas: {
+      agents: "write",
+      asks: "write",
+      tasks: "write",
+      membersChat: "read",
+    },
     agentCeiling: "office",
   };
 
@@ -709,6 +715,7 @@ describe("the messaging rule for a member with a pack", () => {
         agentManagement: "write",
         tasks: "write",
         asks: "write",
+        membersChat: "read",
       },
       agentCeiling: "office",
     });
@@ -784,6 +791,7 @@ describe("the member's agents and answers under the pack", () => {
         asks: "write",
         tasks: "write",
         agentManagement: "write",
+        membersChat: "read",
       },
       agentCeiling: "office",
     });
@@ -851,7 +859,12 @@ describe("the member's agents and answers under the pack", () => {
     const fitting = await spawn(o, "Fitting", "Casey");
     await lower(o, fitting, "office");
     await packCasey(o, {
-      areas: { agents: "write", asks: "write", tasks: "write" },
+      areas: {
+        agents: "write",
+        asks: "write",
+        tasks: "write",
+        membersChat: "read",
+      },
       agentCeiling: "office",
     });
     const answer = async (agent: AgentInfo, text: string) => {

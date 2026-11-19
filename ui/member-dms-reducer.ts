@@ -79,7 +79,7 @@ export function reduceMemberDm(state: AppState, action: DmAction): AppState {
         unread: action.unread,
       });
     }
-    // A post or an in-place update in a 1:1 chat, as members_chat_message.
+    // A post or an in-place update in a 1:1 chat, as room_chat_message.
     // A message from a peer the store did not know makes that peer's row.
     case "dm_message": {
       const self = state.sessionContext?.userId;

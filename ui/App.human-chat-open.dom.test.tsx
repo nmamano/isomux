@@ -133,13 +133,33 @@ it("an agent chat and a human chat replace each other", async () => {
   }).toEqual({ chat: null, agentChat: true, agents: ["a1"], member: null });
 });
 
-it("a load at /chats/<id> or /chats/members opens that chat", async () => {
+it("a load at /chats/<id>, /chats/rooms/<id> or /chats/members opens that chat", async () => {
   seedOffice();
   const first = await boot(undefined, "/chats/u4");
   expect(humanChat(first)).toBe("u4");
   expect(memberRow(first, "u4")?.getAttribute("aria-current")).toBe("page");
   first.unmount();
 
+  // The old members chat address opens the lobby's room chat.
   const second = await boot(undefined, "/chats/members");
-  expect(humanChat(second)).toBe("members");
+  expect(humanChat(second)).toBe("room:lobby");
+  second.unmount();
+
+  const third = await boot(undefined, "/chats/rooms/r2");
+  expect(humanChat(third)).toBe("room:r2");
+  third.unmount();
+});
+
+// Task 5b055cf3: the address of a room the member does not reach opens no
+// chat, so no panel shows whose posts would get a 403; the office shows.
+it("a load at the chat of a room the member does not reach opens no chat", async () => {
+  seedOffice();
+  const view = await boot(undefined, "/chats/rooms/zz-not-mine");
+  expect(humanChat(view)).toBeNull();
+  expect(view.container.querySelector("nav[data-chat-sidebar]") !== null).toBe(
+    true,
+  );
+  expect(
+    requests.filter((r) => r.path.startsWith("/api/rooms/zz-not-mine/")),
+  ).toHaveLength(0);
 });

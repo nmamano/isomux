@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useEffectEvent, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import * as chatApi from "./api.ts";
-import { chatApiFor } from "./api.ts";
+import { chatApiFor, roomChatApi } from "./api.ts";
 import type { HumanChatKey } from "../human-chat.ts";
+import { EMPTY_ROOM_CHAT } from "../room-chats-reducer.ts";
 
-// Load the chat page while a panel is open; full_state carries the unread
-// count. Only the visible panel advances the read pointer. full_state
+// Load a room chat's page while its panel is open; full_state carries the
+// unread count. Only the visible panel advances the read pointer. full_state
 // invalidates loaded after reconnect.
-export function useMembersChatHydration(enabled: boolean) {
+export function useRoomChatHydration(roomId: string | null) {
+  const { roomChats, hydrationEpoch } = useAppState();
   const {
-    membersChat: { loaded, messages, pinsRevision = 0, pinsStale = false },
-    hydrationEpoch,
-  } = useAppState();
+    loaded,
+    messages,
+    pinsRevision = 0,
+    pinsStale = false,
+  } = (roomId === null ? null : roomChats[roomId]) ?? EMPTY_ROOM_CHAT;
+  const enabled = roomId !== null;
   const dispatch = useDispatch();
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -24,14 +29,15 @@ export function useMembersChatHydration(enabled: boolean) {
     if (!enabled || loaded) return;
     const snapshot = snapshotRequest();
     let cancelled = false;
-    chatApi
+    roomChatApi(roomId)
       .fetchPage({ limit: chatApi.MEMBERS_CHAT_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return;
         if (!Array.isArray(page.messages))
-          throw new Error("Invalid members chat page");
+          throw new Error("Invalid room chat page");
         dispatch({
-          type: "members_chat_page",
+          type: "room_chat_page",
+          roomId,
           ...page,
           prepend: false,
           ...snapshot,
@@ -46,21 +52,22 @@ export function useMembersChatHydration(enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, loaded, hydrationEpoch, dispatch, attempt]);
+  }, [enabled, roomId, loaded, hydrationEpoch, dispatch, attempt]);
   // Refill the pinned list and its overflow sentinel after a live mutation. Revision matching
   // prevents an older HTTP snapshot from undoing a newer socket update.
   // On failure, keep the live list; refill waits for Retry or the next pin event.
   useEffect(() => {
     if (!enabled || !loaded || !pinsStale) return;
     let cancelled = false;
-    chatApi
+    roomChatApi(roomId)
       .fetchPage({ limit: chatApi.MEMBERS_CHAT_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return;
         if (!Array.isArray(page.pinned))
-          throw new Error("Invalid members chat pins");
+          throw new Error("Invalid room chat pins");
         dispatch({
-          type: "members_chat_pins",
+          type: "room_chat_pins",
+          roomId,
           pinned: page.pinned,
           pinsRevisionAtRequest: pinsRevision,
         });
@@ -72,7 +79,7 @@ export function useMembersChatHydration(enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, loaded, pinsStale, pinsRevision, dispatch, attempt]);
+  }, [enabled, roomId, loaded, pinsStale, pinsRevision, dispatch, attempt]);
   return { loadFailed, retry };
 }
 
@@ -121,9 +128,9 @@ function useDmHydration(peerId: string | null) {
   return { loadFailed: peerId !== null && loadFailed, retry };
 }
 
-// The open human chat's page: Members chat or a 1:1 chat.
+// The open human chat's page: a room chat or a 1:1 chat.
 export function useHumanChatHydration(chat: HumanChatKey) {
-  const members = useMembersChatHydration(chat.kind === "members");
+  const room = useRoomChatHydration(chat.kind === "room" ? chat.roomId : null);
   const dm = useDmHydration(chat.kind === "dm" ? chat.peerId : null);
-  return chat.kind === "members" ? members : dm;
+  return chat.kind === "room" ? room : dm;
 }

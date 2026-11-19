@@ -123,7 +123,7 @@ export function setupRoomDoorTests({ decorations = true } = {}) {
         requests.push(body);
         return reply();
       }
-      if (path.startsWith("/api/members-chat"))
+      if (/^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path))
         return { messages: [], hasMore: false, readPointer: null, unread: 0 };
       return {};
     });

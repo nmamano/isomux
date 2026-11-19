@@ -14,7 +14,7 @@
 //   button[data-sidebar-collapse]            its collapse button
 //   button[data-show-sidebar]                the chat header's Show sidebar
 //   button[data-log-back]                    the chat header's Back button
-//   button[data-sidebar-nav="<row>"]         office, new-agent, members-chat
+//   button[data-sidebar-nav="<row>"]         office, new-agent, room-chat
 //                                            and the pages (asks, tasks,
 //                                            cronjobs, apps, skills,
 //                                            integrations, settings)
@@ -101,6 +101,7 @@ import {
   type AskEntry,
   type MemberDmSummary,
   type MembersChatMessage,
+  type MembersChatSummary,
   type UserPublicWire,
   type UserRecord,
 } from "../../shared/types.ts";
@@ -268,6 +269,27 @@ let memberDms: MemberDmSummary[] | undefined;
 export function setMemberDms(next: MemberDmSummary[] | undefined): void {
   memberDms = next;
 }
+// full_state's room chat summaries (task 5b055cf3), by room id: by default
+// the lobby and every room in `rooms`, with nothing unread; null sends none
+// (a permission pack without the room chats area).
+let roomChatUnread: Record<string, number> | null | undefined;
+export function setRoomChats(next: Record<string, number> | null): void {
+  roomChatUnread = next;
+}
+function roomChatSummaries(): Record<string, MembersChatSummary> | undefined {
+  if (roomChatUnread === null) return undefined;
+  const unread =
+    roomChatUnread ??
+    Object.fromEntries(
+      [LOBBY_ROOM_ID, ...rooms.map((r) => r.id)].map((id) => [id, 0]),
+    );
+  return Object.fromEntries(
+    Object.entries(unread).map(([id, n]) => [
+      id,
+      { readPointer: null, unread: n },
+    ]),
+  );
+}
 // GET /api/users/<id>/chat answers, by peer id; an empty page otherwise.
 export const dmPages: Record<string, MembersChatMessage[]> = {};
 // While true, every 1:1 chat page request fails.
@@ -335,7 +357,7 @@ export function setUpChatSidebarTests(): void {
       return asks;
     }
     if (path === "/api/asks/others") return [];
-    if (path.startsWith("/api/members-chat"))
+    if (/^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     if (path === "/api/apps") return [];
     if (method === "POST" && path === "/api/agents") {
@@ -396,6 +418,7 @@ export function setUpChatSidebarTests(): void {
     members = [];
     onlineIds = [];
     memberDms = undefined;
+    roomChatUnread = undefined;
     for (const id of Object.keys(dmPages)) delete dmPages[id];
     dmFail = false;
     requests.length = 0;
@@ -436,6 +459,7 @@ export async function boot(features?: Features, path = "/"): Promise<View> {
         killedAgents: [],
         interactions: [],
         ...(memberDms ? { memberDms } : {}),
+        ...(roomChatSummaries() ? { roomChats: roomChatSummaries() } : {}),
       } as never);
       if (members.length > 0)
         shimEmit({

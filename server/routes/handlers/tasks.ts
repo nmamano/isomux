@@ -29,7 +29,7 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { belowStandard } from "../../../shared/agent-access.ts";
-import { packSenderOf } from "../../identity/agent-fit.ts";
+import { writesAsData } from "../../identity/agent-fit.ts";
 import type { TaskDetailExternal, TaskItem } from "../../../shared/types.ts";
 import { taskVisibleTo, type TaskViewer } from "../../task-visibility.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
@@ -125,10 +125,10 @@ function limitedAgent(identity: Identity): boolean {
 }
 
 // Text from an agent below Standard, or from an API token whose pack the rule
-// bounds (server/identity/agent-fit.ts): a task it creates, or a change of
-// its that carries text, is marked, so agents read it as data.
+// bounds (writesAsData): a task it creates, or a change of its that carries
+// text, is marked, so agents read it as data.
 function marksTask(identity: Identity): boolean {
-  return limitedAgent(identity) || packSenderOf(identity) !== null;
+  return writesAsData(identity);
 }
 
 // Whether `identity` may change `task`: everyone the board lets see it, except

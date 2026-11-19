@@ -25,7 +25,7 @@ const { saveView, loadSavedView } = await import("./view-persistence.ts");
 type View = ReturnType<typeof render>;
 
 setApiShim(async (_method, path) =>
-  path.startsWith("/api/members-chat")
+  /^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path)
     ? { messages: [], hasMore: false, readPointer: null, unread: 0 }
     : {},
 );

@@ -1,4 +1,3 @@
-import { recentMembersChatPins } from "../shared/members-chat.ts";
 import {
   initialUpdateWatch,
   watchOnClicked,
@@ -41,6 +40,12 @@ import {
 } from "../shared/turn-end.ts";
 import { humanChatId, type HumanChatKey } from "./human-chat.ts";
 import { dmsFromSummaries, reduceMemberDm } from "./member-dms-reducer.ts";
+import {
+  dropRoomChat,
+  roomChatRows,
+  reduceRoomChat,
+  roomChatsFromSummaries,
+} from "./room-chats-reducer.ts";
 import type {
   AgentInfo,
   AgentState,
@@ -265,13 +270,11 @@ export interface AppState {
   office: OfficeSettings;
   rooms: RoomWire[];
   tasks: TaskItem[];
-  // The members chat (humans-only stream). Hydrated by a REST
-  // page fetch while a chat panel is open, kept live by the members_chat_*
-  // wire events. `loaded` drops on every full_state so an open panel
-  // refetches; `unread` is the server's count after the caller's read pointer,
-  // from full_state or a page, bumped locally for a new message from someone
-  // else until the next markRead answer.
-  membersChat: MembersChatState;
+  // The room chats, by room id (ui/room-chats-reducer.ts): the lobby's and
+  // each room the member reaches. Hydrated by full_state's summaries and a
+  // REST page fetch while the chat is open, kept live by room_chat_* events.
+  // A hidden room's chat may be here; totals read state.rooms, not the keys.
+  roomChats: Record<string, MembersChatState>;
   // The 1:1 chats, by the peer's user id. Hydrated by full_state's summaries
   // and a REST page fetch while the chat is open, kept live by dm_* events.
   memberDms: Record<string, MemberDmState>;
@@ -498,7 +501,7 @@ export type Action =
       interactions?: AgentChoiceInteraction[];
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
-      membersChat?: MembersChatSummary;
+      roomChats?: Record<string, MembersChatSummary>;
       memberDms?: MemberDmSummary[];
       floors?: Floor[];
       uiBuild?: string;
@@ -603,12 +606,11 @@ export type Action =
       prompt: string | null;
       name: string | null;
     }
-  // CLIENT-LOCAL (not a ServerMessage): the members chat panel dispatches this
-  // after its REST page fetch. `prepend` is an older page landing above what the
-  // panel already holds; otherwise the page REPLACES the slice (initial load or
-  // a reconnect refetch), keeping any live message that arrived meanwhile.
+  // CLIENT-LOCAL (not a ServerMessage): a room chat panel dispatches this
+  // after its REST page fetch (ui/room-chats-reducer.ts).
   | ({
-      type: "members_chat_page";
+      type: "room_chat_page";
+      roomId: string;
       messages: MembersChatMessage[];
       hasMore: boolean;
       readPointer: string | null;
@@ -621,20 +623,27 @@ export type Action =
       | { pinned?: never; pinsRevisionAtRequest?: number }
     ))
   | {
-      type: "members_chat_pins";
+      type: "room_chat_pins";
+      roomId: string;
       pinned: MembersChatMessage[];
       pinsRevisionAtRequest: number;
     }
   | { type: "set_lobby_open"; open: boolean }
-  // Wire events for the same slice (server/events/registry.ts).
+  // Wire events for the same slices (server/events/registry.ts).
   | {
-      type: "members_chat_message";
+      type: "room_chat_message";
+      roomId: string;
       message: MembersChatMessage;
       updateOnly?: boolean;
     }
-  | { type: "members_chat_deleted"; id: string }
-  | { type: "members_chat_read"; readPointer: string | null; unread: number }
-  // CLIENT-LOCAL: a 1:1 chat's REST page, as members_chat_page without pins.
+  | { type: "room_chat_deleted"; roomId: string; id: string }
+  | {
+      type: "room_chat_read";
+      roomId: string;
+      readPointer: string | null;
+      unread: number;
+    }
+  // CLIENT-LOCAL: a 1:1 chat's REST page, as room_chat_page without pins.
   | {
       type: "dm_page";
       peerId: string;
@@ -990,6 +999,21 @@ function afterTaskDelta(
 }
 
 export function reducer(state: AppState, action: Action): AppState {
+  return closeUnreachableRoomChat(reduceAction(state, action));
+}
+
+// The open room chat closes when its room leaves the member's reach (closed,
+// access lost, hidden), the way an agent chat closes when its agent goes. It
+// never stays open as an empty panel whose posts get a 403.
+function closeUnreachableRoomChat(state: AppState): AppState {
+  const open = state.openHumanChat;
+  if (open?.kind !== "room" || !state.hasReceivedInitialState) return state;
+  if (roomChatRows(state).some((row) => row.roomId === open.roomId))
+    return state;
+  return { ...state, openHumanChat: null };
+}
+
+function reduceAction(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
       // Keep whichever room the user was viewing if it still exists (e.g.
@@ -1069,17 +1093,9 @@ export function reducer(state: AppState, action: Action): AppState {
           : null,
         hydrationEpoch: state.hydrationEpoch + 1,
         // A reconnect may have missed posts: an open panel refetches when
-        // loaded drops. The summary sets the badge; an older server sends
-        // none, and the badge keeps the last known count.
-        membersChat: {
-          ...state.membersChat,
-          ...(action.membersChat && {
-            readPointer: action.membersChat.readPointer,
-            unread: action.membersChat.unread,
-            pinCount: action.membersChat.pins,
-          }),
-          loaded: false,
-        },
+        // loaded drops. The summaries set the badges and prune the rooms the
+        // member no longer reaches.
+        roomChats: roomChatsFromSummaries(state.roomChats, action.roomChats),
         memberDms: dmsFromSummaries(state.memberDms, action.memberDms),
         // An older server sends none: no floors, not the list from before.
         floors: action.floors ?? [],
@@ -1389,6 +1405,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case "dm_deleted":
     case "dm_read":
       return reduceMemberDm(state, action);
+    case "room_chat_page":
+    case "room_chat_pins":
+    case "room_chat_message":
+    case "room_chat_deleted":
+    case "room_chat_read":
+      return reduceRoomChat(state, action);
     case "connected":
       return { ...state, connected: true };
     case "disconnected":
@@ -1606,122 +1628,6 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     // Whole-board hydration (connect, or this user's room access changed).
-    case "members_chat_page": {
-      const incoming = action.messages;
-      const ids = new Set(incoming.map((m) => m.id));
-      const kept = state.membersChat.messages.filter((m) => !ids.has(m.id));
-      // Members-chat IDs carry a random suffix and do not sort. A fresh page
-      // replaces the request-time cache, retaining only arrivals during fetch.
-      const heldAtRequest = new Set(action.heldAtRequest ?? []);
-      const messages = action.prepend
-        ? [...incoming, ...kept]
-        : [...incoming, ...kept.filter((m) => !heldAtRequest.has(m.id))];
-      return {
-        ...state,
-        membersChat: {
-          ...state.membersChat,
-          ...(action.pinned &&
-          action.pinsRevisionAtRequest === (state.membersChat.pinsRevision ?? 0)
-            ? { pinned: action.pinned, pinsStale: false }
-            : {}),
-          messages,
-          hasMore: action.prepend
-            ? action.hasMore
-            : action.hasMore || state.membersChat.hasMore,
-          loaded: true,
-          readPointer: action.readPointer,
-          unread: action.unread,
-        },
-      };
-    }
-    case "members_chat_pins":
-      if (
-        action.pinsRevisionAtRequest !== (state.membersChat.pinsRevision ?? 0)
-      )
-        return state;
-      return {
-        ...state,
-        membersChat: {
-          ...state.membersChat,
-          pinned: action.pinned,
-          pinsStale: false,
-        },
-      };
-    // A post or an in-place update. A held message is replaced where it sits,
-    // a new message goes to the end. Someone else's new message bumps the
-    // local unread until the next markRead answer replaces it.
-    case "members_chat_message": {
-      const mc = state.membersChat;
-      const pinAffected =
-        (mc.pinned ?? []).some((message) => message.id === action.message.id) ||
-        action.message.pinnedAt !== undefined;
-      const pinState = pinAffected
-        ? {
-            pinned: recentMembersChatPins([
-              ...(mc.pinned ?? []).filter(
-                (message) => message.id !== action.message.id,
-              ),
-              action.message,
-            ]),
-            pinsRevision: (mc.pinsRevision ?? 0) + 1,
-            pinsStale: true,
-          }
-        : {};
-      const idx = mc.messages.findIndex((m) => m.id === action.message.id);
-      if (idx !== -1) {
-        const messages = mc.messages.slice();
-        messages[idx] = action.message;
-        return { ...state, membersChat: { ...mc, ...pinState, messages } };
-      }
-      // Edits and reactions to an unloaded message are not new arrivals.
-      if (action.updateOnly)
-        return pinAffected
-          ? { ...state, membersChat: { ...mc, ...pinState } }
-          : state;
-      const mine = action.message.userId === state.sessionContext?.userId;
-      return {
-        ...state,
-        membersChat: {
-          ...mc,
-          ...pinState,
-          messages: [...mc.messages, action.message],
-          unread: mine ? mc.unread : mc.unread + 1,
-        },
-      };
-    }
-    case "members_chat_deleted": {
-      const mc = state.membersChat;
-      const pinAffected = (mc.pinned ?? []).some(
-        (message) => message.id === action.id,
-      );
-      if (!mc.messages.some((m) => m.id === action.id) && !pinAffected)
-        return state;
-      return {
-        ...state,
-        membersChat: {
-          ...mc,
-          messages: mc.messages.filter((m) => m.id !== action.id),
-          ...(pinAffected
-            ? {
-                pinned: mc.pinned!.filter(
-                  (message) => message.id !== action.id,
-                ),
-                pinsRevision: (mc.pinsRevision ?? 0) + 1,
-                pinsStale: true,
-              }
-            : {}),
-        },
-      };
-    }
-    case "members_chat_read":
-      return {
-        ...state,
-        membersChat: {
-          ...state.membersChat,
-          readPointer: action.readPointer,
-          unread: action.unread,
-        },
-      };
     // A whole board (no summary: the demo shim, a fixture) is complete. A
     // summary frame (task 9ebe887d) holds the open and in-progress rows with
     // no description; a row the store holds in full at the same version keeps
@@ -2190,7 +2096,7 @@ export function reducer(state: AppState, action: Action): AppState {
       );
       if (!result) return state;
       return {
-        ...state,
+        ...dropRoomChat(state, action.roomId),
         rooms: result.rooms,
         currentRoomId: result.currentRoomId,
         lobbyOpen:
@@ -2466,13 +2372,7 @@ export const initialState: AppState = {
   closedTasksLoaded: true,
   taskDeltaSeq: 0,
   taskDeltaSeqById: new Map(),
-  membersChat: {
-    messages: [],
-    hasMore: false,
-    loaded: false,
-    readPointer: null,
-    unread: 0,
-  },
+  roomChats: {},
   memberDms: {},
   openHumanChat: null,
   humanChatDrafts: {},

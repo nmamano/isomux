@@ -9,7 +9,9 @@ import type { Page } from "../shared/office-links.ts";
 import type { HumanChatKey } from "./human-chat.ts";
 import { useI18n } from "./i18n.tsx";
 import { useDmPeer } from "./members-chat/member-rows.ts";
+import { useRoomChatTitle } from "./members-chat/room-chat-rows.ts";
 import { PageNavButton } from "./components/PageNavButton.tsx";
+import { LOBBY_ROOM_ID } from "../shared/types.ts";
 
 /** What shows when the top page closes. */
 export type PageCloseTarget =
@@ -46,8 +48,8 @@ const PAGE_NAME: Record<Page, PlainMessageKey> = {
   asks: "nav.inbox",
 };
 
-/** The words on a page's Close. A name (an agent, a member) keeps its form
- *  under browser translation; a page name does not. */
+/** The words on a page's Close. A name (an agent, a member, a room's chat)
+ *  keeps its form under browser translation; a page name does not. */
 export type PageCloseLabel = { text: string; noTranslate: boolean };
 
 /** App provides the label; without a provider Close names the office. */
@@ -61,6 +63,11 @@ export function usePageCloseLabelFor(target: PageCloseTarget): PageCloseLabel {
       ? target.chat.peerId
       : "",
   );
+  const roomTitle = useRoomChatTitle(
+    target.kind === "chat" && target.chat.kind === "room"
+      ? target.chat.roomId
+      : "",
+  );
   const [text, noTranslate] = ((): [string, boolean] => {
     switch (target.kind) {
       case "page":
@@ -68,7 +75,7 @@ export function usePageCloseLabelFor(target: PageCloseTarget): PageCloseLabel {
       case "chat":
         return target.chat.kind === "dm"
           ? [peer.name, true]
-          : [t("membersChat.title"), false];
+          : [roomTitle, target.chat.roomId !== LOBBY_ROOM_ID];
       case "agent":
         return [target.name, true];
       case "office":

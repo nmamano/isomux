@@ -3,6 +3,7 @@
 // write must fit, or why it is exempt.
 
 import {
+  belowStandard,
   parseAgentAccessGrant,
   stopIncludes,
   type AgentAccess,
@@ -103,6 +104,19 @@ export const FILE_FIT: Readonly<
   "agents.saveFile": { kind: "param", name: "id" },
   "agents.closeFile": { kind: "param", name: "id" },
 };
+
+// Whether text this identity writes for agents to read (a task, a room chat
+// post) is marked limited, so agents read it as data: an agent below
+// Standard, or any identity whose pack the messaging rule bounds.
+export function writesAsData(identity: Identity): boolean {
+  if (
+    identity.scope === "agent" &&
+    identity.agentAccess !== undefined &&
+    belowStandard(identity.agentAccess)
+  )
+    return true;
+  return packSenderOf(identity) !== null;
+}
 
 // The rule's sender for an identity with a pack that counts, else null: an
 // agent below Standard, a token with limits, and every identity of a member

@@ -1,4 +1,4 @@
-// REST calls for the human chats: Members chat
+// REST calls for the human chats: the room chats
 // (server/routes/handlers/members-chat.ts) and the 1:1 chats
 // (server/routes/handlers/member-dms.ts). Everything JSON goes through
 // apiFetch so the demo shim can answer it; the multipart upload is a raw
@@ -13,13 +13,9 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import type { HumanChatKey } from "../human-chat.ts";
 
-// Where a message's attachments are served from (the card builds
-// `${base}/${filename}`).
-export const MEMBERS_CHAT_FILES_BASE = "/api/members-chat/files";
-
 export const MEMBERS_CHAT_PAGE_LIMIT = 100;
 
-// One chat's REST calls: Members chat, or a 1:1 chat with peerId (no pins).
+// One chat's REST calls: a room chat, or a 1:1 chat with peerId (no pins).
 export interface ChatApi {
   filesBase: string;
   fetchPage: (opts: {
@@ -34,7 +30,7 @@ export interface ChatApi {
   }) => Promise<MembersChatMessage>;
   edit: (id: string, text: string) => Promise<MembersChatMessage>;
   setThumbsUp: (id: string, active: boolean) => Promise<MembersChatMessage>;
-  // Members chat only.
+  // Room chats only.
   setPinned?: (id: string, active: boolean) => Promise<MembersChatMessage>;
   remove: (id: string) => Promise<void>;
   markRead: (lastReadId: string) => Promise<MembersChatReadRes>;
@@ -90,9 +86,7 @@ function apiAt<P>(base: string) {
   };
 }
 
-const members = apiAt<MembersChatPageRes>("/api/members-chat");
-
-interface MembersChatApi extends ChatApi {
+interface RoomChatApi extends ChatApi {
   fetchPage: (opts: {
     before?: string;
     limit?: number;
@@ -100,29 +94,21 @@ interface MembersChatApi extends ChatApi {
   setPinned: (id: string, active: boolean) => Promise<MembersChatMessage>;
 }
 
-export const membersChatApi: MembersChatApi = {
-  ...members,
-  setPinned: (id: string, active: boolean): Promise<MembersChatMessage> =>
-    apiFetch<MembersChatMessage>("PUT", `/api/members-chat/${id}/pin`, {
-      active,
-    }),
-};
+// A room's chat (the lobby's was the members chat).
+export function roomChatApi(roomId: string): RoomChatApi {
+  const base = `/api/rooms/${encodeURIComponent(roomId)}/chat`;
+  return {
+    ...apiAt<MembersChatPageRes>(base),
+    setPinned: (id: string, active: boolean): Promise<MembersChatMessage> =>
+      apiFetch<MembersChatMessage>("PUT", `${base}/${id}/pin`, { active }),
+  };
+}
 
 // A 1:1 chat's calls go to the peer's id, never a name: a rename or a reused
 // name never sends to someone else.
 export function chatApiFor(chat: HumanChatKey): ChatApi {
-  if (chat.kind === "members") return membersChatApi;
+  if (chat.kind === "room") return roomChatApi(chat.roomId);
   return apiAt<MemberDmPageRes>(
     `/api/users/${encodeURIComponent(chat.peerId)}/chat`,
   );
 }
-
-// Members chat, as before the 1:1 chats.
-export const fetchPage = membersChatApi.fetchPage;
-export const post = membersChatApi.post;
-export const edit = membersChatApi.edit;
-export const setPinned = membersChatApi.setPinned;
-export const setThumbsUp = membersChatApi.setThumbsUp;
-export const remove = membersChatApi.remove;
-export const markRead = membersChatApi.markRead;
-export const upload = membersChatApi.upload;

@@ -259,6 +259,8 @@ const COUNTED: MemberPack = {
     agentManagement: "write",
     tasks: "write",
     asks: "write",
+    // The room chats at read: enough to fit an agent at Office (task 5b055cf3).
+    membersChat: "read",
   },
   agentCeiling: "office",
 };
@@ -669,8 +671,15 @@ describe("a pack save moves the member's agents down", () => {
 // tasks and asks write, in every room its manager reaches. A target fits the
 // member's agent only when the member's pack covers those areas and the
 // target's manager reaches no room outside the member's.
+// The room chats need read only (task 5b055cf3): the target's post is its own,
+// but what it reads it can pass on.
 const FULL_FIT: MemberPack = {
-  areas: { agents: "write", tasks: "write", asks: "write" },
+  areas: {
+    agents: "write",
+    tasks: "write",
+    asks: "write",
+    membersChat: "read",
+  },
   agentCeiling: "office",
 };
 

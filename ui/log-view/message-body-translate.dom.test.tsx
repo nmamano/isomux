@@ -93,6 +93,7 @@ it("keeps a pinned message's excerpt untranslated, and not the pin header", () =
         }}
         count={3}
         author="Carles"
+        fileBase="/api/rooms/lobby/chat/files"
         loaded
         onJump={() => {}}
         onUnpin={() => {}}

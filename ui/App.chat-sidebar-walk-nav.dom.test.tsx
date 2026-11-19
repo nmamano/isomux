@@ -23,7 +23,7 @@ it("no page row hides the sidebar: the walk clicks every page row it draws, open
   // The walk reached every page row (its enabling condition).
   const expected = [
     "office",
-    "members-chat",
+    "room-chat",
     "asks",
     "tasks",
     "cronjobs",

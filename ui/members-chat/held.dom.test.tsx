@@ -6,6 +6,7 @@
 // page answered. The layout itself (no jump) is checked in a browser by
 // scripts/loading-check.sh; happy-dom lays nothing out.
 
+import { lobbyChats } from "../test-support/room-chats.ts";
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
@@ -57,7 +58,7 @@ function panel(
   return onLanguage(
     "en",
     createElement(MembersChatPanel, { onRetry: () => {}, ...props }),
-    { membersChat },
+    { roomChats: lobbyChats(membersChat) },
   );
 }
 
@@ -177,7 +178,7 @@ it("a 1:1 chat holds its list the same way and never draws a pinned strip", () =
     lastAt: null,
   };
   // The members chat's count must not leak into a 1:1 chat.
-  const base = { membersChat: { ...held, pinCount: 3 } };
+  const base = { roomChats: lobbyChats({ ...held, pinCount: 3 }) };
   const view = render(
     onLanguage(
       "en",

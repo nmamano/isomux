@@ -55,9 +55,15 @@ describe("agent access stops", () => {
   });
 });
 
-// The one grant of an agent at office, folder and web (task 82da687b).
+// The one grant of an agent at office, folder and web (task 82da687b), with
+// the room chats (task 5b055cf3).
 const FIXED: ApiTokenLimits = {
-  areas: { agents: "write", tasks: "write", asks: "write" },
+  areas: {
+    agents: "write",
+    tasks: "write",
+    asks: "write",
+    membersChat: "write",
+  },
 };
 const PACK_STOPS = ["office", "folder", "web"] as const;
 const OTHER_STOPS = ["chat", "standard", "privileged"] as const;

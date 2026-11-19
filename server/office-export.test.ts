@@ -27,6 +27,7 @@ import {
   setSecretValuesForRedaction,
 } from "./log-redaction.ts";
 import { exportOffice, type ExportSummary } from "./office-export.ts";
+import { createMembersChatStore } from "./members-chat.ts";
 import { createSecretStore } from "./secret-store.ts";
 
 const NOW = new Date("2026-11-06T10:00:00.000Z");
@@ -730,4 +731,29 @@ test("asks.md names an office page by its feature", async () => {
     .find((line) => line.includes("(ask0off1)"));
   expect(heading).toBeDefined();
   expect(heading).toContain("WhatsApp");
+});
+
+test("copies the lobby chat and each room chat (task 5b055cf3)", async () => {
+  const b = bed();
+  seedOffice(b.stateRoot);
+  const say = (dir: string, content: string) =>
+    createMembersChatStore(dir).post({
+      kind: "user",
+      userId: "u1",
+      userName: "Ann",
+      content,
+    });
+  say(join(b.stateRoot, "members-chat"), "kept-lobby-chat-line");
+  say(join(b.stateRoot, "room-chats", "room-a"), "kept-room-chat-line");
+  await exportOffice({
+    stateRoot: b.stateRoot,
+    outDir: b.outDir,
+    now: NOW,
+    freeBytes: PLENTY,
+  });
+  const text = allText(b.outDir);
+  expect({
+    lobby: text.includes("kept-lobby-chat-line"),
+    room: text.includes("kept-room-chat-line"),
+  }).toEqual({ lobby: true, room: true });
 });

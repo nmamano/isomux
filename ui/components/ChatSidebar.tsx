@@ -10,7 +10,8 @@
 // opens its settings with one sliders button, the first of its hover actions.
 // Task 4bf1571c: for an owner, the Office row's one opens the office settings.
 
-import { MEMBERS_CHAT, type HumanChatKey } from "../human-chat.ts";
+import { roomChat, type HumanChatKey } from "../human-chat.ts";
+import { useRoomChatRows } from "../members-chat/room-chat-rows.ts";
 import {
   useMemberChatRows,
   type MemberChatRow,
@@ -291,6 +292,7 @@ function NavRow({
   badgeHold = null,
   onClick,
   attr,
+  data,
 }: {
   icon: ReactNode;
   label: string;
@@ -301,6 +303,8 @@ function NavRow({
   badgeHold?: number | null;
   onClick: () => void;
   attr: string;
+  // More data-* attributes for the row (a room chat row names its room).
+  data?: Record<`data-${string}`, string>;
 }) {
   return (
     <button
@@ -308,6 +312,7 @@ function NavRow({
       tabIndex={-1}
       className="chat-sidebar-row"
       data-sidebar-nav={attr}
+      {...data}
       aria-current={current ? "page" : undefined}
       onClick={onClick}
       style={{ ...rowBase, padding: "6px 10px" }}
@@ -1015,7 +1020,6 @@ export function ChatSidebar({
     answeredAsks,
     needsAttention,
     stateChangedAt,
-    membersChat,
     openHumanChat,
     currentRoomId,
     lobbyOpen: lobbyInView,
@@ -1024,6 +1028,7 @@ export function ChatSidebar({
     asksLoaded,
   } = useAppState();
   const memberRows = useMemberChatRows();
+  const roomChatRows = useRoomChatRows();
   const amOwner = sessionContext?.role === "owner";
   // The open human chat's row is current while no page covers it.
   const humanChatShown = page === null ? openHumanChat : null;
@@ -1335,6 +1340,35 @@ export function ChatSidebar({
     </button>
   );
 
+  // A room's chat row, first in its section: none without the room chats
+  // area (no summary) or for a room the member does not see.
+  const roomChatRow = (roomId: string) => {
+    const row = roomChatRows.find((r) => r.roomId === roomId);
+    if (!row) return null;
+    return (
+      <NavRow
+        attr="room-chat"
+        data={{ "data-room-chat": roomId }}
+        icon={
+          <span
+            style={{
+              display: "flex",
+              width: HEAD_SIZE,
+              justifyContent: "center",
+            }}
+          >
+            {ChatIcon}
+          </span>
+        }
+        label={t("roomChat.row")}
+        current={
+          humanChatShown?.kind === "room" && humanChatShown.roomId === roomId
+        }
+        badge={row.unread}
+        onClick={() => onOpenHumanChat(roomChat(roomId))}
+      />
+    );
+  };
   const roomSection = (room: RoomWire) => {
     const { front, back } = roomAgents(agents, room.id);
     const open = sections.rooms.includes(room.id);
@@ -1408,6 +1442,7 @@ export function ChatSidebar({
         </div>
         {open && (
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            {roomChatRow(room.id)}
             {front.map((a) => agentRow(a, "room"))}
             {hasBackRoom(room) && back.length > 0 && (
               <div style={{ paddingLeft: 14 }}>
@@ -1746,40 +1781,23 @@ export function ChatSidebar({
                 t("sidebar.recent"),
                 recentAgents.map((a) => agentRow(a, "list")),
               )}
-              <div>
-                <SectionHeader
-                  label={t("sidebar.members")}
-                  open={membersOpen}
-                  list
-                  onToggle={() =>
-                    setSections((s) => ({ ...s, members: s.members === false }))
-                  }
-                  attr={{ "data-sidebar-members": "" }}
-                />
-                {membersOpen && (
-                  <>
-                    <NavRow
-                      attr="members-chat"
-                      icon={
-                        <span
-                          style={{
-                            display: "flex",
-                            width: HEAD_SIZE,
-                            justifyContent: "center",
-                          }}
-                        >
-                          {ChatIcon}
-                        </span>
-                      }
-                      label={t("membersChat.title")}
-                      current={humanChatShown?.kind === "members"}
-                      badge={membersChat.unread}
-                      onClick={() => onOpenHumanChat(MEMBERS_CHAT)}
-                    />
-                    {memberRows.map((row) => memberRow(row))}
-                  </>
-                )}
-              </div>
+              {memberRows.length > 0 && (
+                <div>
+                  <SectionHeader
+                    label={t("sidebar.members")}
+                    open={membersOpen}
+                    list
+                    onToggle={() =>
+                      setSections((s) => ({
+                        ...s,
+                        members: s.members === false,
+                      }))
+                    }
+                    attr={{ "data-sidebar-members": "" }}
+                  />
+                  {membersOpen && memberRows.map((row) => memberRow(row))}
+                </div>
+              )}
               {shown.map(roomSection)}
               <div>
                 <div className="chat-sidebar-room-row">
@@ -1800,6 +1818,7 @@ export function ChatSidebar({
                     {showRoomButton(LOBBY_ROOM_ID)}
                   </span>
                 </div>
+                {sections.lobby && roomChatRow(LOBBY_ROOM_ID)}
                 {sections.lobby &&
                   receptionist &&
                   agentRow(receptionist, "room")}

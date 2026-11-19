@@ -257,6 +257,12 @@ describe("/mcp authentication", () => {
       update_task: false,
       claim_task: false,
       complete_task: false,
+      // The room chats (task 5b055cf3): only the read is read-only.
+      room_chat_read: true,
+      room_chat_post: false,
+      room_chat_edit: false,
+      room_chat_delete: false,
+      room_chat_thumbs_up: false,
     });
   });
 });
@@ -303,6 +309,24 @@ describe("/mcp limited tokens", () => {
           "update_task",
         ],
       ],
+      // Task 5b055cf3: the room chat tools follow the membersChat area.
+      [
+        "membersChat read",
+        { membersChat: "read" },
+        ["read_replies", "room_chat_read"],
+      ],
+      [
+        "membersChat write",
+        { membersChat: "write" },
+        [
+          "read_replies",
+          "room_chat_delete",
+          "room_chat_edit",
+          "room_chat_post",
+          "room_chat_read",
+          "room_chat_thumbs_up",
+        ],
+      ],
     ];
     for (const [label, areas, expected] of cases) {
       const response = await srv.http("/api/me/api-tokens", {
@@ -336,6 +360,11 @@ describe("/mcp limited tokens", () => {
       "list_tasks",
       "read_conversation",
       "read_replies",
+      "room_chat_delete",
+      "room_chat_edit",
+      "room_chat_post",
+      "room_chat_read",
+      "room_chat_thumbs_up",
       "send_message",
       "update_task",
     ]);

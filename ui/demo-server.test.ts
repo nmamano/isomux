@@ -496,12 +496,12 @@ describe("demo Discord card", () => {
   });
 });
 
-describe("demo members chat", () => {
+describe("demo room chats", () => {
   it("keeps pin mutations and the served strip consistent", async () => {
-    const message = (await demoApi("POST", "/api/members-chat", {
+    const message = (await demoApi("POST", "/api/rooms/lobby/chat", {
       text: "pin fixture",
     })) as MembersChatMessage;
-    const path = `/api/members-chat/${message.id}/pin`;
+    const path = `/api/rooms/lobby/chat/${message.id}/pin`;
     const pinned = (await demoApi("PUT", path, {
       active: true,
     })) as MembersChatMessage;
@@ -510,27 +510,27 @@ describe("demo members chat", () => {
       active: true,
     })) as MembersChatMessage;
     expect(repeated.pinnedAt).toBe(pinned.pinnedAt);
-    const page = (await demoApi("GET", "/api/members-chat")) as {
+    const page = (await demoApi("GET", "/api/rooms/lobby/chat")) as {
       pinned: MembersChatMessage[];
     };
     expect(page.pinned.some((pin) => pin.id === message.id)).toBe(true);
     const invalid = await Promise.allSettled([
       demoApi("PUT", path, { active: "yes" }),
-      demoApi("PUT", "/api/members-chat/missing/pin", { active: true }),
+      demoApi("PUT", "/api/rooms/lobby/chat/missing/pin", { active: true }),
     ]);
     expect(invalid.map((result) => result.status)).toEqual([
       "rejected",
       "rejected",
     ]);
     await demoApi("PUT", path, { active: false });
-    const after = (await demoApi("GET", "/api/members-chat")) as {
+    const after = (await demoApi("GET", "/api/rooms/lobby/chat")) as {
       pinned: MembersChatMessage[];
     };
     expect(after.pinned.some((pin) => pin.id === message.id)).toBe(false);
   });
 
   it("serves a canned page and lands a post as the demo viewer", async () => {
-    const page = (await demoApi("GET", "/api/members-chat")) as {
+    const page = (await demoApi("GET", "/api/rooms/lobby/chat")) as {
       messages: MembersChatMessage[];
       hasMore: boolean;
       unread: number;
@@ -540,11 +540,11 @@ describe("demo members chat", () => {
     expect(new Set(page.messages.map((m) => m.kind))).toEqual(
       new Set(["user", "api", "agent"]),
     );
-    const posted = (await demoApi("POST", "/api/members-chat", {
+    const posted = (await demoApi("POST", "/api/rooms/lobby/chat", {
       text: "hello from the demo",
     })) as MembersChatMessage;
     expect(posted.userName).toBe("Ricky");
-    const reactionPath = `/api/members-chat/${posted.id}/thumbs-up`;
+    const reactionPath = `/api/rooms/lobby/chat/${posted.id}/thumbs-up`;
     const reacted = (await demoApi("PUT", reactionPath, {
       active: true,
     })) as MembersChatMessage;
@@ -560,17 +560,42 @@ describe("demo members chat", () => {
     })) as MembersChatMessage;
     expect(removed.thumbsUp).toEqual([]);
 
-    const after = (await demoApi("GET", "/api/members-chat")) as {
+    const after = (await demoApi("GET", "/api/rooms/lobby/chat")) as {
       messages: MembersChatMessage[];
     };
     expect(after.messages.at(-1)?.id).toBe(posted.id);
     let threw = false;
     try {
-      await demoApi("POST", "/api/members-chat", { text: "   " });
+      await demoApi("POST", "/api/rooms/lobby/chat", { text: "   " });
     } catch {
       threw = true;
     }
     expect(threw).toBe(true);
+  });
+
+  // Task 5b055cf3: every room has its own chat; a new one starts empty.
+  it("keeps each room's chat to itself", async () => {
+    const { room } = (await demoApi("POST", "/api/rooms", {
+      name: "Chat room",
+    })) as { room: { id: string } };
+    const path = `/api/rooms/${room.id}/chat`;
+    const empty = (await demoApi("GET", path)) as {
+      messages: MembersChatMessage[];
+    };
+    expect(empty.messages).toHaveLength(0);
+    const posted = (await demoApi("POST", path, {
+      text: "only in this room",
+    })) as MembersChatMessage;
+    const here = (await demoApi("GET", path)) as {
+      messages: MembersChatMessage[];
+    };
+    const lobby = (await demoApi("GET", "/api/rooms/lobby/chat")) as {
+      messages: MembersChatMessage[];
+    };
+    expect({
+      here: here.messages.map((m) => m.id),
+      inLobby: lobby.messages.some((m) => m.id === posted.id),
+    }).toEqual({ here: [posted.id], inLobby: false });
   });
 });
 

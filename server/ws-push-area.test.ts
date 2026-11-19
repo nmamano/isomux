@@ -56,7 +56,7 @@ describe("pushAllowedForPack", () => {
       ["cronjob_added", "schedules"],
       ["webhook_upserted", "webhooks"],
       ["app_upserted", "apps"],
-      ["members_chat_message", "membersChat"],
+      ["room_chat_message", "membersChat"],
       ["ask_upserted", "asks"],
     ] as const) {
       const other = area === "tasks" ? "logs" : "tasks";

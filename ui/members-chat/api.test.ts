@@ -1,6 +1,7 @@
 // One chat's REST calls (chatApiFor, task 019e4d7c): a 1:1 chat's calls all go
 // to /api/users/<peer id>/chat (by id, never a name, so a rename or a reused
-// name never sends to someone else), with no pin; Members chat keeps its own.
+// name never sends to someone else), with no pin; a room chat (task 5b055cf3)
+// goes to /api/rooms/<room id>/chat, with its pin.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { setApiShim } from "../api.ts";
@@ -53,22 +54,22 @@ describe("chatApiFor", () => {
     ]);
   });
 
-  it("keeps Members chat on its own routes, with its pin", async () => {
+  it("sends every call of a room chat to its room, with its pin", async () => {
     record();
-    const api = chatApiFor({ kind: "members" });
+    const api = chatApiFor({ kind: "room", roomId: "r 1" });
     expect(typeof api.setPinned).toBe("function");
-    expect(api.filesBase).toBe("/api/members-chat/files");
+    expect(api.filesBase).toBe("/api/rooms/r%201/chat/files");
     await everyCall(api);
     await api.setPinned!("202611-00000002", true);
     expect(calls).toEqual([
-      "GET /api/members-chat?before=202611-00000001&limit=50",
-      "POST /api/members-chat",
-      "PATCH /api/members-chat/202611-00000002",
-      "PUT /api/members-chat/202611-00000002/thumbs-up",
-      "DELETE /api/members-chat/202611-00000002",
-      "POST /api/members-chat/read",
-      "POST /api/members-chat/uploads",
-      "PUT /api/members-chat/202611-00000002/pin",
+      "GET /api/rooms/r%201/chat?before=202611-00000001&limit=50",
+      "POST /api/rooms/r%201/chat",
+      "PATCH /api/rooms/r%201/chat/202611-00000002",
+      "PUT /api/rooms/r%201/chat/202611-00000002/thumbs-up",
+      "DELETE /api/rooms/r%201/chat/202611-00000002",
+      "POST /api/rooms/r%201/chat/read",
+      "POST /api/rooms/r%201/chat/uploads",
+      "PUT /api/rooms/r%201/chat/202611-00000002/pin",
     ]);
   });
 });

@@ -1,4 +1,9 @@
 import { afterAll, afterEach, expect, it, jest } from "bun:test";
+import {
+  lobbyChats,
+  lobbyChat,
+  LOBBY_ROOM_ID,
+} from "../test-support/room-chats.ts";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
@@ -48,20 +53,20 @@ it("marks a short visible list read, pauses in history and hidden tabs, and resu
   });
   const reads: string[] = [];
   setApiShim(async (_method, path, body) => {
-    if (path === "/api/members-chat/read")
+    if (path === "/api/rooms/lobby/chat/read")
       reads.push((body as { lastReadId: string }).lastReadId);
     return { readPointer: reads.at(-1), unread: 0 };
   });
   function panel(id: string, mobile = false) {
     return onLanguage("en", createElement(MembersChatPanel), {
       isMobile: mobile,
-      membersChat: {
+      roomChats: lobbyChats({
         loaded: true,
         messages: [message(id)],
         hasMore: false,
         unread: 1,
         readPointer: null,
-      },
+      }),
     });
   }
   const view = render(panel("01"));
@@ -112,7 +117,7 @@ it("clears the unread when the later message has a lower random ID", async () =>
   const newestId = "202609-00000001";
   const reads: string[] = [];
   setApiShim(async (_method, path, body) => {
-    if (path !== "/api/members-chat/read") throw new Error(path);
+    if (path !== "/api/rooms/lobby/chat/read") throw new Error(path);
     reads.push((body as { lastReadId: string }).lastReadId);
     return { readPointer: newestId, unread: 0 };
   });
@@ -130,7 +135,8 @@ it("clears the unread when the later message has a lower random ID", async () =>
   };
   act(() =>
     dispatch({
-      type: "members_chat_page",
+      type: "room_chat_page",
+      roomId: LOBBY_ROOM_ID,
       prepend: false,
       messages: [
         first,
@@ -145,14 +151,14 @@ it("clears the unread when the later message has a lower random ID", async () =>
     "[data-members-chat-list]",
   ) as HTMLDivElement;
   fireEvent.scroll(list);
-  expect(snapshot.membersChat.loaded).toBe(true);
+  expect(lobbyChat(snapshot).loaded).toBe(true);
   expect(document.visibilityState).toBe("visible");
   expect(list.scrollHeight - list.scrollTop - list.clientHeight < 80).toBe(
     true,
   );
-  expect(snapshot.membersChat.unread).toBe(1);
+  expect(lobbyChat(snapshot).unread).toBe(1);
   await settleRead();
   expect(reads).toEqual([newestId]);
   await act(async () => {});
-  expect(snapshot.membersChat.unread).toBe(0);
+  expect(lobbyChat(snapshot).unread).toBe(0);
 });

@@ -1,12 +1,12 @@
 import { afterAll, expect, it } from "bun:test";
+import { lobbyChat, LOBBY_ROOM_ID } from "../test-support/room-chats.ts";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, render } = await import("@testing-library/react");
 const { createElement, useEffect } = await import("react");
 const { StoreProvider, useAppState, useDispatch } =
   await import("../store.tsx");
-const { useMembersChatHydration } =
-  await import("./useMembersChatHydration.ts");
+const { useRoomChatHydration } = await import("./useMembersChatHydration.ts");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 setShim(
@@ -34,7 +34,7 @@ function Harness() {
     snapshot = state;
     dispatch = send;
   }, [state, send]);
-  useMembersChatHydration(true);
+  useRoomChatHydration(LOBBY_ROOM_ID);
   return null;
 }
 const message = (id: string) => ({
@@ -76,7 +76,8 @@ it("captures held IDs when a fresh request starts, retains live arrivals and ign
   expect(replies.length).toBe(2);
   act(() =>
     dispatch({
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: message("202609-00000001"),
     }),
   );
@@ -88,7 +89,7 @@ it("captures held IDs when a fresh request starts, retains live arrivals and ign
       hasMore: true,
     });
   });
-  expect(snapshot.membersChat.messages.map((m) => m.id)).toEqual([
+  expect(lobbyChat(snapshot).messages.map((m) => m.id)).toEqual([
     "202609-eeeeeeee",
     "202609-00000001",
   ]);
@@ -111,7 +112,7 @@ it("captures held IDs when a fresh request starts, retains live arrivals and ign
       hasMore: false,
     });
   });
-  expect(snapshot.membersChat.messages.map((m) => m.id)).toEqual([
+  expect(lobbyChat(snapshot).messages.map((m) => m.id)).toEqual([
     "202609-11111111",
   ]);
 });
@@ -136,25 +137,32 @@ it("refreshes a removed pin from the capped history and ignores an older in-flig
   const resolve: ((value: unknown) => void)[] = [];
   setApiShim(async (method, path) => {
     expect(method).toBe("GET");
-    expect(path.startsWith("/api/members-chat")).toBe(true);
+    expect(path.startsWith("/api/rooms/lobby/chat")).toBe(true);
     return new Promise((done) => resolve.push(done));
   });
   render(createElement(StoreProvider, null, createElement(Harness)));
   await act(async () => resolve[0](page([])));
   act(() =>
-    dispatch({ type: "members_chat_message", message: pin, updateOnly: true }),
+    dispatch({
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
+      message: pin,
+      updateOnly: true,
+    }),
   );
-  expect(snapshot.membersChat.pinned).toEqual([pin]);
+  expect(lobbyChat(snapshot).pinned).toEqual([pin]);
   expect(resolve.length).toBe(2);
-  act(() => dispatch({ type: "members_chat_deleted", id: pin.id }));
-  expect(snapshot.membersChat.pinned).toEqual([]);
+  act(() =>
+    dispatch({ type: "room_chat_deleted", roomId: LOBBY_ROOM_ID, id: pin.id }),
+  );
+  expect(lobbyChat(snapshot).pinned).toEqual([]);
   expect(resolve.length).toBe(3);
   await act(async () => resolve[1](page([pin])));
-  expect(snapshot.membersChat.pinned).toEqual([]);
+  expect(lobbyChat(snapshot).pinned).toEqual([]);
   const next = { ...pin, id: "202608-00000002", pinnedAt: 1 };
   await act(async () => resolve[2](page([next])));
-  expect(snapshot.membersChat.pinned).toEqual([next]);
-  expect(snapshot.membersChat.pinsStale).toBe(false);
-  expect(snapshot.membersChat.messages).toEqual([]);
-  expect(snapshot.membersChat.unread).toBe(0);
+  expect(lobbyChat(snapshot).pinned).toEqual([next]);
+  expect(lobbyChat(snapshot).pinsStale).toBe(false);
+  expect(lobbyChat(snapshot).messages).toEqual([]);
+  expect(lobbyChat(snapshot).unread).toBe(0);
 });

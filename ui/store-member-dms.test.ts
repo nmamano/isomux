@@ -9,6 +9,7 @@
 // only their peer; the open human chat and the focused agent exclude each
 // other; drafts are per chat.
 
+import { lobbyChat, LOBBY_ROOM_ID } from "./test-support/room-chats.ts";
 import { describe, it, expect } from "bun:test";
 import { reducer, initialState, type AppState } from "./store.tsx";
 import type {
@@ -16,7 +17,7 @@ import type {
   MembersChatMessage,
   UserPublicWire,
 } from "../shared/types.ts";
-import { MEMBERS_CHAT } from "./human-chat.ts";
+import { LOBBY_CHAT } from "./human-chat.ts";
 
 type Action = Parameters<typeof reducer>[1];
 const run = (state: AppState, ...actions: unknown[]) =>
@@ -120,12 +121,17 @@ describe("1:1 chats in the store", () => {
     const held = run(
       signedIn(),
       fullState([summary("u2", "Pau", { unread: 2 })]),
-      { type: "members_chat_read", readPointer: null, unread: 4 },
+      {
+        type: "room_chat_read",
+        roomId: LOBBY_ROOM_ID,
+        readPointer: null,
+        unread: 4,
+      },
     );
     const next = run(held, fullState());
     expect(Object.keys(next.memberDms)).toEqual(["u2"]);
     expect(next.memberDms.u2.unread).toBe(2);
-    expect(next.membersChat.unread).toBe(4);
+    expect(lobbyChat(next).unread).toBe(4);
   });
 
   it("a dm_message makes the row of an unknown peer; the peer's message raises unread, yours and updates never do", () => {
@@ -230,7 +236,7 @@ describe("1:1 chats in the store", () => {
   it("keeps a draft per chat", () => {
     const s = run(
       signedIn(),
-      { type: "set_human_chat_draft", chat: MEMBERS_CHAT, text: "to all" },
+      { type: "set_human_chat_draft", chat: LOBBY_CHAT, text: "to all" },
       {
         type: "set_human_chat_draft",
         chat: { kind: "dm", peerId: "u2" },
@@ -248,7 +254,7 @@ describe("1:1 chats in the store", () => {
       },
     );
     expect(s.humanChatDrafts).toEqual({
-      members: "to all",
+      "room:lobby": "to all",
       u2: "to pau",
       u3: "to mia, again",
     });

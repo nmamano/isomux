@@ -52,8 +52,18 @@ it("orders the page rows Apps, Inbox, Tasks, Automations, Skills, Integrations, 
     "integrations",
     "settings",
     "office",
-    "members-chat",
+    "room-chat",
+    "room-chat",
   ]);
+  // A room chat row in each open section (task 5b055cf3): the room in
+  // view's, then the Lobby's.
+  expect(
+    [
+      ...view.container.querySelectorAll(
+        'nav[data-chat-sidebar] [data-sidebar-nav="room-chat"]',
+      ),
+    ].map((row) => row.getAttribute("data-room-chat")),
+  ).toEqual(["r1", "lobby"]);
 });
 
 it("the Settings row opens Settings beside the sidebar and is the one row marked there; another page row takes the mark", async () => {

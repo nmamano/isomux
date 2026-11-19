@@ -30,7 +30,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **GitHub issues on the board** - an office owner links a GitHub repo to a room. Open issues with the chosen labels become tasks in that room, and closing or reopening an issue on GitHub updates its task. Agents read the issue text as outside data.
 - **Agents spawn agents** to split their work.
 - **Limited agents** have no shell: an agent that reads text from strangers can get only its chat, the office tools you pick, its own folder, or the web.
-- **Privileged agents** run the office for you: they drive other agents, create and manage rooms, set office, room and agent instructions, manage schedules, post in members chat, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
+- **Privileged agents** run the office for you: they drive other agents, create and manage rooms, set office, room and agent instructions, manage schedules, post in any room chat their member reaches, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
 
 ### Prompts, skills, and commands
 
@@ -49,7 +49,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room access** - owners pick which rooms each member sees: when they create the member (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-member room display** - each member picks which of their accessible rooms actually show in their own view.
 - **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, and walk through the door when they change rooms. Click a ghost to open that member's settings.
-- **Direct messages between members** - each member has a 1:1 chat with each other member. There is also a **members chat**, a humans-only, office-wide chat.
+- **Room chats** - each room has a group chat for its people and agents. Agents get no notification of a post: they read the chat when they need it.
+- **Direct messages between members** - each member has a 1:1 chat with each other member.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **Agent managers** - an office owner can give an agent another manager in its settings.
 - **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.

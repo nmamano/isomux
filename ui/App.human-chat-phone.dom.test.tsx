@@ -1,9 +1,10 @@
-// The lobby and the human chats (task 019e4d7c; Nil, 2026-11-12: "i'd obsolete
+// The human chats on a phone (task 019e4d7c; Nil, 2026-11-12: "i'd obsolete
 // the lobby pannel, and make human chats full screen"): on a desktop the
-// lobby has no Members chat panel and no chat button (the sidebar lists the
-// chats); on a phone the lobby's chat button opens the same full-screen chat,
-// counts the unread of every human chat, and the chat's title switches
-// between them; the header's Back returns to the lobby. The setup is in
+// lobby has no chat panel and no chat button (the sidebar lists the chats);
+// on a phone each room's chat button opens that room's chat full screen
+// (task 5b055cf3), counts the unread of every human chat the member sees,
+// and the chat's title switches between them; the header's Back returns to
+// the office. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx (a boot with no saved view lands
 // in the lobby).
 
@@ -21,6 +22,7 @@ const {
   requests,
   setMemberDms,
   setMembers,
+  setRoomChats,
   setUpChatSidebarTests,
   setWindowWidth,
 } = await import("./test-support/chat-sidebar-fixture.tsx");
@@ -69,7 +71,7 @@ const switcherOptions = (view: View) =>
     (o) => o.getAttribute("data-chat-switcher-option"),
   );
 
-it("on a desktop, the lobby has no Members chat panel, no chat button and no unread dot on its tab", async () => {
+it("on a desktop, the lobby has no chat panel, no chat button and no dot on its tab for a 1:1 chat", async () => {
   seedOffice();
   const view = await boot();
   expect(view.container.querySelector("[data-lobby-tab]")).not.toBeNull();
@@ -80,7 +82,7 @@ it("on a desktop, the lobby has no Members chat panel, no chat button and no unr
   expect(fab(view)).toBeNull();
   // Bea's 2 unread show in the sidebar, not on the lobby's tab.
   expect(
-    view.container.querySelector("[data-lobby-tab] [data-lobby-unread]"),
+    view.container.querySelector("[data-lobby-tab] [data-lobby-tab-dot]"),
   ).toBeNull();
   expect(
     view.container.querySelector(
@@ -89,13 +91,17 @@ it("on a desktop, the lobby has no Members chat panel, no chat button and no unr
   ).not.toBeNull();
 });
 
-it("on a phone, the lobby's chat button counts Members chat and every 1:1 chat", async () => {
+// A hidden room (r9: its summary comes, it is not in the member's rooms)
+// counts nowhere.
+it("on a phone, the chat button counts the room chats the member sees and every 1:1 chat", async () => {
   seedOffice();
+  setRoomChats({ lobby: 0, r1: 0, r2: 0, r9: 5 });
   const view = await phone();
   await act(async () => {
     const { shimEmit } = await import("./ws.ts");
     shimEmit({
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: "r2",
       message: {
         id: "202611-000000b1",
         kind: "user",
@@ -107,19 +113,20 @@ it("on a phone, the lobby's chat button counts Members chat and every 1:1 chat",
       },
     } as never);
   });
+  // Bea's 2 and the post in r2.
   expect(
     fab(view)?.querySelector("[data-lobby-unread]")?.getAttribute("aria-label"),
   ).toBe(en.tn("membersChat.unreadCount", 3));
 });
 
-it("on a phone, the chat button opens Members chat full screen, the title switches to a 1:1 chat, and Back names the office and returns to the lobby", async () => {
+it("on a phone, the lobby's chat button opens the lobby's chat full screen, the title switches to another room's chat and a 1:1 chat, and Back names the office and returns to the lobby", async () => {
   seedOffice();
   const view = await phone();
   expect(fab(view)).not.toBeNull();
   expect(humanChat(view)).toBeNull();
 
   await click(fab(view));
-  expect(humanChat(view)).toBe("members");
+  expect(humanChat(view)).toBe("room:lobby");
   // Full screen: no dialog over the lobby.
   expect(view.baseElement.querySelector('[role="dialog"]')).toBeNull();
   expect(fab(view)).toBeNull();
@@ -127,7 +134,19 @@ it("on a phone, the chat button opens Members chat full screen, the title switch
   expect(backLabel(view)).toBe(en.t("sidebar.office"));
 
   await click(view.container.querySelector("[data-chat-switcher]"));
-  expect(switcherOptions(view)).toEqual(["members", "u3", "u4"]);
+  // The lobby's chat, the rooms in tab order, then the members.
+  expect(switcherOptions(view)).toEqual([
+    "room:lobby",
+    "room:r1",
+    "room:r2",
+    "u3",
+    "u4",
+  ]);
+  await click(
+    view.baseElement.querySelector('[data-chat-switcher-option="room:r2"]'),
+  );
+  expect(humanChat(view)).toBe("room:r2");
+  await click(view.container.querySelector("[data-chat-switcher]"));
   await click(
     view.baseElement.querySelector('[data-chat-switcher-option="u3"]'),
   );
@@ -142,4 +161,41 @@ it("on a phone, the chat button opens Members chat full screen, the title switch
   await click(view.container.querySelector("[data-human-chat-back]"));
   expect(humanChat(view)).toBeNull();
   expect(fab(view)).not.toBeNull();
+});
+
+// Task 5b055cf3: the button shows in every room and opens the chat of the
+// room in view.
+it("on a phone, the chat button in a room opens that room's chat", async () => {
+  seedOffice();
+  const view = await phone();
+  await click(
+    view.container.querySelector<HTMLButtonElement>(
+      '[data-room-tab-button="r2"]',
+    ),
+  );
+  // The condition: the room is in view, not the lobby.
+  expect(
+    view.container
+      .querySelector('[data-room-tab-button="r2"]')
+      ?.closest("[data-active-room-tab]") !== null,
+  ).toBe(true);
+  expect(fab(view)).not.toBeNull();
+  await click(fab(view));
+  expect(humanChat(view)).toBe("room:r2");
+});
+
+// U4: without room chats (a permission pack without the area) the button
+// opens a 1:1 chat; with no human chat at all there is no button.
+it("on a phone, without room chats the chat button opens a 1:1 chat, and without any chat it is gone", async () => {
+  seedOffice();
+  setRoomChats(null);
+  const view = await phone();
+  await click(fab(view));
+  expect(humanChat(view)).toBe("u3");
+  view.unmount();
+
+  setMembers([]);
+  setMemberDms(undefined);
+  const bare = await phone();
+  expect(fab(bare)).toBeNull();
 });

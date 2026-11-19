@@ -3,6 +3,7 @@
 // the controls a reader gets on their own message versus someone else's.
 // Server rendering runs no effects, so nothing here fetches or marks read.
 
+import { lobbyChats } from "../test-support/room-chats.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { afterEach, describe, it, expect, setSystemTime } from "bun:test";
 import { createElement } from "react";
@@ -102,13 +103,13 @@ function render(overrides: Partial<AppState>, meId = "u-nil", role = "member") {
     ]),
     onlineUserIds: ["u-nil", "u-pau"],
     totalOnlineUsers: 2,
-    membersChat: {
+    roomChats: lobbyChats({
       messages: [fromNil, fromToken, fromAgent],
       hasMore: true,
       loaded: true,
       readPointer: null,
       unread: 0,
-    },
+    }),
     ...overrides,
   };
   return renderToStaticMarkup(
@@ -149,7 +150,7 @@ describe("MembersChatPanel markup", () => {
         (match) => match[1].includes("font-style:italic"),
       ),
     ).toEqual([false, true, true]);
-    expect(html).toContain('href="/api/members-chat/files/report.pdf"');
+    expect(html).toContain('href="/api/rooms/lobby/chat/files/report.pdf"');
     expect(html).not.toContain("/api/files/");
     const online = html.match(/data-online-count="[^"]*"[^>]*>([^<]*)</);
     expect(online?.[1]).toBe(en.t("membersChat.online", { count: "2" }));
@@ -159,7 +160,7 @@ describe("MembersChatPanel markup", () => {
 
   it("names reactors as the cards name their authors, machine-sent included", () => {
     const html = render({
-      membersChat: {
+      roomChats: lobbyChats({
         messages: [
           {
             ...fromNil,
@@ -180,7 +181,7 @@ describe("MembersChatPanel markup", () => {
         loaded: true,
         readPointer: null,
         unread: 0,
-      },
+      }),
     });
     const reactors = html.match(
       new RegExp(
@@ -208,7 +209,7 @@ describe("MembersChatPanel markup", () => {
     });
     const titles = cardTitles(
       render({
-        membersChat: {
+        roomChats: lobbyChats({
           messages: [
             at("202509-00000001", new Date(2025, 1, 3, 9, 7).getTime()),
             at("202602-00000001", new Date(2026, 1, 3, 9, 7).getTime()),
@@ -218,7 +219,7 @@ describe("MembersChatPanel markup", () => {
           loaded: true,
           readPointer: null,
           unread: 0,
-        },
+        }),
       }),
     );
     expect(titles).toEqual([
@@ -254,25 +255,75 @@ describe("MembersChatPanel markup", () => {
     expect(asPau.match(/data-members-chat-action="delete"/g)?.length).toBe(1);
   });
 
+  // Task 5b055cf3: a post marked limited (an agent below Standard, or a
+  // person or token whose pack bounds what it writes) says so beside its
+  // author, whatever its kind; an unmarked post does not.
+  it("tags a limited post beside its author, for an agent and a person alike", () => {
+    const limitedWord = en.t("membersChat.limited");
+    const titles = cardTitles(
+      render({
+        roomChats: lobbyChats({
+          messages: [
+            { ...fromNil, limited: true },
+            fromToken,
+            { ...fromAgent, limited: true },
+          ],
+          loaded: true,
+        }),
+      }),
+    );
+    const plain = cardTitles(render({}));
+    expect(
+      titles.map((title, i) =>
+        title === plain[i]
+          ? "plain"
+          : title.includes(` · ${limitedWord} · `) &&
+              title.replace(` · ${limitedWord}`, "") === plain[i]
+            ? "limited"
+            : title,
+      ),
+    ).toEqual(["limited", "plain", "limited"]);
+  });
+
+  // An agent's thumb is its own (task 5b055cf3): my agent's reaction does not
+  // press my thumbs-up button; my own does.
+  it("presses my thumbs-up only for my own reaction, not my agent's", () => {
+    const pressed = (thumbsUp: MembersChatMessage["thumbsUp"]) => {
+      const html = render({
+        roomChats: lobbyChats({
+          messages: [{ ...fromToken, id: "202609-00000009", thumbsUp }],
+          loaded: true,
+        }),
+      });
+      return html.match(/aria-pressed="true"/g)?.length ?? 0;
+    };
+    expect({
+      agent: pressed([
+        { kind: "agent", userId: "u-nil", agentId: "ag-1", userName: "Bot" },
+      ]),
+      mine: pressed([{ kind: "user", userId: "u-nil", userName: "Nil" }]),
+    }).toEqual({ agent: 0, mine: 1 });
+  });
+
   it("shows the empty state once loaded with nothing, and nothing before load", () => {
     const empty = render({
-      membersChat: {
+      roomChats: lobbyChats({
         messages: [],
         hasMore: false,
         loaded: true,
         readPointer: null,
         unread: 0,
-      },
+      }),
     });
     expect(empty).toContain(en.t("membersChat.empty"));
     const pending = render({
-      membersChat: {
+      roomChats: lobbyChats({
         messages: [],
         hasMore: false,
         loaded: false,
         readPointer: null,
         unread: 0,
-      },
+      }),
     });
     expect(pending).not.toContain(en.t("membersChat.empty"));
   });

@@ -9,7 +9,7 @@ const { onLanguage } = await import("./language-fixture.tsx");
 
 export function setupTaskShortcutTests() {
   setApiShim(async (_method, path) =>
-    path.startsWith("/api/members-chat")
+    /^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path)
       ? { messages: [], hasMore: false, readPointer: null, unread: 0 }
       : { text: "", version: "v", size: 0, cap: 1000 },
   );

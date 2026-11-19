@@ -9,6 +9,7 @@ import {
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import type { AgentInfo, MembersChatMessage } from "../../shared/types.ts";
+import { LOBBY_ROOM_ID } from "../../shared/types.ts";
 import type {
   ApiTokenCreateRes,
   MembersChatPageRes,
@@ -77,7 +78,7 @@ describe("members chat", () => {
 
   const messagesOf = (s: TestSocket): MembersChatMessage[] =>
     s.messages
-      .filter((m) => (m as { type?: string }).type === "members_chat_message")
+      .filter((m) => (m as { type?: string }).type === "room_chat_message")
       .map((m) => (m as { message: MembersChatMessage }).message);
 
   async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
@@ -131,7 +132,7 @@ describe("members chat", () => {
       expect(posted.content).toBe("hello **members**");
       expect(posted.attachments).toEqual([]);
 
-      const seen = await memberWs.waitFor("members_chat_message");
+      const seen = await memberWs.waitFor("room_chat_message");
       expect((seen.message as MembersChatMessage).id).toBe(posted.id);
 
       const page = await api(server, "/api/members-chat", {
@@ -248,7 +249,7 @@ describe("members chat", () => {
         ).status,
       ).toBe(403);
 
-      // Owner deletes the member's: 204 + members_chat_deleted; then 404.
+      // Owner deletes the member's: 204 + room_chat_deleted; then 404.
       expect(
         (
           await api(server, `/api/members-chat/${mine.id}`, {
@@ -257,7 +258,7 @@ describe("members chat", () => {
           })
         ).status,
       ).toBe(204);
-      const gone = await ownerWs.waitFor("members_chat_deleted");
+      const gone = await ownerWs.waitFor("room_chat_deleted");
       expect(gone.id).toBe(mine.id);
       expect(
         (
@@ -294,12 +295,12 @@ describe("members chat", () => {
       });
       expect(read.status).toBe(200);
       expect(read.body).toEqual({ readPointer: a.id, unread: 1 });
-      const synced = await laptop.waitFor("members_chat_read");
+      const synced = await laptop.waitFor("room_chat_read");
       expect(synced).toMatchObject({ readPointer: a.id, unread: 1 });
       // The owner's socket is not told about the member's pointer.
       expect(
         ownerWs.messages.some(
-          (m) => (m as { type?: string }).type === "members_chat_read",
+          (m) => (m as { type?: string }).type === "room_chat_read",
         ),
       ).toBe(false);
 
@@ -327,7 +328,10 @@ describe("members chat", () => {
         const socket = await server!.connectWs(session);
         const full = await socket.waitFor("full_state");
         socket.close();
-        return full.membersChat;
+        // The lobby chat is the old members chat (task 5b055cf3).
+        return (full.roomChats as Record<string, unknown> | undefined)?.[
+          LOBBY_ROOM_ID
+        ];
       };
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: null,
@@ -497,11 +501,15 @@ describe("members chat", () => {
   });
 
   describe("members chat REST: who may enter", () => {
-    it("an ordinary agent and a cron run get 403 on read and write; a privileged agent posts as itself", async () => {
+    // The members chat is the lobby's room chat (task 5b055cf3): an agent that
+    // is not privileged reaches it only from the lobby. The bot sits in
+    // another room. The room chat reach table is routes-room-chat-rest.test.ts.
+    it("an ordinary agent outside the lobby and a cron run get 403 on read and write; a privileged agent posts as itself", async () => {
       server = await startTestServer();
       await server.seedOwner("Nil");
       const ownerId = getUserByName("Nil")!.id;
       const bot = await spawnAgent(server, "Bot");
+      expect(bot.roomId).not.toBe(LOBBY_ROOM_ID);
       const plain = mintAgentToken(bot.id, ownerId);
       for (const bearer of [plain, mintRunToken("job-1", "run-1", ownerId)]) {
         expect(
@@ -535,6 +543,7 @@ describe("members chat", () => {
       expect(asAgent.status).toBe(201);
       const m = asAgent.body as MembersChatMessage;
       expect(m.kind).toBe("agent");
+      expect(m.agentId).toBe(bot.id);
       expect(m.userName).toBe("Bot");
       expect(m.userId).toBe(ownerId);
       expect(m.device).toBeUndefined();
@@ -683,7 +692,7 @@ describe("members chat", () => {
       });
       expect(pinned.status).toBe(200);
       expect((pinned.body as MembersChatMessage).pinnedAt).toBeGreaterThan(0);
-      const event = await socket.waitFor("members_chat_message");
+      const event = await socket.waitFor("room_chat_message");
       expect(event.updateOnly).toBe(true);
       expect((event.message as MembersChatMessage).pinnedAt).toBe(
         (pinned.body as MembersChatMessage).pinnedAt,
@@ -835,7 +844,7 @@ describe("members chat reactions", () => {
     expect(reacted.thumbsUp).toEqual([
       { kind: "user", userId: nilId, userName: "Nil" },
     ]);
-    expect(await socket.waitFor("members_chat_message")).toMatchObject({
+    expect(await socket.waitFor("room_chat_message")).toMatchObject({
       updateOnly: true,
       message: reacted,
     });
@@ -887,12 +896,12 @@ describe("members chat reactions", () => {
     const another = await (
       await request("POST", "/api/members-chat", { text: "Edit me" })
     ).json();
-    await editSocket.waitFor("members_chat_message");
+    await editSocket.waitFor("room_chat_message");
     editSocket.messages.length = 0;
     await request("PATCH", `/api/members-chat/${another.id}`, {
       text: "Edited",
     });
-    expect(await editSocket.waitFor("members_chat_message")).toMatchObject({
+    expect(await editSocket.waitFor("room_chat_message")).toMatchObject({
       updateOnly: true,
       message: { content: "Edited" },
     });
@@ -942,9 +951,39 @@ describe("members chat reactions", () => {
     const response = await react(privileged);
     expect(response.status).toBe(200);
     expect((await response.json()).thumbsUp).toEqual([
-      { kind: "agent", userId, userName: "Helper" },
+      { kind: "agent", userId, agentId: bot!.id, userName: "Helper" },
     ]);
-    await react(privileged, false);
+    // An agent's thumbs-up is its own (task 5b055cf3): its manager's thumb
+    // sits beside it, and taking one back leaves the other.
+    const byOwner = await srv.http(path, {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: true }),
+    });
+    expect(byOwner.status).toBe(200);
+    expect(
+      ((await byOwner.json()) as MembersChatMessage).thumbsUp?.map((r) => [
+        r.kind,
+        r.agentId ?? null,
+      ]),
+    ).toEqual([
+      ["agent", bot!.id],
+      ["user", null],
+    ]);
+    const undone = await react(privileged, false);
+    expect(
+      ((await undone.json()) as MembersChatMessage).thumbsUp?.map(
+        (r) => r.kind,
+      ),
+    ).toEqual(["user"]);
+    const ownerUndo = await srv.http(path, {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: false }),
+    });
+    expect(ownerUndo.status).toBe(200);
     const minted = await srv.http("/api/me/api-tokens", {
       method: "POST",
       rawSessionId: owner.rawSessionId,

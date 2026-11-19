@@ -4,6 +4,7 @@
 // is nothing to copy. Each negative case runs next to a positive control on the
 // same selection, so a handler that never fires cannot pass it.
 
+import { lobbyChats } from "../test-support/room-chats.ts";
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
@@ -175,7 +176,7 @@ describe("members chat", () => {
     setApiShim(async () => ({ readPointer: null, unread: 0 }));
     const view = render(
       onLanguage("en", <MembersChatPanel />, {
-        membersChat: {
+        roomChats: lobbyChats({
           loaded: true,
           messages: [
             {
@@ -191,7 +192,7 @@ describe("members chat", () => {
           hasMore: false,
           unread: 0,
           readPointer: null,
-        },
+        }),
       }),
     );
     const list = view.container.querySelector("[data-members-chat-list]")!;

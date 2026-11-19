@@ -114,9 +114,11 @@ import { useCan } from "./hooks/useCan.ts";
 import {
   humanChatForPath,
   humanChatId,
-  MEMBERS_CHAT,
+  roomChat,
   type HumanChatKey,
 } from "./human-chat.ts";
+import { useRoomChatRows } from "./members-chat/room-chat-rows.ts";
+import { useMemberChatRows } from "./members-chat/member-rows.ts";
 import { HumanChatView } from "./members-chat/HumanChatView.tsx";
 import {
   PageCloseLabelContext,
@@ -848,7 +850,21 @@ export function App({ routing = true }: { routing?: boolean }) {
     [openSettings],
   );
 
-  // /chats/members or /chats/<userId> (a web push link) opens that chat, as
+  // The phone's chat button: the chat of the room in view, or, without room
+  // chats (a permission pack), the first 1:1 chat.
+  const roomChatRowsNow = useRoomChatRows();
+  const memberChatRowsNow = useMemberChatRows();
+  const roomInViewId = lobbyOpen ? LOBBY_ROOM_ID : currentRoomId;
+  const phoneChat: HumanChatKey | null = roomChatRowsNow.some(
+    (row) => row.roomId === roomInViewId,
+  )
+    ? roomChat(roomInViewId!)
+    : memberChatRowsNow[0]
+      ? { kind: "dm", peerId: memberChatRowsNow[0].id }
+      : null;
+
+  // /chats/rooms/<roomId>, /chats/members (the lobby's) or /chats/<userId>
+  // (a web push link) opens that chat, as
   // an agent's address does: read once at mount, after the saved-spot restore.
   const [bootHumanChat, setBootHumanChat] = useState(() =>
     humanChatForPath(window.location.pathname),
@@ -1447,7 +1463,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         viewportControlsRef={viewportControlsRef}
         sidebarOpen={sidebarShown}
         onShowSidebar={showSidebar}
-        onOpenMembersChat={() => openHumanChatView(MEMBERS_CHAT)}
+        onOpenChat={phoneChat ? () => openHumanChatView(phoneChat) : undefined}
       />
     );
   const content = (

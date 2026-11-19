@@ -114,7 +114,10 @@ export function fitsInside(sender: PackSender, target: FitTarget): boolean {
   if (sender.agent && stopHasFolder(target.access)) return false;
   for (const [area, level] of Object.entries(target.pack.areas)) {
     const own = sender.areas[area as ApiTokenArea];
-    if (!own || LEVEL_RANK[own] < LEVEL_RANK[level]) return false;
+    // The target posts in a room chat as itself, marked limited, so the
+    // sender needs only to read it (task 5b055cf3).
+    const needed = area === "membersChat" ? "read" : level;
+    if (!own || LEVEL_RANK[own] < LEVEL_RANK[needed]) return false;
   }
   // The target reaches every room its manager reaches: a room-limited sender
   // must have them all.

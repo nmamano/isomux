@@ -12,6 +12,8 @@ import { describe, it, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { reducer, initialState, StateCtx, type AppState } from "./store.tsx";
+import { EMPTY_ROOM_CHAT } from "./room-chats-reducer.ts";
+import { LOBBY_ROOM_ID } from "../shared/types.ts";
 import type { DraftAttachment } from "./log-view/draft-attachments.ts";
 import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
 import {
@@ -1203,7 +1205,7 @@ describe("reducer: room_order_updated", () => {
       slashCommands: new Map([["agent-b", { commands: [], skills: [] }]]),
       stateChangedAt: new Map([["agent-b", 5]]),
       hydrationEpoch: 3,
-      membersChat: { ...s.membersChat, loaded: true },
+      roomChats: { [LOBBY_ROOM_ID]: { ...EMPTY_ROOM_CHAT, loaded: true } },
     };
     const after = reducer(before, {
       type: "room_order_updated",
@@ -1219,7 +1221,7 @@ describe("reducer: room_order_updated", () => {
       "slashCommands",
       "stateChangedAt",
       "hydrationEpoch",
-      "membersChat",
+      "roomChats",
       "focusedAgentId",
     ] as const) {
       expect(after[key]).toBe(before[key]);
@@ -1547,7 +1549,11 @@ describe("settings page: panes and initialTarget routing", () => {
   });
 });
 
-describe("reducer: members chat slice", () => {
+// The lobby's room chat (task 5b055cf3), once the members chat.
+const lobbyChat = (s: AppState) =>
+  s.roomChats[LOBBY_ROOM_ID] ?? EMPTY_ROOM_CHAT;
+
+describe("reducer: room chat slice (the lobby's)", () => {
   const msg = (id: string, userId = "u-other"): MembersChatMessage => ({
     id,
     kind: "user",
@@ -1559,6 +1565,8 @@ describe("reducer: members chat slice", () => {
   });
   const withMe: AppState = {
     ...initialState,
+    // full_state's lobby summary landed: the lobby chat has an entry.
+    roomChats: { [LOBBY_ROOM_ID]: EMPTY_ROOM_CHAT },
     sessionContext: {
       userId: "u-me",
       username: "Me",
@@ -1570,7 +1578,8 @@ describe("reducer: members chat slice", () => {
 
   it("updates held messages only while normal arrivals still raise unread", () => {
     const first = reducer(withMe, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: msg("held"),
     });
     const update = {
@@ -1580,48 +1589,53 @@ describe("reducer: members chat slice", () => {
       ],
     };
     const replaced = reducer(first, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: update,
       updateOnly: true,
     });
-    expect(replaced.membersChat.messages).toEqual([update]);
-    expect(replaced.membersChat.unread).toBe(1);
+    expect(lobbyChat(replaced).messages).toEqual([update]);
+    expect(lobbyChat(replaced).unread).toBe(1);
     const ignored = reducer(replaced, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: msg("unheld"),
       updateOnly: true,
     });
-    expect(ignored.membersChat.messages).toEqual([update]);
-    expect(ignored.membersChat.unread).toBe(1);
+    expect(lobbyChat(ignored).messages).toEqual([update]);
+    expect(lobbyChat(ignored).unread).toBe(1);
     const arrived = reducer(ignored, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: msg("new"),
     });
-    expect(arrived.membersChat.messages).toEqual([update, msg("new")]);
-    expect(arrived.membersChat.unread).toBe(2);
+    expect(lobbyChat(arrived).messages).toEqual([update, msg("new")]);
+    expect(lobbyChat(arrived).unread).toBe(2);
   });
 
   it("a fresh page replaces the slice but keeps a live message that arrived after it was built", () => {
     const live = reducer(withMe, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: msg("202609-00000009"),
     });
-    expect(live.membersChat.unread).toBe(1);
+    expect(lobbyChat(live).unread).toBe(1);
     const paged = reducer(live, {
-      type: "members_chat_page",
+      type: "room_chat_page",
+      roomId: LOBBY_ROOM_ID,
       messages: [msg("202609-00000001"), msg("202609-00000002")],
       hasMore: true,
       readPointer: "202609-00000001",
       unread: 1,
       prepend: false,
     });
-    expect(paged.membersChat.messages.map((m) => m.id)).toEqual([
+    expect(lobbyChat(paged).messages.map((m) => m.id)).toEqual([
       "202609-00000001",
       "202609-00000002",
       "202609-00000009",
     ]);
-    expect(paged.membersChat.loaded).toBe(true);
-    expect(paged.membersChat.readPointer).toBe("202609-00000001");
+    expect(lobbyChat(paged).loaded).toBe(true);
+    expect(lobbyChat(paged).readPointer).toBe("202609-00000001");
   });
 
   it("replaces request-time cache but retains a lower-ID arrival during a fresh fetch", () => {
@@ -1629,10 +1643,13 @@ describe("reducer: members chat slice", () => {
     const liveMessage = msg("202609-00000001");
     const state = {
       ...withMe,
-      membersChat: { ...withMe.membersChat, messages: [old, liveMessage] },
+      roomChats: {
+        [LOBBY_ROOM_ID]: { ...EMPTY_ROOM_CHAT, messages: [old, liveMessage] },
+      },
     };
     const result = reducer(state, {
-      type: "members_chat_page",
+      type: "room_chat_page",
+      roomId: LOBBY_ROOM_ID,
       prepend: false,
       messages: [msg("202609-eeeeeeee")],
       heldAtRequest: [old.id],
@@ -1640,7 +1657,7 @@ describe("reducer: members chat slice", () => {
       readPointer: null,
       unread: 1,
     });
-    expect(result.membersChat.messages.map((message) => message.id)).toEqual([
+    expect(lobbyChat(result).messages.map((message) => message.id)).toEqual([
       "202609-eeeeeeee",
       "202609-00000001",
     ]);
@@ -1648,7 +1665,8 @@ describe("reducer: members chat slice", () => {
 
   it("an older page goes above what is held, without duplicates", () => {
     const base = reducer(withMe, {
-      type: "members_chat_page",
+      type: "room_chat_page",
+      roomId: LOBBY_ROOM_ID,
       messages: [msg("202609-00000005"), msg("202609-00000006")],
       hasMore: true,
       readPointer: null,
@@ -1656,64 +1674,74 @@ describe("reducer: members chat slice", () => {
       prepend: false,
     });
     const older = reducer(base, {
-      type: "members_chat_page",
+      type: "room_chat_page",
+      roomId: LOBBY_ROOM_ID,
       messages: [msg("202608-00000001"), msg("202609-00000005")],
       hasMore: false,
       readPointer: null,
       unread: 2,
       prepend: true,
     });
-    expect(older.membersChat.messages.map((m) => m.id)).toEqual([
+    expect(lobbyChat(older).messages.map((m) => m.id)).toEqual([
       "202608-00000001",
       "202609-00000005",
       "202609-00000006",
     ]);
-    expect(older.membersChat.hasMore).toBe(false);
+    expect(lobbyChat(older).hasMore).toBe(false);
   });
 
   it("upserts an edit in place, appends a new message, and counts only others' as unread", () => {
     const one = reducer(withMe, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: msg("202609-00000001", "u-me"),
     });
-    expect(one.membersChat.unread).toBe(0);
+    expect(lobbyChat(one).unread).toBe(0);
     const two = reducer(one, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: msg("202609-00000002"),
     });
-    expect(two.membersChat.unread).toBe(1);
+    expect(lobbyChat(two).unread).toBe(1);
     const edited = reducer(two, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: { ...msg("202609-00000001", "u-me"), content: "edited" },
     });
-    expect(edited.membersChat.messages.map((m) => m.content)).toEqual([
+    expect(lobbyChat(edited).messages.map((m) => m.content)).toEqual([
       "edited",
       "202609-00000002",
     ]);
-    expect(edited.membersChat.unread).toBe(1);
+    expect(lobbyChat(edited).unread).toBe(1);
     const gone = reducer(edited, {
-      type: "members_chat_deleted",
+      type: "room_chat_deleted",
+      roomId: LOBBY_ROOM_ID,
       id: "202609-00000002",
     });
-    expect(gone.membersChat.messages.map((m) => m.id)).toEqual([
+    expect(lobbyChat(gone).messages.map((m) => m.id)).toEqual([
       "202609-00000001",
     ]);
-    expect(reducer(gone, { type: "members_chat_deleted", id: "nope" })).toBe(
-      gone,
-    );
+    expect(
+      reducer(gone, {
+        type: "room_chat_deleted",
+        roomId: LOBBY_ROOM_ID,
+        id: "nope",
+      }),
+    ).toBe(gone);
     const read = reducer(gone, {
-      type: "members_chat_read",
+      type: "room_chat_read",
+      roomId: LOBBY_ROOM_ID,
       readPointer: "202609-00000001",
       unread: 0,
     });
-    expect(read.membersChat.readPointer).toBe("202609-00000001");
-    expect(read.membersChat.unread).toBe(0);
+    expect(lobbyChat(read).readPointer).toBe("202609-00000001");
+    expect(lobbyChat(read).unread).toBe(0);
   });
 
   // The panel holds the pinned bar's place from this count until the page
   // fills pinned (task 133710db).
   it("takes the pin count from full_state's summary and replaces it on the next one", () => {
-    const fullState = (membersChat?: {
+    const fullState = (lobby?: {
       readPointer: string | null;
       unread: number;
       pins?: number;
@@ -1726,23 +1754,213 @@ describe("reducer: members chat slice", () => {
         rooms: [],
         killedAgents: [],
         interactions: [],
-        ...(membersChat ? { membersChat } : {}),
+        ...(lobby ? { roomChats: { [LOBBY_ROOM_ID]: lobby } } : {}),
       }) as unknown as Parameters<typeof reducer>[1];
     const first = reducer(
       withMe,
       fullState({ readPointer: null, unread: 3, pins: 2 }),
     );
-    expect(first.membersChat.pinCount).toBe(2);
-    expect(first.membersChat.unread).toBe(3);
+    expect(lobbyChat(first).pinCount).toBe(2);
+    expect(lobbyChat(first).unread).toBe(3);
     const next = reducer(
       first,
       fullState({ readPointer: null, unread: 3, pins: 0 }),
     );
-    expect(next.membersChat.pinCount).toBe(0);
+    expect(lobbyChat(next).pinCount).toBe(0);
     // An older server sends no count: nothing to hold a place for.
     const older = reducer(withMe, fullState({ readPointer: null, unread: 1 }));
-    expect(older.membersChat.unread).toBe(1);
-    expect(older.membersChat.pinCount).toBeUndefined();
+    expect(lobbyChat(older).unread).toBe(1);
+    expect(lobbyChat(older).pinCount).toBeUndefined();
+  });
+});
+
+// Room chats by room (task 5b055cf3): each room's chat is its own slice; a
+// hidden room's slice lives in the store but counts nowhere; an open room chat
+// closes when its room leaves the member's reach.
+describe("reducer: room chats by room", () => {
+  const post = (
+    id: string,
+    over: Partial<MembersChatMessage> = {},
+  ): MembersChatMessage => ({
+    id,
+    kind: "user",
+    userId: "u-other",
+    userName: "Other",
+    timestamp: 1,
+    content: id,
+    attachments: [],
+    ...over,
+  });
+  const room = (id: string) => ({
+    id,
+    name: id.toUpperCase(),
+    prompt: null,
+    canCloseWhenEmpty: true,
+  });
+  const fullState = (
+    rooms: string[],
+    summaries: Record<string, number> | undefined,
+  ) =>
+    ({
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: rooms.map(room),
+      killedAgents: [],
+      interactions: [],
+      ...(summaries
+        ? {
+            roomChats: Object.fromEntries(
+              Object.entries(summaries).map(([id, unread]) => [
+                id,
+                { readPointer: null, unread },
+              ]),
+            ),
+          }
+        : {}),
+    }) as unknown as Parameters<typeof reducer>[1];
+  const me = {
+    userId: "u-me",
+    username: "Me",
+    role: "member",
+    currentSessionPrefix: "x",
+    connectionId: "c",
+  } as unknown as AppState["sessionContext"];
+  // Rooms a and b, both reached; the member is u-me.
+  const landed = (): AppState => ({
+    ...reducer(initialState, fullState(["a", "b"], { lobby: 0, a: 0, b: 0 })),
+    sessionContext: me,
+  });
+  const unreadOf = (st: AppState) =>
+    Object.fromEntries(
+      Object.entries(st.roomChats).map(([id, c]) => [id, c.unread]),
+    );
+  const arrive = (
+    st: AppState,
+    roomId: string,
+    message: MembersChatMessage,
+    updateOnly?: boolean,
+  ) =>
+    reducer(st, {
+      type: "room_chat_message",
+      roomId,
+      message,
+      ...(updateOnly ? { updateOnly } : {}),
+    });
+
+  it("an event for one room leaves the other rooms' chats as they were", () => {
+    const st = landed();
+    const after = arrive(st, "a", post("p1"));
+    expect(unreadOf(after)).toEqual({ lobby: 0, a: 1, b: 0 });
+    expect(after.roomChats.b).toBe(st.roomChats.b);
+    expect(after.roomChats.lobby).toBe(st.roomChats.lobby);
+    const deleted = reducer(after, {
+      type: "room_chat_deleted",
+      roomId: "b",
+      id: "p1",
+    });
+    expect(deleted.roomChats.a.messages.map((m) => m.id)).toEqual(["p1"]);
+    const read = reducer(after, {
+      type: "room_chat_read",
+      roomId: "b",
+      readPointer: "x",
+      unread: 0,
+    });
+    expect(read.roomChats.a).toBe(after.roomChats.a);
+  });
+
+  it("counts a post from someone else or from my agent, not my own or my token's", () => {
+    const st = landed();
+    const cases: Array<[string, Partial<MembersChatMessage>, number]> = [
+      ["someone else", {}, 1],
+      ["me", { userId: "u-me" }, 0],
+      ["my token", { userId: "u-me", kind: "api" }, 0],
+      ["my agent", { userId: "u-me", kind: "agent", agentId: "ag-1" }, 1],
+    ];
+    for (const [label, over, unread] of cases)
+      expect({
+        label,
+        unread: arrive(st, "a", post("p", over)).roomChats.a.unread,
+      }).toEqual({ label, unread });
+  });
+
+  it("a new post in a room with no slice makes one; an edit or a pin there is no news", () => {
+    const st = landed();
+    const edit = arrive(st, "c", post("p1"), true);
+    expect(edit).toBe(st);
+    // A pinned post's update (a pin, or an edit of a pinned post) for a room
+    // the store does not hold (pruned at room_closed or a lost access) makes
+    // no slice either.
+    const pin = arrive(st, "c", post("p1", { pinnedAt: 5 }), true);
+    expect(Object.keys(pin.roomChats).sort()).toEqual(["a", "b", "lobby"]);
+    const fresh = arrive(st, "c", post("p2"));
+    expect({
+      unread: fresh.roomChats.c?.unread,
+      ids: fresh.roomChats.c?.messages.map((m) => m.id),
+    }).toEqual({ unread: 1, ids: ["p2"] });
+  });
+
+  it("full_state sets each summary, keeps held posts unloaded, and drops a room it leaves out", () => {
+    let st = landed();
+    st = arrive(st, "a", post("p1"));
+    st = reducer(st, {
+      type: "room_chat_page",
+      roomId: "a",
+      messages: [post("p1")],
+      hasMore: false,
+      readPointer: null,
+      unread: 1,
+    } as Parameters<typeof reducer>[1]);
+    expect(st.roomChats.a.loaded).toBe(true);
+    const next = reducer(st, fullState(["a"], { lobby: 2, a: 5 }));
+    expect({
+      keys: Object.keys(next.roomChats).sort(),
+      unread: unreadOf(next),
+      held: next.roomChats.a.messages.map((m) => m.id),
+      loaded: next.roomChats.a.loaded,
+    }).toEqual({
+      keys: ["a", "lobby"],
+      unread: { lobby: 2, a: 5 },
+      held: ["p1"],
+      loaded: false,
+    });
+  });
+
+  it("a closed room's chat goes", () => {
+    const st = landed();
+    const closed = reducer(st, { type: "room_closed", roomId: "b" });
+    expect(Object.keys(closed.roomChats).sort()).toEqual(["a", "lobby"]);
+  });
+
+  it("an open room chat closes when its room leaves the member's reach, and stays while it is reached", () => {
+    const open = (st: AppState, roomId: string) =>
+      reducer(st, {
+        type: "open_human_chat",
+        chat: { kind: "room", roomId },
+      });
+    const inA = open(landed(), "a");
+    expect(inA.openHumanChat).toEqual({ kind: "room", roomId: "a" });
+    // A post elsewhere keeps it open.
+    expect(arrive(inA, "b", post("p")).openHumanChat).toEqual({
+      kind: "room",
+      roomId: "a",
+    });
+    const cases: Array<[string, AppState]> = [
+      ["room closed", reducer(inA, { type: "room_closed", roomId: "a" })],
+      ["access lost", reducer(inA, fullState(["b"], { lobby: 0, b: 0 }))],
+      // Hidden: the room left state.rooms, its summary is still sent.
+      ["room hidden", reducer(inA, fullState(["b"], { lobby: 0, a: 0, b: 0 }))],
+    ];
+    for (const [label, st] of cases)
+      expect({ label, open: st.openHumanChat }).toEqual({ label, open: null });
+    // The lobby's chat stays open across a full_state.
+    const lobby = open(landed(), "lobby");
+    expect(
+      reducer(lobby, fullState(["a"], { lobby: 0, a: 0 })).openHumanChat,
+    ).toEqual({ kind: "room", roomId: "lobby" });
+    // A room you never reached does not open.
+    expect(open(landed(), "zzz").openHumanChat).toBeNull();
   });
 });
 
@@ -1823,24 +2041,77 @@ describe("RoomTabBar: the Lobby tab", () => {
       ),
     );
 
-  // The tab carries no unread dot: the human chats left the lobby, and the
-  // sidebar and the phone's chat button count them (task 019e4d7c).
-  it("is first, carries no unread dot, and takes the active style from the rooms", () => {
+  // The tabs' dots (task 5b055cf3): a room chat with unread posts lights its
+  // room's tab, and the Lobby tab for the lobby's chat, never on the tab in
+  // view. The colour rule is room-activity.test.ts.
+  const beta = {
+    id: "r2",
+    name: "Beta",
+    prompt: null,
+    canCloseWhenEmpty: true,
+  };
+  const chats = (unread: Record<string, number>) => ({
+    roomChats: Object.fromEntries(
+      Object.entries(unread).map(([id, n]) => [
+        id,
+        { ...EMPTY_ROOM_CHAT, unread: n },
+      ]),
+    ),
+  });
+  // The room ids whose tab button holds a dot.
+  const dotted = (markup: string) =>
+    markup
+      .split('data-room-tab-button="')
+      .slice(1)
+      .filter((part) => {
+        const end = part.indexOf("data-room-tab-button");
+        return (end === -1 ? part : part.slice(0, end)).includes(
+          "data-room-tab-dot",
+        );
+      })
+      .map((part) => part.slice(0, part.indexOf('"')));
+
+  it("is first and takes the active style from the rooms", () => {
     const quiet = html({});
     expect(quiet.indexOf("Lobby")).toBeLessThan(quiet.indexOf("Alpha"));
-    expect(quiet).not.toContain("data-lobby-unread");
     expect(quiet).toContain("data-active-room-tab");
-    const busy = html({
+    const open = html({ lobbyOpen: true });
+    expect(open.indexOf("Lobby")).toBeLessThan(open.indexOf("Alpha"));
+    expect(open).not.toContain("data-active-room-tab");
+  });
+
+  it("lights the tab of a room chat with unread posts, never the one in view", () => {
+    const rooms = [
+      { id: "r1", name: "Alpha", prompt: null, canCloseWhenEmpty: true },
+      beta,
+    ];
+    const quiet = html({ rooms, ...chats({ lobby: 0, r1: 0, r2: 0 }) });
+    expect({
+      lobby: quiet.includes("data-lobby-tab-dot"),
+      rooms: dotted(quiet),
+    }).toEqual({ lobby: false, rooms: [] });
+    // Alpha is in view.
+    const unread = html({ rooms, ...chats({ lobby: 7, r1: 4, r2: 2 }) });
+    expect({
+      lobby: unread.includes("data-lobby-tab-dot"),
+      rooms: dotted(unread),
+    }).toEqual({ lobby: true, rooms: ["r2"] });
+    // The lobby is in view: its tab has no dot, and Alpha's has.
+    const inLobby = html({
+      rooms,
       lobbyOpen: true,
-      membersChat: { ...initialState.membersChat, unread: 7 },
+      ...chats({ lobby: 7, r1: 4, r2: 0 }),
     });
-    expect(busy.indexOf("Lobby")).toBeLessThan(busy.indexOf("Alpha"));
-    expect(busy).not.toContain("data-lobby-unread");
-    expect(busy).not.toContain("data-active-room-tab");
+    expect({
+      lobby: inLobby.includes("data-lobby-tab-dot"),
+      rooms: dotted(inLobby),
+    }).toEqual({ lobby: false, rooms: ["r1"] });
+    // The dot shows the chat's colour.
+    expect(unread).toContain('data-room-tab-dot="var(--accent)"');
   });
 });
 
-describe("members chat pins outside the loaded page", () => {
+describe("room chat pins outside the loaded page", () => {
   const pin = {
     id: "202608-00000001",
     kind: "user" as const,
@@ -1853,58 +2124,67 @@ describe("members chat pins outside the loaded page", () => {
   };
   const start: AppState = {
     ...initialState,
-    membersChat: {
-      ...initialState.membersChat,
-      loaded: true,
-      messages: [],
-      unread: 7,
-      pinned: [],
+    roomChats: {
+      [LOBBY_ROOM_ID]: {
+        ...EMPTY_ROOM_CHAT,
+        loaded: true,
+        messages: [],
+        unread: 7,
+        pinned: [],
+      },
     },
   };
   it("updates an unloaded pin without appending a message or increasing unread, and deletes it", () => {
     const pinned = reducer(start, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: pin,
       updateOnly: true,
     });
-    expect(pinned.membersChat.pinned).toEqual([pin]);
-    expect(pinned.membersChat.messages).toEqual([]);
-    expect(pinned.membersChat.unread).toBe(7);
-    expect(pinned.membersChat.pinsStale).toBe(true);
+    expect(lobbyChat(pinned).pinned).toEqual([pin]);
+    expect(lobbyChat(pinned).messages).toEqual([]);
+    expect(lobbyChat(pinned).unread).toBe(7);
+    expect(lobbyChat(pinned).pinsStale).toBe(true);
     const edited = reducer(pinned, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: { ...pin, content: "edited" },
       updateOnly: true,
     });
-    expect(edited.membersChat.pinned?.[0].content).toBe("edited");
+    expect(lobbyChat(edited).pinned?.[0].content).toBe("edited");
     const removed = reducer(edited, {
-      type: "members_chat_deleted",
+      type: "room_chat_deleted",
+      roomId: LOBBY_ROOM_ID,
       id: pin.id,
     });
-    expect(removed.membersChat.pinned).toEqual([]);
-    expect(removed.membersChat.unread).toBe(7);
+    expect(lobbyChat(removed).pinned).toEqual([]);
+    expect(lobbyChat(removed).unread).toBe(7);
   });
   it("unpins immediately and refuses stale HTTP pin snapshots", () => {
     const pinned = reducer(start, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: pin,
       updateOnly: true,
     });
     const { pinnedAt: _time, ...unpinned } = pin;
     const removed = reducer(pinned, {
-      type: "members_chat_message",
+      type: "room_chat_message",
+      roomId: LOBBY_ROOM_ID,
       message: unpinned,
       updateOnly: true,
     });
-    expect(removed.membersChat.pinned).toEqual([]);
+    expect(lobbyChat(removed).pinned).toEqual([]);
     const stale = reducer(removed, {
-      type: "members_chat_pins",
+      type: "room_chat_pins",
+      roomId: LOBBY_ROOM_ID,
       pinned: [pin],
       pinsRevisionAtRequest: 1,
     });
-    expect(stale.membersChat.pinned).toEqual([]);
+    expect(lobbyChat(stale).pinned).toEqual([]);
     const stalePage = reducer(removed, {
-      type: "members_chat_page",
+      type: "room_chat_page",
+      roomId: LOBBY_ROOM_ID,
       messages: [],
       pinned: [pin],
       hasMore: false,
@@ -1913,14 +2193,15 @@ describe("members chat pins outside the loaded page", () => {
       prepend: false,
       pinsRevisionAtRequest: 1,
     });
-    expect(stalePage.membersChat.pinned).toEqual([]);
+    expect(lobbyChat(stalePage).pinned).toEqual([]);
     const refreshed = reducer(removed, {
-      type: "members_chat_pins",
+      type: "room_chat_pins",
+      roomId: LOBBY_ROOM_ID,
       pinned: [],
       pinsRevisionAtRequest: 2,
     });
-    expect(refreshed.membersChat.pinsStale).toBe(false);
-    expect(refreshed.membersChat.unread).toBe(7);
+    expect(lobbyChat(refreshed).pinsStale).toBe(false);
+    expect(lobbyChat(refreshed).unread).toBe(7);
   });
 });
 

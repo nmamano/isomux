@@ -104,7 +104,7 @@ export function setUpLazyChatTests() {
       }));
     if (path === "/api/asks/others") return [];
     if (path === "/api/apps") return [];
-    if (path.startsWith("/api/members-chat"))
+    if (/^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     if (path.startsWith("/api/tasks")) return [];
     return {};

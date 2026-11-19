@@ -49,14 +49,17 @@ import {
   cronjobManager,
   extensionService,
   floors,
-  membersChat,
+  isLobbyRoomId,
   memberDms,
   openCodeRunsOnHost,
+  roomChats,
   uiBuildTracker,
 } from "./office-managers.ts";
 import type { OfficeOutbox } from "./office-ws-outbox.ts";
 import { loadRecentCwds } from "./persistence.ts";
 import { officeMemberNameOf } from "./member-dms.ts";
+import { markRoomChatsRead, newlyReachedRooms } from "./room-chats.ts";
+import { LOBBY_ROOM_ID, type MembersChatSummary } from "../shared/types.ts";
 import { taskVisibleTo } from "./task-visibility.ts";
 import { isClosedTask } from "../shared/task-board.ts";
 import { getUserById, updateUserById, type UserAccessChange } from "./users.ts";
@@ -288,6 +291,31 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         };
   }
 
+  // The rooms whose chat a session's member reaches: the lobby and every
+  // live room they can access.
+  function roomChatIdsFor(session: SessionLookup): Set<string> {
+    const ids = new Set<string>([LOBBY_ROOM_ID]);
+    for (const room of agentManager.getRooms()) {
+      if (isLobbyRoomId(room.id)) continue;
+      if (roomAllowedForSession(session, room.id)) ids.add(room.id);
+    }
+    return ids;
+  }
+
+  function roomChatSummaries(
+    session: SessionLookup,
+  ): Record<string, MembersChatSummary> {
+    const out: Record<string, MembersChatSummary> = {};
+    for (const roomId of roomChatIdsFor(session)) {
+      const store = roomChats.forRoom(roomId);
+      out[roomId] = {
+        ...store.summary(session.userId),
+        pins: store.pinCount(),
+      };
+    }
+    return out;
+  }
+
   function sendProjectedFullState(
     ws: ServerWebSocket<OfficeWsData>,
     options?: { replayLogsForVisible?: boolean },
@@ -363,14 +391,9 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           : { opencode: "needs_linux" },
         unavailableFeatures:
           appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
-        // Every office session is a person, who holds chat:members.
+        // Every office session is a person, who holds chat:room.
         ...(can("membersChat")
-          ? {
-              membersChat: {
-                ...membersChat.summary(session.userId),
-                pins: membersChat.pinCount(),
-              },
-            }
+          ? { roomChats: roomChatSummaries(session) }
           : {}),
         ...(can("directMessages")
           ? {
@@ -992,6 +1015,41 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     for (const ws of browsers) sendTasksTo(ws);
   }
 
+  // The room chats a user record reaches: none for a member whose pack has
+  // no membersChat area; else the lobby and every live room it can access
+  // (canAccess: an owner reaches every room).
+  function roomChatIdsOfRecord(
+    record: Pick<UserRecord, "role" | "allowedRooms" | "pack">,
+  ): Set<string> {
+    const ids = new Set<string>();
+    if (
+      record.role === "member" &&
+      record.pack &&
+      record.pack.areas.membersChat === undefined
+    )
+      return ids;
+    ids.add(LOBBY_ROOM_ID);
+    for (const room of agentManager.getRooms()) {
+      if (isLobbyRoomId(room.id)) continue;
+      if (record.role === "owner" || record.allowedRooms.includes(room.id))
+        ids.add(room.id);
+    }
+    return ids;
+  }
+
+  // At a grant, an owner promotion or a pack that gains the membersChat area,
+  // each room chat the user newly reaches opens with its old posts read, so
+  // an old room does not show every post it ever had as unread.
+  function openNewRoomChatsRead(userId: string, changed: UserAccessChange) {
+    const user = getUserById(userId);
+    if (!user) return;
+    const rooms = newlyReachedRooms(
+      roomChatIdsOfRecord(changed.previous),
+      roomChatIdsOfRecord(user),
+    );
+    markRoomChatsRead(roomChats, userId, rooms);
+  }
+
   // A user's room access changed (users.ts setOnUserAccessChanged, wired at boot).
   // Re-project every socket of that user; no other user's projection changed.
   // A role change first refreshes the cached ws.data.session, which role-keyed
@@ -1007,6 +1065,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   // room is gone, and the bare room_closed delta plus close's own every-socket
   // board and cronjobs push already converge them (no full_state log replay).
   function onUserAccessChanged(userId: string, changed: UserAccessChange) {
+    openNewRoomChatsRead(userId, changed);
     // A pack change: the member's pages reload (close code 4003, ui/ws.ts), so
     // the fresh connect gets the filtered snapshot and nothing the pack now
     // hides stays in the browser.

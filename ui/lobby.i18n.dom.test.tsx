@@ -1,12 +1,14 @@
-// The lobby scene and the members chat read the member's language. Spanish,
+// The lobby scene and the lobby's room chat read the member's language. Spanish,
 // with every anchor distinct from English, so missing catalog wiring cannot
 // hide behind English text.
+import { lobbyChats } from "./test-support/room-chats.ts";
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 import {
   SHIPPED_LANGUAGE_CODES,
   translationsFor,
 } from "./test-support/i18n.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
 
 setUpDomTestFile();
 
@@ -20,7 +22,13 @@ const { MembersChatPanel } =
 const ANCHOR = {
   welcome: translationsFor("lobby.welcome"),
   directory: translationsFor("lobby.directory"),
-  heading: translationsFor("membersChat.title"),
+  // The chat's title names the lobby in the member's language.
+  heading: Object.fromEntries(
+    SHIPPED_LANGUAGE_CODES.map((code) => {
+      const { t } = translatorFor(code);
+      return [code, t("roomChat.title", { room: t("common.lobby") })];
+    }),
+  ),
   placeholder: translationsFor("membersChat.placeholder"),
   empty: translationsFor("membersChat.empty"),
 };
@@ -32,15 +40,15 @@ it("resolves each anchor in every shipped language", () => {
     );
 });
 
-it("renders the lobby and the members chat in Spanish", () => {
+it("renders the lobby and its room chat in Spanish", () => {
   const state = {
-    membersChat: {
+    roomChats: lobbyChats({
       messages: [],
       hasMore: false,
       loaded: true,
       readPointer: null,
       unread: 0,
-    },
+    }),
   };
   const scene = render(
     onLanguage(

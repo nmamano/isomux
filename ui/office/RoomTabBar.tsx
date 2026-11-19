@@ -12,7 +12,8 @@ import {
   miniGhostClusterWidth,
   selectMiniGhosts,
 } from "./MiniGhostCluster.tsx";
-import type { PresenceInfo } from "../../shared/types.ts";
+import { LOBBY_ROOM_ID, type PresenceInfo } from "../../shared/types.ts";
+import { useRoomChatRows } from "../members-chat/room-chat-rows.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { roomActivityDotColor } from "./room-activity.ts";
@@ -292,6 +293,15 @@ export function RoomTabBar({
   } = useAppState();
   const { t } = useI18n();
   const createsRooms = useCreatesRooms();
+  // Unread per room chat, for the tab dots; a hidden room has no tab.
+  const roomChatRows = useRoomChatRows();
+  const chatUnreadOf = (roomId: string) =>
+    roomChatRows.find((row) => row.roomId === roomId)?.unread ?? 0;
+  const lobbyDotColor = roomActivityDotColor(
+    [],
+    lobbyOpen,
+    chatUnreadOf(LOBBY_ROOM_ID),
+  );
   // The placeholders' shape, read once per load.
   const [loadingShape] = useState(
     () => getOfficeShape() ?? OFFICE_SHAPE_DEFAULT,
@@ -616,7 +626,7 @@ export function RoomTabBar({
             }}
           >
             {/* The Lobby tab: client state, not a room. First, never draggable,
-            never reordered. The dot carries members chat attention;
+            never reordered. The dot carries the lobby chat's unread posts;
             room tabs stand down while the lobby is open. */}
             <div
               data-lobby-tab
@@ -658,6 +668,21 @@ export function RoomTabBar({
                 }}
               >
                 {t("common.lobby")}
+                {lobbyDotColor && (
+                  <span
+                    data-lobby-tab-dot
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      right: 2,
+                      width: 5,
+                      height: 5,
+                      borderRadius: "50%",
+                      background: lobbyDotColor,
+                      boxShadow: `0 0 4px ${lobbyDotColor}`,
+                    }}
+                  />
+                )}
               </button>
             </div>
             {loading &&
@@ -673,6 +698,7 @@ export function RoomTabBar({
               const activityDotColor = roomActivityDotColor(
                 roomAgents,
                 isActive,
+                chatUnreadOf(room.id),
               );
               const isEmpty = roomAgents.length === 0;
               const displayName = room.name;
@@ -806,6 +832,7 @@ export function RoomTabBar({
                     </span>
                     {activityDotColor && (
                       <span
+                        data-room-tab-dot={activityDotColor}
                         style={{
                           position: "absolute",
                           top: 2,

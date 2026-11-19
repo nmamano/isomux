@@ -609,6 +609,8 @@ export type UserAccessChange = {
   previousAllowedRooms: readonly string[];
   // The permission pack changed by value (areas and ceiling).
   pack: boolean;
+  // The record before the change, for the room chats a member newly reaches.
+  previous: Pick<UserRecord, "role" | "allowedRooms" | "pack">;
 };
 let onUserAccessChangedHook: (
   userId: string,
@@ -638,6 +640,11 @@ function notifyAccessChange(
     allowedRooms: !sameRoomSet(before.allowedRooms, after.allowedRooms),
     previousAllowedRooms: before.allowedRooms,
     pack: !samePack(before.pack, after.pack),
+    previous: {
+      role: before.role,
+      allowedRooms: before.allowedRooms,
+      ...(before.pack ? { pack: before.pack } : {}),
+    },
   };
   if (!changed.role && !changed.allowedRooms && !changed.pack) return;
   try {

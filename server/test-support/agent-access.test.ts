@@ -184,7 +184,13 @@ const TASKS_READ = { areas: { tasks: "read" } } as const;
 
 // The one grant of an agent at office, folder and web (task 82da687b).
 const FIXED_GRANT = {
-  areas: { agents: "write", tasks: "write", asks: "write" },
+  areas: {
+    agents: "write",
+    tasks: "write",
+    asks: "write",
+    // The room chats (task 5b055cf3).
+    membersChat: "write",
+  },
 } as const;
 
 // The stored agent records, as an older release or a hand edit left them.
@@ -827,6 +833,12 @@ const FIXED_TOOLS = [
   "messaging_reply",
   "messaging_read",
   "messaging_routes",
+  // The room chats (task 5b055cf3): no pin, upload, file or read-marker tool.
+  "room_chat_read",
+  "room_chat_post",
+  "room_chat_edit",
+  "room_chat_delete",
+  "room_chat_thumbs_up",
 ].sort();
 
 describe("/mcp for an agent below Standard", () => {

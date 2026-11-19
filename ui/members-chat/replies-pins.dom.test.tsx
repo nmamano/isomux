@@ -1,4 +1,5 @@
 import { afterAll, expect, it } from "bun:test";
+import { lobbyChats } from "../test-support/room-chats.ts";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
@@ -38,20 +39,20 @@ const reply = {
 function replyPanel() {
   return onLanguage("en", createElement(MembersChatPanel), {
     isMobile: true,
-    membersChat: {
+    roomChats: lobbyChats({
       messages: [original, reply],
       loaded: true,
       hasMore: false,
       readPointer: reply.id,
       unread: 0,
-    },
+    }),
   });
 }
 
 it("quotes plain snapshot text, jumps to a loaded target, sends only its id and cancels a quote", async () => {
   const requests: unknown[] = [];
   setApiShim(async (_method, path, body) => {
-    if (path !== "/api/members-chat") throw new Error(path);
+    if (path !== "/api/rooms/lobby/chat") throw new Error(path);
     requests.push(body);
     return reply;
   });
@@ -148,7 +149,7 @@ async function heldSend(
   const requests: unknown[] = [];
   let release!: () => void;
   setApiShim((_method, path, body) => {
-    if (path !== "/api/members-chat") throw new Error(path);
+    if (path !== "/api/rooms/lobby/chat") throw new Error(path);
     requests.push(body);
     return new Promise((resolve) => {
       release = () => resolve({ ...reply, id: "202609-00000003" });
@@ -281,6 +282,7 @@ it("jumps to a loaded pin and expands an unloaded pin in place with its unpin ac
     message: pinned,
     count: 1,
     author: "Sam",
+    fileBase: "/api/rooms/lobby/chat/files",
     loaded: true,
     onJump: () => {
       jumps++;
@@ -329,6 +331,7 @@ it("shows exactly twenty and the twenty-first sentinel", () => {
     message: pinned,
     count: 20,
     author: "Sam",
+    fileBase: "/api/rooms/lobby/chat/files",
     loaded: true,
     onJump: () => {},
     onUnpin: () => {},

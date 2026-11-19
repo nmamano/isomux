@@ -540,8 +540,14 @@ export class OfficeState {
   // `skin` absent (or null) creates the room in the office look, which is what
   // every room created before skins existed carries - the field stays off the
   // record rather than being written as "office".
-  createRoom(name?: string, skin?: RoomSkin | null): OfficeEvent[] {
-    const existingIds = this._rooms.map((r) => r.id);
+  // `reservedIds`: ids no new room may take, besides the live rooms' (the
+  // server passes the ids of closed rooms' chats).
+  createRoom(
+    name?: string,
+    skin?: RoomSkin | null,
+    reservedIds: readonly string[] = [],
+  ): OfficeEvent[] {
+    const existingIds = [...this._rooms.map((r) => r.id), ...reservedIds];
     const displayName = (name || `Room ${this.ordinaryRooms.length + 1}`)
       .trim()
       .slice(0, 40);

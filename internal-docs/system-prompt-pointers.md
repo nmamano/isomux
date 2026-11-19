@@ -99,7 +99,8 @@ The prompt lists these features with a topic name beside each one:
 | Inline diagrams | The agent fetches `GET /api/agent-reference/visuals`. |
 | Connections and their usage notes | The agent fetches `GET /api/agent-reference/connections`. |
 | Spawning agents and back-room workers, and killing the ones it spawned | The agent fetches `GET /api/agent-reference/spawning`. |
-| Privileged agent, room, members-chat, and member operations | A privileged agent fetches `agent-management`, `rooms`, `members-chat`, or `members`, one page per situation. |
+| Room chat | The agent fetches `GET /api/agent-reference/room-chat`. |
+| Privileged agent, room, 1:1 chat, and member operations | A privileged agent fetches `agent-management`, `rooms`, `member-chats`, or `members`, one page per situation. |
 | Session closeout | The agent invokes the built-in `/wrap-session` skill when the session goal is complete. |
 
 Each topic holds the current route, method, parameters, response shape, scope, error cases, and one safe example. Long operating procedures remain skills. `/wrap-session` is an example: the prompt lists it as a feature, and the skill carries the workflow.

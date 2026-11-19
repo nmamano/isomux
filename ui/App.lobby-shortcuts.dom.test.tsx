@@ -14,7 +14,7 @@ const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { en } = await import("../shared/i18n/en.ts");
 
 setApiShim(async (_method, path) =>
-  path.startsWith("/api/members-chat")
+  /^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path)
     ? { messages: [], hasMore: false, readPointer: null, unread: 0 }
     : { text: "", version: "v", size: 0, cap: 1000 },
 );

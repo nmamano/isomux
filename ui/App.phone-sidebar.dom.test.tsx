@@ -62,7 +62,7 @@ async function scoutRow(view: View): Promise<HTMLButtonElement | null> {
   ) as HTMLButtonElement | null;
 }
 
-it("the office bar, the agent chat and the members chat each have a sidebar button that opens the drawer; backdrop and hide close it; the desktop choice is never read or written", async () => {
+it("the office bar, the agent chat and a room chat each have a sidebar button that opens the drawer; backdrop and hide close it; the desktop choice is never read or written", async () => {
   // The desktop choice says open; the phone ignores it.
   window.localStorage.setItem(KEY, "open");
   const view = await bootPhone();
@@ -97,11 +97,16 @@ it("the office bar, the agent chat and the members chat each have a sidebar butt
     drawer: false,
   });
 
-  // The Members chat row: the same, from the members chat's header.
+  // The lobby's room chat row: the same, from the room chat's header.
   await click(showButton(view));
-  await click(inDrawer(view, 'button[data-sidebar-nav="members-chat"]'));
+  await click(
+    inDrawer(
+      view,
+      'button[data-sidebar-nav="room-chat"][data-room-chat="lobby"]',
+    ),
+  );
   expect({ chat: humanChat(view), drawer: drawer(view) !== null }).toEqual({
-    chat: "members",
+    chat: "room:lobby",
     drawer: false,
   });
   await click(showButton(view, "[data-human-chat]"));

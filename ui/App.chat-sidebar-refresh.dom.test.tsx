@@ -143,7 +143,7 @@ it("draws Pinned, Recent and Members together at full_state, Pinned and Recent f
   expect(navRow(view, "office")).not.toBeNull();
   expect(count(view, "[data-sidebar-members]")).toBe(0);
   expect(count(view, "[data-sidebar-member]")).toBe(0);
-  expect(count(view, '[data-sidebar-nav="members-chat"]')).toBe(0);
+  expect(count(view, '[data-sidebar-nav="room-chat"]')).toBe(0);
   expect(count(view, "[data-sidebar-section]")).toBe(0);
   expect(count(view, "[data-sidebar-room]")).toBe(0);
 

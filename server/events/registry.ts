@@ -215,11 +215,19 @@ export interface EventPayloads {
   // Recipient-scoped (by userId): the member's own Discord bots and their
   // status (task 7fd44c30).
   discord_status: { bots: DiscordBot[] };
-  // Members chat: a post or an in-place edit (upsert by id), a deletion, and the
-  // recipient's own read pointer moving on another device.
-  members_chat_message: { message: MembersChatMessage; updateOnly?: boolean };
-  members_chat_deleted: { id: string };
-  members_chat_read: { readPointer: string | null; unread: number };
+  // A room chat (task 5b055cf3): a post or an in-place edit (upsert by id), a
+  // deletion, and the recipient's own read pointer moving on another device.
+  room_chat_message: {
+    roomId: string;
+    message: MembersChatMessage;
+    updateOnly?: boolean;
+  };
+  room_chat_deleted: { roomId: string; id: string };
+  room_chat_read: {
+    roomId: string;
+    readPointer: string | null;
+    unread: number;
+  };
   // A 1:1 chat between two members: each member gets their own copy, with
   // peerId naming the other member. dm_read reaches the reader only.
   dm_message: {
@@ -459,11 +467,17 @@ export const EVENT_REGISTRY = {
   // (sendTasksTo), same model as presence_list - never a uniform `all` payload.
   // connectionId is the concrete recipient key. `tasks` is HYDRATION only now
   // (connect + room-access change); a mutation rides the two deltas below.
-  // Every browser socket is a human's; an agent never holds one, so `all` is
-  // exactly the members-chat audience.
-  members_chat_message: { audience: "all", projectionKey: { kind: "all" } },
-  members_chat_deleted: { audience: "all", projectionKey: { kind: "all" } },
-  members_chat_read: {
+  // Only the sockets that reach the room (canAccess lets every member into
+  // the lobby). room_chat_read reaches the reader's own sockets.
+  room_chat_message: {
+    audience: "room-ACL",
+    projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
+  },
+  room_chat_deleted: {
+    audience: "room-ACL",
+    projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
+  },
+  room_chat_read: {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },
   },

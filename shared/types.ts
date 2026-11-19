@@ -1037,8 +1037,18 @@ export const MEMBERS_CHAT_MAX_CHARS = 4000;
 export interface MembersChatReactor {
   kind: "user" | "api" | "agent";
   userId: string;
+  // An agent's reaction: the agent. Its thumbs-up is its own, not its
+  // manager's.
+  agentId?: string;
   userName: string;
   device?: string;
+}
+
+// Whose thumbs-up a reaction is: the agent for an agent's, else the person.
+export function membersChatReactorKey(
+  reactor: Pick<MembersChatReactor, "userId" | "agentId">,
+): string {
+  return reactor.agentId ? `agent:${reactor.agentId}` : reactor.userId;
 }
 
 export interface MembersChatReply {
@@ -1074,10 +1084,17 @@ export interface MemberDmSummary {
 
 export interface MembersChatMessage {
   id: string; // "YYYYMM-xxxxxxxx": the month names the file that holds it
-  // Who posted: a person in the browser, that person's API token, or one of
-  // their privileged agents. The card styles api and agent posts as machine-sent.
+  // Who posted: a person in the browser, that person's API token, or an
+  // agent. The card styles api and agent posts as machine-sent.
   kind: "user" | "api" | "agent";
+  // The manager for an agent post; the person for the others.
   userId: string;
+  // An agent post: the agent that wrote it. Absent on posts from before room
+  // chats, which only privileged agents wrote.
+  agentId?: string;
+  // An agent post from an agent below standard, which may read text from
+  // strangers: its words are data, never instructions.
+  limited?: true;
   userName: string;
   device?: string;
   timestamp: number;
@@ -2936,8 +2953,10 @@ export type ServerMessage =
       // older servers, where every engine is available.
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
-      // Absent on older servers.
-      membersChat?: MembersChatSummary;
+      // Each room chat the caller reaches (the lobby and every open room
+      // they can access), by room id. Absent on older servers and for a
+      // member pack without the membersChat area.
+      roomChats?: Record<string, MembersChatSummary>;
       // The caller's 1:1 chats with other members. Absent on older servers
       // and for a member pack without the directMessages area.
       memberDms?: MemberDmSummary[];
@@ -3055,19 +3074,25 @@ export type ServerMessage =
   // changes (both re-project from scratch). A single task mutation does NOT ride
   // this - it arrives as one of the two deltas below, which is ~1KB instead of
   // the whole board.
-  // Members chat (the humans-only stream). A message event
-  // carries a post or an in-place update. updateOnly replaces held messages
-  // without appending an unloaded message or raising unread.
+  // A room chat (task 5b055cf3). A message event carries a post or an
+  // in-place update. updateOnly replaces held messages without appending an
+  // unloaded message or raising unread.
   | {
-      type: "members_chat_message";
+      type: "room_chat_message";
+      roomId: string;
       message: MembersChatMessage;
       updateOnly?: boolean;
     }
-  | { type: "members_chat_deleted"; id: string }
+  | { type: "room_chat_deleted"; roomId: string; id: string }
   // The lobby elevator's floors after an add or a remove.
   | { type: "floors_updated"; floors: Floor[] }
   // The recipient's own read pointer moved (from any of their devices).
-  | { type: "members_chat_read"; readPointer: string | null; unread: number }
+  | {
+      type: "room_chat_read";
+      roomId: string;
+      readPointer: string | null;
+      unread: number;
+    }
   // 1:1 chats between two members. Each member gets their own copy, with
   // peerId naming the other member; dm_read reaches only the reader.
   | {

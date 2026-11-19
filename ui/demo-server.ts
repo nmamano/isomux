@@ -303,9 +303,8 @@ function defaultDemoMemory(scope: string): string {
   return "";
 }
 
-// Members chat: the humans-only stream. A canned page seeded
-// once per session; a post from the demo viewer lands as Ricky and fans out
-// through the same wire event the real server sends.
+// The lobby's room chat (once the members chat): a canned page seeded once
+// per session.
 let demoMembersChat: MembersChatMessage[] = [];
 let demoMembersChatSeq = 0;
 
@@ -629,6 +628,165 @@ const demoEnterpriseView: EnterpriseViewRes = {
 // demo's own data decides, the layout that data gives, so a demo visitor's
 // first visit holds the shape the answers bring. demo-entry calls it at each
 // boot.
+// A room's chat (the lobby's is the seeded one; other rooms start empty). A
+// post from the demo viewer lands as Ricky and fans out through the same wire
+// event the real server sends.
+const demoOtherRoomChats = new Map<string, MembersChatMessage[]>();
+function demoRoomChat(roomId: string): MembersChatMessage[] {
+  if (roomId === LOBBY_ROOM_ID) return demoMembersChat;
+  let chat = demoOtherRoomChats.get(roomId);
+  if (!chat) {
+    chat = [];
+    demoOtherRoomChats.set(roomId, chat);
+  }
+  return chat;
+}
+
+function demoRoomChatRoute(
+  method: string,
+  roomId: string,
+  rest: string,
+  body: unknown,
+): unknown {
+  const chat = demoRoomChat(roomId);
+  const ricky = users.get("ricky");
+  const pinMatch = /^\/([^/]+)\/pin$/.exec(rest);
+  if (method === "PUT" && pinMatch) {
+    const index = chat.findIndex((message) => message.id === pinMatch[1]);
+    if (index === -1) throw new ApiError(404, "not_found", "");
+    const active = (body as { active?: unknown } | undefined)?.active;
+    if (typeof active !== "boolean")
+      throw new ApiError(400, "invalid_request", "active must be a boolean");
+    const { pinnedAt: previous, ...others } = chat[index];
+    const message = active
+      ? { ...others, pinnedAt: previous ?? Date.now() }
+      : others;
+    chat[index] = message;
+    shimEmit({ type: "room_chat_message", roomId, message, updateOnly: true });
+    return message;
+  }
+  const thumbsUpMatch = /^\/([^/]+)\/thumbs-up$/.exec(rest);
+  if (method === "PUT" && thumbsUpMatch) {
+    const i = chat.findIndex((m) => m.id === thumbsUpMatch[1]);
+    if (i === -1 || !ricky)
+      throw new ApiError(404, "not_found", "No such message.");
+    const active = (body as { active?: unknown } | undefined)?.active;
+    if (typeof active !== "boolean")
+      throw new ApiError(400, "invalid_request", "active must be a boolean");
+    const thumbsUp = (chat[i].thumbsUp ?? []).filter(
+      (r) => r.userId !== ricky.id || r.agentId,
+    );
+    if (active)
+      thumbsUp.push({ kind: "user", userId: ricky.id, userName: ricky.name });
+    const message = { ...chat[i], thumbsUp };
+    chat[i] = message;
+    shimEmit({ type: "room_chat_message", roomId, message, updateOnly: true });
+    return message;
+  }
+  const idMatch = /^\/([^/]+)$/.exec(rest);
+  if (
+    idMatch &&
+    idMatch[1] !== "read" &&
+    (method === "PATCH" || method === "DELETE")
+  ) {
+    const id = idMatch[1];
+    const i = chat.findIndex((m) => m.id === id);
+    if (i === -1) throw new ApiError(404, "not_found", "No such message.");
+    if (method === "DELETE") {
+      chat.splice(i, 1);
+      shimEmit({ type: "room_chat_deleted", roomId, id });
+      return undefined;
+    }
+    const text = (body as { text?: unknown } | undefined)?.text;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new ApiError(400, "empty", "a message needs text or a file");
+    }
+    const edited: MembersChatMessage = {
+      ...chat[i],
+      content: text,
+      editedAt: Date.now(),
+    };
+    chat[i] = edited;
+    shimEmit({
+      type: "room_chat_message",
+      roomId,
+      message: edited,
+      updateOnly: true,
+    });
+    return edited;
+  }
+  if (method === "GET" && rest === "")
+    return {
+      messages: [...chat],
+      pinned: recentMembersChatPins(chat),
+      hasMore: false,
+      readPointer: chat.at(-1)?.id ?? null,
+      unread: 0,
+    };
+  if (method === "POST" && rest === "") {
+    const b = (body ?? {}) as {
+      text?: unknown;
+      attachments?: unknown;
+      device?: unknown;
+      replyTo?: unknown;
+    };
+    if (!ricky || typeof b.text !== "string") {
+      throw new ApiError(400, "invalid_request", "text must be a string");
+    }
+    const attachments = Array.isArray(b.attachments)
+      ? (b.attachments as MembersChatMessage["attachments"])
+      : [];
+    if (!b.text.trim() && attachments.length === 0) {
+      throw new ApiError(400, "empty", "a message needs text or a file");
+    }
+    if (b.replyTo !== undefined && typeof b.replyTo !== "string")
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "replyTo must be a message id",
+      );
+    const target =
+      b.replyTo === undefined
+        ? undefined
+        : chat.find((m) => m.id === b.replyTo);
+    if (b.replyTo !== undefined && !target)
+      throw new ApiError(404, "reply_not_found", "");
+    const message: MembersChatMessage = {
+      id: membersChatId(),
+      ...(target
+        ? {
+            replyTo: {
+              id: target.id,
+              userName: target.userName,
+              excerpt: membersChatExcerpt(target.content, target.attachments),
+            },
+          }
+        : {}),
+      kind: "user",
+      userId: ricky.id,
+      userName: ricky.name,
+      ...(typeof b.device === "string" && b.device ? { device: b.device } : {}),
+      timestamp: Date.now(),
+      content: b.text,
+      attachments,
+    };
+    chat.push(message);
+    shimEmit({ type: "room_chat_message", roomId, message });
+    return message;
+  }
+  if (method === "POST" && rest === "/read") {
+    const lastReadId = (body as { lastReadId?: unknown } | undefined)
+      ?.lastReadId;
+    const known = chat.some((m) => m.id === lastReadId);
+    const readPointer = known
+      ? (lastReadId as string)
+      : (chat.at(-1)?.id ?? null);
+    shimEmit({ type: "room_chat_read", roomId, readPointer, unread: 0 });
+    return { readPointer, unread: 0 };
+  }
+  throw new ApiError(404, "not_found", "");
+}
+
 export function seedDemoHeldLayouts(): void {
   setEnterpriseLayout(enterpriseLayoutOf(demoEnterpriseView));
   setExternalAccessLayout({
@@ -3136,74 +3294,14 @@ export async function demoApi(
   }
   const dmRoute = demoDmRoute(method, pathname, body);
   if (dmRoute) return dmRoute.value;
-  const pinMatch = /^\/api\/members-chat\/([^/]+)\/pin$/.exec(pathname);
-  if (method === "PUT" && pinMatch) {
-    const index = demoMembersChat.findIndex(
-      (message) => message.id === pinMatch[1],
+  const roomChatMatch = /^\/api\/rooms\/([^/]+)\/chat(\/.*)?$/.exec(pathname);
+  if (roomChatMatch)
+    return demoRoomChatRoute(
+      method,
+      decodeURIComponent(roomChatMatch[1]),
+      roomChatMatch[2] ?? "",
+      body,
     );
-    if (index === -1) throw new ApiError(404, "not_found", "");
-    const active = (body as { active?: unknown } | undefined)?.active;
-    if (typeof active !== "boolean")
-      throw new ApiError(400, "invalid_request", "active must be a boolean");
-    const existing = demoMembersChat[index];
-    const { pinnedAt: previous, ...rest } = existing;
-    const message = active
-      ? { ...rest, pinnedAt: previous ?? Date.now() }
-      : rest;
-    demoMembersChat[index] = message;
-    shimEmit({ type: "members_chat_message", message, updateOnly: true });
-    return message;
-  }
-  const thumbsUpMatch = pathname.match(
-    /^\/api\/members-chat\/([^/]+)\/thumbs-up$/,
-  );
-  if (method === "PUT" && thumbsUpMatch) {
-    const i = demoMembersChat.findIndex((m) => m.id === thumbsUpMatch[1]);
-    if (i === -1) throw new ApiError(404, "not_found", "No such message.");
-    const active = (body as { active?: unknown } | undefined)?.active;
-    if (typeof active !== "boolean")
-      throw new ApiError(400, "invalid_request", "active must be a boolean");
-    const ricky = users.get("ricky")!;
-    const thumbsUp = (demoMembersChat[i].thumbsUp ?? []).filter(
-      (r) => r.userId !== ricky.id,
-    );
-    if (active)
-      thumbsUp.push({ kind: "user", userId: ricky.id, userName: ricky.name });
-    const message = { ...demoMembersChat[i], thumbsUp };
-    demoMembersChat[i] = message;
-    shimEmit({ type: "members_chat_message", message, updateOnly: true });
-    return message;
-  }
-  if (
-    pathname.startsWith("/api/members-chat/") &&
-    pathname !== "/api/members-chat/read" &&
-    (method === "PATCH" || method === "DELETE")
-  ) {
-    const id = pathname.slice("/api/members-chat/".length);
-    const i = demoMembersChat.findIndex((m) => m.id === id);
-    if (i === -1) throw new ApiError(404, "not_found", "No such message.");
-    if (method === "DELETE") {
-      demoMembersChat.splice(i, 1);
-      shimEmit({ type: "members_chat_deleted", id });
-      return undefined;
-    }
-    const text = (body as { text?: unknown } | undefined)?.text;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new ApiError(400, "empty", "a message needs text or a file");
-    }
-    const edited: MembersChatMessage = {
-      ...demoMembersChat[i],
-      content: text,
-      editedAt: Date.now(),
-    };
-    demoMembersChat[i] = edited;
-    shimEmit({
-      type: "members_chat_message",
-      message: edited,
-      updateOnly: true,
-    });
-    return edited;
-  }
   if (method === "DELETE" && pathname.startsWith("/api/me/api-tokens/")) {
     const id = decodeURIComponent(pathname.slice("/api/me/api-tokens/".length));
     demoApiTokens = demoApiTokens.filter((token) => token.id !== id);
@@ -3220,78 +3318,6 @@ export async function demoApi(
   if (method === "DELETE" && pathname.startsWith("/api/floors/"))
     throw new ApiError(404, "floor_not_found", "no such floor");
   switch (route) {
-    case "GET /api/members-chat":
-      return {
-        messages: [...demoMembersChat],
-        pinned: recentMembersChatPins(demoMembersChat),
-        hasMore: false,
-        readPointer: demoMembersChat.at(-1)?.id ?? null,
-        unread: 0,
-      };
-    case "POST /api/members-chat": {
-      const ricky = users.get("ricky");
-      const b = (body ?? {}) as {
-        text?: unknown;
-        attachments?: unknown;
-        device?: unknown;
-        replyTo?: unknown;
-      };
-      if (!ricky || typeof b.text !== "string") {
-        throw new ApiError(400, "invalid_request", "text must be a string");
-      }
-      const attachments = Array.isArray(b.attachments)
-        ? (b.attachments as MembersChatMessage["attachments"])
-        : [];
-      if (!b.text.trim() && attachments.length === 0) {
-        throw new ApiError(400, "empty", "a message needs text or a file");
-      }
-      if (b.replyTo !== undefined && typeof b.replyTo !== "string")
-        throw new ApiError(
-          400,
-          "invalid_request",
-          "replyTo must be a message id",
-        );
-      const target =
-        b.replyTo === undefined
-          ? undefined
-          : demoMembersChat.find((m) => m.id === b.replyTo);
-      if (b.replyTo !== undefined && !target)
-        throw new ApiError(404, "reply_not_found", "");
-      const message: MembersChatMessage = {
-        id: membersChatId(),
-        ...(target
-          ? {
-              replyTo: {
-                id: target.id,
-                userName: target.userName,
-                excerpt: membersChatExcerpt(target.content, target.attachments),
-              },
-            }
-          : {}),
-        kind: "user",
-        userId: ricky.id,
-        userName: ricky.name,
-        ...(typeof b.device === "string" && b.device
-          ? { device: b.device }
-          : {}),
-        timestamp: Date.now(),
-        content: b.text,
-        attachments,
-      };
-      demoMembersChat.push(message);
-      shimEmit({ type: "members_chat_message", message });
-      return message;
-    }
-    case "POST /api/members-chat/read": {
-      const lastReadId = (body as { lastReadId?: unknown } | undefined)
-        ?.lastReadId;
-      const known = demoMembersChat.some((m) => m.id === lastReadId);
-      const readPointer = known
-        ? (lastReadId as string)
-        : (demoMembersChat.at(-1)?.id ?? null);
-      shimEmit({ type: "members_chat_read", readPointer, unread: 0 });
-      return { readPointer, unread: 0 };
-    }
     // validate.cwd / validate.env - the demo has no filesystem, so every probe
     // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
     case "POST /api/validate/cwd":
@@ -5067,12 +5093,23 @@ export function sendInitialState() {
     // menu just stays empty.
     killedAgents: [],
     interactions: [],
-    // The demo viewer has read the whole seeded chat (GET /api/members-chat).
-    membersChat: {
-      readPointer: demoMembersChat.at(-1)?.id ?? null,
-      unread: 0,
-      pins: recentMembersChatPins(demoMembersChat).length,
-    },
+    // The demo viewer has read every chat (GET /api/rooms/:roomId/chat).
+    roomChats: Object.fromEntries(
+      [
+        LOBBY_ROOM_ID,
+        ...s.rooms.filter((room) => room.type !== "lobby").map((r) => r.id),
+      ].map((roomId) => {
+        const chat = demoRoomChat(roomId);
+        return [
+          roomId,
+          {
+            readPointer: chat.at(-1)?.id ?? null,
+            unread: 0,
+            pins: recentMembersChatPins(chat).length,
+          },
+        ];
+      }),
+    ),
     memberDms: demoDmSummaries(),
   });
   shimEmit({ type: "tasks", tasks: s.tasks });

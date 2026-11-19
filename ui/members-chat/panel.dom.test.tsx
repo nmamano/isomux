@@ -1,4 +1,5 @@
 import { afterAll, expect, it } from "bun:test";
+import { lobbyChats } from "../test-support/room-chats.ts";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
@@ -28,13 +29,13 @@ it("closes an outside menu, closes Edit, and closes confirmed Delete even when i
   });
   const view = render(
     onLanguage("en", createElement(MembersChatPanel), {
-      membersChat: {
+      roomChats: lobbyChats({
         messages,
         loaded: true,
         hasMore: false,
         readPointer: messages[1].id,
         unread: 0,
-      },
+      }),
     }),
   );
   const menus = Array.from(view.container.querySelectorAll("details"));
@@ -156,13 +157,13 @@ it("groups only adjacent messages from the same author, kind and device within f
   ];
   const view = render(
     onLanguage("en", createElement(MembersChatPanel), {
-      membersChat: {
+      roomChats: lobbyChats({
         messages,
         loaded: false,
         hasMore: false,
         readPointer: null,
         unread: 0,
-      },
+      }),
     }),
   );
   const cards = [

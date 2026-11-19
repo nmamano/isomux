@@ -1,7 +1,7 @@
-// The members chat store: one office-wide stream for humans and their proxies
-// (cookie users, API tokens, privileged agents), never an ordinary agent.
-// Access is the route layer's job (server/routes); this
-// module only knows how to keep and page the stream.
+// The members chat store: one stream of posts. Each room chat is one
+// (server/room-chats.ts; the lobby's is the old members chat), and so is each
+// 1:1 chat (server/member-dms.ts). Access is the route layer's job
+// (server/routes); this module only knows how to keep and page the stream.
 //
 // WHY MONTH FILES. A chat between people has no natural end, so it cannot be
 // cut into sessions the way an agent conversation is, and a year of history
@@ -39,6 +39,7 @@ import {
 import { createHash } from "crypto";
 import {
   MEMBERS_CHAT_MAX_CHARS,
+  membersChatReactorKey,
   type Attachment,
   type MembersChatMessage,
   type MembersChatReactor,
@@ -78,6 +79,8 @@ type Line =
       id: string;
       kind?: MembersChatMessage["kind"];
       userId: string;
+      agentId?: string;
+      limited?: true;
       userName: string;
       device?: string;
       timestamp: number;
@@ -114,6 +117,8 @@ export interface PostInput {
   replyTo?: string;
   kind?: MembersChatMessage["kind"];
   userId: string;
+  agentId?: string;
+  limited?: true;
   userName: string;
   device?: string;
   content: string;
@@ -147,6 +152,8 @@ export interface MembersChatStore {
   pinCount(): number;
   // When the newest live message was posted; null when none is left.
   newestAt(): number | null;
+  // The id of the newest live message; null when none is left.
+  newestId(): string | null;
   saveAttachment(
     data: Buffer,
     mediaType: string,
@@ -263,6 +270,8 @@ export function createMembersChatStore(
           id: line.id,
           kind: line.kind ?? "user",
           userId: line.userId,
+          ...(line.agentId ? { agentId: line.agentId } : {}),
+          ...(line.limited === true ? { limited: true as const } : {}),
           userName: line.userName,
           ...(line.device ? { device: line.device } : {}),
           timestamp: line.timestamp,
@@ -282,8 +291,9 @@ export function createMembersChatStore(
       } else if (line.op === "react") {
         const m = folded.byId.get(line.id);
         if (!m) continue;
+        const key = membersChatReactorKey(line.reactor);
         const thumbsUp = (m.thumbsUp ?? []).filter(
-          (r) => r.userId !== line.reactor.userId,
+          (r) => membersChatReactorKey(r) !== key,
         );
         if (line.active) thumbsUp.push(line.reactor);
         folded.byId.set(line.id, { ...m, thumbsUp });
@@ -378,6 +388,8 @@ export function createMembersChatStore(
       id,
       kind: input.kind ?? "user",
       userId: input.userId,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.limited === true ? { limited: true as const } : {}),
       userName: input.userName,
       ...(input.device ? { device: input.device } : {}),
       timestamp,
@@ -403,9 +415,11 @@ export function createMembersChatStore(
   ): MembersChatMessage | null {
     const existing = get(id);
     if (!existing) return null;
+    const key = membersChatReactorKey(reactor);
     if (
-      (existing.thumbsUp ?? []).some((r) => r.userId === reactor.userId) ===
-      active
+      (existing.thumbsUp ?? []).some(
+        (r) => membersChatReactorKey(r) === key,
+      ) === active
     )
       return existing;
     // Fold the desired state in the target's file, including across month boundaries.
@@ -585,18 +599,27 @@ export function createMembersChatStore(
   }
 
   function newestAt(): number | null {
+    return newest()?.timestamp ?? null;
+  }
+
+  function newest(): MembersChatMessage | null {
     for (const month of listMonths().reverse()) {
       const folded = fold(month);
       for (let i = folded.order.length - 1; i >= 0; i--) {
         const m = folded.byId.get(folded.order[i]);
-        if (m) return m.timestamp;
+        if (m) return m;
       }
     }
     return null;
   }
 
+  function newestId(): string | null {
+    return newest()?.id ?? null;
+  }
+
   return {
     newestAt,
+    newestId,
     setPinned,
     post,
     edit,

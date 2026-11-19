@@ -241,7 +241,7 @@ export function setUpInboxTests() {
       sentMessages.push({ path, body: body as Record<string, unknown> });
       return messagePost();
     }
-    if (path.startsWith("/api/members-chat"))
+    if (/^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     const pageRead = /^\/api\/pager\/([^/?]+)$/.exec(path);
     if (method === "GET" && pageRead) {

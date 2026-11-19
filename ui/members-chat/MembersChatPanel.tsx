@@ -1,8 +1,9 @@
-// The members chat panel: the office-wide, humans-only stream.
+// The human chat panel: a room's chat (the lobby's was the members chat) or a
+// 1:1 chat.
 //
 // It is the agent chat's own message card (UserMessage / EditableUserMessage
 // from the log view) over a store slice that a REST page hydrates and the
-// members_chat_* wire events keep live, plus a composer with the agent chat's
+// room_chat_* (or dm_*) wire events keep live, plus a composer with the agent chat's
 // shape: paperclip, paste and drop uploads, staged chips, Enter to send.
 //
 // What differs from the agent chat, on purpose: an edit rewrites in place (no
@@ -12,7 +13,7 @@
 // their author line on every message. The list pages older messages at the
 // top instead of holding the whole history.
 
-import { MEMBERS_CHAT, humanChatId, type HumanChatKey } from "../human-chat.ts";
+import { LOBBY_CHAT, humanChatId, type HumanChatKey } from "../human-chat.ts";
 import { membersChatExcerpt } from "../../shared/members-chat.ts";
 import {
   useCallback,
@@ -33,7 +34,7 @@ import type {
 } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { ApiError } from "../api.ts";
-import { MEMBERS_CHAT_MAX_CHARS } from "../../shared/types.ts";
+import { LOBBY_ROOM_ID, MEMBERS_CHAT_MAX_CHARS } from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
 import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
 import { useAppState, useDispatch } from "../store.tsx";
@@ -54,6 +55,7 @@ import {
 } from "../composer-height.ts";
 import { copySelectionAsPlainText } from "../log-view/plain-copy.ts";
 import { chatApiFor, MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT } from "./api.ts";
+import { useRoomChatTitle } from "./room-chat-rows.ts";
 import type { MembersChatState } from "../store.tsx";
 import type { MembersChatPageRes } from "../../shared/contract-shapes.ts";
 import { SidebarIcon } from "../components/NavIcons.tsx";
@@ -158,7 +160,7 @@ function continuesMembersChatAuthor(
 }
 
 export function MembersChatPanel({
-  chat = MEMBERS_CHAT,
+  chat = LOBBY_CHAT,
   style,
   onClose,
   onShowSidebar,
@@ -167,7 +169,7 @@ export function MembersChatPanel({
   onRetry,
   loadFailed = false,
 }: {
-  // Which chat: Members chat (the default) or a 1:1 chat.
+  // Which chat: a room chat (the lobby's by default) or a 1:1 chat.
   chat?: HumanChatKey;
   style?: React.CSSProperties;
   // The header's Back. It returns to the office (App's goHome), and its
@@ -185,7 +187,7 @@ export function MembersChatPanel({
 }) {
   const { t, language } = useI18n();
   const {
-    membersChat: membersChatSlice,
+    roomChats,
     memberDms,
     humanChatDrafts,
     sessionContext,
@@ -195,53 +197,56 @@ export function MembersChatPanel({
     isMobile,
   } = useAppState();
   const dispatch = useDispatch();
-  // A 1:1 chat's peer, or null in Members chat.
+  // A 1:1 chat's peer, or null in a room chat.
   const peerId = chat.kind === "dm" ? chat.peerId : null;
+  const roomId = chat.kind === "room" ? chat.roomId : null;
   const chatKey = humanChatId(chat);
   const dm = peerId === null ? null : (memberDms[peerId] ?? null);
-  // The slice this chat renders. A 1:1 chat with no row yet is empty.
+  // The slice this chat renders. A chat with no entry yet is empty.
   const membersChat: MembersChatState =
-    peerId === null ? membersChatSlice : (dm ?? EMPTY_CHAT);
+    (roomId !== null ? roomChats[roomId] : dm) ?? EMPTY_CHAT;
   const peer = useDmPeer(peerId ?? "");
+  const roomTitle = useRoomChatTitle(roomId ?? "");
   const peerRemoved = peerId !== null && peer.removed;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the chat
   const chatApi = useMemo(() => chatApiFor(chat), [chatKey]);
-  // The chat's own actions: the members_chat_* ones, or dm_* with the peer.
+  // The chat's own actions: room_chat_* with the room, or dm_* with the peer.
   const onMessage = useCallback(
     (message: MembersChatMessage, updateOnly?: boolean) =>
       dispatch(
-        peerId === null
+        roomId !== null
           ? {
-              type: "members_chat_message",
+              type: "room_chat_message",
+              roomId,
               message,
               ...(updateOnly ? { updateOnly } : {}),
             }
           : {
               type: "dm_message",
-              peerId,
+              peerId: peerId!,
               message,
               ...(updateOnly ? { updateOnly } : {}),
             },
       ),
-    [dispatch, peerId],
+    [dispatch, peerId, roomId],
   );
   const onDeleted = useCallback(
     (id: string) =>
       dispatch(
-        peerId === null
-          ? { type: "members_chat_deleted", id }
-          : { type: "dm_deleted", peerId, id },
+        roomId !== null
+          ? { type: "room_chat_deleted", roomId, id }
+          : { type: "dm_deleted", peerId: peerId!, id },
       ),
-    [dispatch, peerId],
+    [dispatch, peerId, roomId],
   );
   const onRead = useCallback(
     (r: { readPointer: string | null; unread: number }) =>
       dispatch(
-        peerId === null
-          ? { type: "members_chat_read", ...r }
-          : { type: "dm_read", peerId, ...r },
+        roomId !== null
+          ? { type: "room_chat_read", roomId, ...r }
+          : { type: "dm_read", peerId: peerId!, ...r },
       ),
-    [dispatch, peerId],
+    [dispatch, peerId, roomId],
   );
   // The store keys users by lowercased NAME (ui/user-merge.ts); messages and
   // presence carry ids, so index once by id here.
@@ -305,9 +310,10 @@ export function MembersChatPanel({
     chatApi
       .fetchPage({ before: messages[0].id, limit: PAGE_LIMIT })
       .then((page) => {
-        if (peerId === null)
+        if (roomId !== null)
           dispatch({
-            type: "members_chat_page",
+            type: "room_chat_page",
+            roomId,
             ...(page as MembersChatPageRes),
             prepend: true,
             pinsRevisionAtRequest,
@@ -315,7 +321,7 @@ export function MembersChatPanel({
         else
           dispatch({
             type: "dm_page",
-            peerId,
+            peerId: peerId!,
             messages: page.messages,
             hasMore: page.hasMore,
             readPointer: page.readPointer,
@@ -341,6 +347,7 @@ export function MembersChatPanel({
     dispatch,
     chatApi,
     peerId,
+    roomId,
   ]);
 
   function handleScroll() {
@@ -658,6 +665,7 @@ export function MembersChatPanel({
             </span>
           ) : (
             <span
+              {...(roomId !== LOBBY_ROOM_ID ? noTranslate() : {})}
               style={{
                 minWidth: 0,
                 overflow: "hidden",
@@ -671,7 +679,7 @@ export function MembersChatPanel({
                 fontFamily: "var(--font-ui)",
               }}
             >
-              {t("membersChat.title")}
+              {roomTitle}
             </span>
           ))}
         {peerId !== null ? (
@@ -750,6 +758,7 @@ export function MembersChatPanel({
           message={membersChat.pinned[0]}
           count={membersChat.pinned.length}
           author={describeMembersChatAuthor(membersChat.pinned[0], t).label}
+          fileBase={chatApi.filesBase}
           loaded={loadedMessageIds.has(membersChat.pinned[0].id)}
           onJump={() => jumpTo(membersChat.pinned![0].id)}
           onUnpin={() => setPinned(membersChat.pinned![0].id, false)}
@@ -759,7 +768,7 @@ export function MembersChatPanel({
         // the pins (a 1:1 chat has none).
         membersChat.pinned === undefined &&
         !loadFailed &&
-        peerId === null &&
+        roomId !== null &&
         (membersChat.pinCount ?? 0) > 0 && (
           <PinnedMessageStrip count={membersChat.pinCount!} />
         )
@@ -827,7 +836,10 @@ export function MembersChatPanel({
           const author = describeMembersChatAuthor(m, t);
           const mine = me !== null && m.userId === me;
           const time = formatWhen(language, m.timestamp);
-          const label = `${author.label} · ${time}${m.editedAt ? t("membersChat.edited") : ""}`;
+          // A post from a sender with limited access is data for agents;
+          // people see why.
+          const limited = m.limited ? ` · ${t("membersChat.limited")}` : "";
+          const label = `${author.label}${limited} · ${time}${m.editedAt ? t("membersChat.edited") : ""}`;
           if (editingId === m.id) {
             return (
               <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
@@ -867,7 +879,7 @@ export function MembersChatPanel({
               </span>
             ) : null;
           // In a 1:1 chat only your own: an owner has no reach there.
-          const canDelete = mine || (amOwner && peerId === null);
+          const canDelete = mine || (amOwner && roomId !== null);
           return (
             <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
               <UserMessage
@@ -891,7 +903,10 @@ export function MembersChatPanel({
                 hideAuthor={continuation}
                 inlineAccessory={
                   <ThumbsUpReaction
-                    active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
+                    active={(m.thumbsUp ?? []).some(
+                      // An agent's thumb is its own, not its manager's.
+                      (r) => r.userId === me && !r.agentId,
+                    )}
                     names={(m.thumbsUp ?? []).map(
                       (r) => describeMembersChatAuthor(r, t).label,
                     )}

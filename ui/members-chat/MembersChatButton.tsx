@@ -14,8 +14,8 @@ export function MembersChatButton({
   const unread = useHumanChatUnread();
   const label =
     unread > 0
-      ? `${t("membersChat.title")} ${tn("membersChat.unreadCount", unread)}`
-      : t("membersChat.title");
+      ? `${t("roomChat.row")} ${tn("membersChat.unreadCount", unread)}`
+      : t("roomChat.row");
   return (
     <button
       ref={buttonRef}
@@ -23,7 +23,7 @@ export function MembersChatButton({
       type="button"
       data-lobby-chat-fab
       aria-label={label}
-      title={t("membersChat.title")}
+      title={t("roomChat.row")}
       style={{
         position: "absolute",
         right: 12,

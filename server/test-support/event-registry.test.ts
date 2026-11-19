@@ -76,11 +76,11 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // delivered by a per-socket loop like presence_list - NOT an `all` broadcast.
   // `tasks` is whole-board hydration; the two deltas carry a single mutation and
   // are per-recipient for the same reason (task b13445e2).
-  // Members chat: every socket is a human's, so `all` is the exact audience;
-  // the read pointer is the recipient's own.
-  members_chat_message: "all",
-  members_chat_deleted: "all",
-  members_chat_read: "recipient-scoped",
+  // Room chats (task 5b055cf3): only the sockets that reach the room; the
+  // read pointer is the recipient's own. The members_chat_* events are gone.
+  room_chat_message: "room-ACL",
+  room_chat_deleted: "room-ACL",
+  room_chat_read: "recipient-scoped",
   // 1:1 chats: each member of the pair gets their own copy (task 019e4d7c).
   dm_message: "recipient-scoped",
   dm_deleted: "recipient-scoped",

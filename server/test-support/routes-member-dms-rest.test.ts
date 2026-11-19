@@ -222,11 +222,11 @@ describe("1:1 chats: post, page, list and events", () => {
       message: { id: sent.id },
     });
 
-    // Fence: an all-audience members chat post after the 1:1 one. Once the
+    // Fence: a lobby chat post after the 1:1 one, which every member reaches. Once the
     // owner's socket has it, a 1:1 frame for the owner would have landed.
     await call(srv, nil, "POST", "/api/members-chat", { text: "fence" });
     await waitUntil(
-      () => framesOf(nilWs, "members_chat_message").length === 1,
+      () => framesOf(nilWs, "room_chat_message").length === 1,
       "the fence reached the owner",
     );
     expect(framesOf(nilWs, "dm_message").length).toBe(0);
@@ -704,13 +704,13 @@ describe("1:1 chats: tokens, packs and agents", () => {
     await pack({ areas: { membersChat: "write" }, agentCeiling: "chat" });
     const pauWs = await socketOf(srv, pau);
     const full = await pauWs.waitFor("full_state");
-    expect(full.membersChat).toBeDefined();
+    expect(full.roomChats).toBeDefined();
     expect("memberDms" in full).toBe(false);
     const sent = await sayOk(srv, nil, pau.id, "behind the pack");
     // Fence: a members chat post, which the pack lets through.
     await call(srv, nil, "POST", "/api/members-chat", { text: "fence" });
     await waitUntil(
-      () => framesOf(pauWs, "members_chat_message").length === 1,
+      () => framesOf(pauWs, "room_chat_message").length === 1,
       "the fence reached Pau",
     );
     expect(framesOf(pauWs, "dm_message").length).toBe(0);

@@ -78,6 +78,9 @@ const AGENT_EXACT: Capability[] = [
   // Lock the office and start an owner export from inside it (task cdd7883d).
   // The officeOwnerOrOwnersAgent guard admits only an owner's agent.
   "office:rescue",
+  // The room chats (task 5b055cf3): every agent stop; the handler narrows an
+  // agent that is not privileged to its live room.
+  "chat:room",
 ];
 const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
   ["AGENT", AGENT_CAPABILITIES, AGENT_EXACT],
@@ -134,6 +137,7 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "audit:read",
       "office:read",
       "chat:members",
+      "chat:room",
       "agent:manage",
       "agent:converse",
       "agent:privilege",
@@ -186,6 +190,7 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "api:drain-inbox",
       "office:read",
       "chat:members",
+      "chat:room",
       "agent:manage",
       "agent:converse",
       "room:manage",

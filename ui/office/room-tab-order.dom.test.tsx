@@ -52,7 +52,7 @@ beforeEach(() => {
         }),
       );
     }
-    if (path.startsWith("/api/members-chat"))
+    if (/^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     return {};
   });

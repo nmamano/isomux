@@ -91,7 +91,7 @@ export function setApps(next: AppListWire[]): void {
 export function setUpAgentLinkTests(): void {
   setApiShim(async (_method, path) => {
     if (path === "/api/asks") return asks;
-    if (path.startsWith("/api/members-chat"))
+    if (/^\/api\/rooms\/[^/]+\/chat(\?|$)/.test(path))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     if (path === "/api/apps") return apps;
     return {};

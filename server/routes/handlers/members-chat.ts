@@ -1,26 +1,29 @@
 import { savedFileAudit } from "../audit.ts";
-// Members chat resource handlers (opIds membersChat.*). The humans-only stream:
-// a cookie user, that user's API token, and that user's
-// privileged agents may read and write it; the chat:members capability on the
-// route table keeps every other identity out before a handler runs.
+// Room chat resource handlers (task 5b055cf3): opIds roomChat.* by :roomId,
+// and membersChat.* for the old /api/members-chat routes, which are the
+// lobby's chat. people and agents are native users. The chat:room capability
+// on the route table keeps cron runs and apps out; roomChatReach decides the
+// room, at each request.
 //
 // Attribution is TOKEN-derived, never from the body: the author snapshot
-// (kind, userId, userName, device) comes from deps.authorFor(identity). The body
-// may only add the browser's device label, and only for a cookie user - an API
-// token's device is its own name, an agent has none.
+// (kind, userId, agentId, userName, device, limited) comes from
+// deps.authorFor(identity). The body may only add the browser's device label,
+// and only for a cookie user - an API token's device is its own name, an agent
+// has none.
 //
-// Ownership is a live check against the stored author: edit your own message;
-// delete your own, or any message as an office owner. "Own" is by userId, so a
-// person, their API token and their privileged agents share one identity here,
-// the same reach the rest of the API gives them.
+// Ownership is a live check against the stored author. A person, their API
+// token and their privileged agents share one identity (userId): they edit
+// those posts, and delete them or, with office-owner reach, any post. Any
+// other agent edits and deletes only its own posts (agentId), and has no
+// owner reach, even when its manager is an office owner.
 //
 // The handler emits through the injected seam (there is no manager event for
 // this resource): the mutation's response is the caller's own outcome and the
-// all-audience event is what every other socket sees (double-signal, like
-// tasks). markRead reaches only the caller's own sockets.
+// room-scoped event is what every other socket that reaches the room sees
+// (double-signal, like tasks). markRead reaches only the caller's own sockets.
 //
 // LEAF over the executor + shared types. No manager/auth/store imports beyond
-// the injected MembersChatDeps surface.
+// the injected RoomChatDeps surface.
 
 import {
   ok,
@@ -33,7 +36,11 @@ import {
   type RouteHandlerContext,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { Attachment, MembersChatMessage } from "../../../shared/types.ts";
+import type {
+  Attachment,
+  MembersChatMessage,
+  MembersChatReactor,
+} from "../../../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../../../shared/types.ts";
 import { downloadHeader } from "../../mime-types.ts";
 import type {
@@ -45,9 +52,11 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 import {
   MembersChatError,
-  type MembersChatPage,
+  type MembersChatStore,
   type PostInput,
 } from "../../members-chat.ts";
+import { agentAccessOf } from "../../../shared/agent-access.ts";
+import { LOBBY_ROOM_ID } from "../../../shared/types.ts";
 
 // Same limits as agents.upload.
 const MAX_FILES = 5;
@@ -59,40 +68,32 @@ export type MembersChatAuthor = Omit<
   "content" | "attachments" | "device" | "replyTo"
 > & { kind: MembersChatMessage["kind"]; device?: string };
 
-export interface MembersChatDeps {
-  setPinned(id: string, active: boolean): MembersChatMessage | null;
-  page(opts: { before?: string; limit?: number }): MembersChatPage;
-  post(input: PostInput): MembersChatMessage;
-  edit(id: string, content: string): MembersChatMessage | null;
-  setThumbsUp(
-    id: string,
-    reactor: MembersChatAuthor,
-    active: boolean,
-  ): MembersChatMessage | null;
-  delete(id: string): MembersChatMessage | null;
-  get(id: string): MembersChatMessage | null;
-  getReadPointer(userId: string): string | null;
-  setReadPointer(userId: string, lastReadId: string): string | null;
-  unreadCount(userId: string): number;
-  saveAttachment(
-    data: Buffer,
-    mediaType: string,
-    originalName: string,
-  ): Attachment | null;
-  attachmentPath(filename: string): string | null;
-  contentTypeFor(filename: string): string;
-  // Sandbox and private-cache headers: an opened file must not run as office
-  // content, and a shared cache must not store it.
-  untrustedFileHeaders(): Record<string, string>;
-  // The author snapshot for this identity, or null when it cannot be resolved
-  // (a user record that vanished, an agent that is gone) - rendered as 403.
-  authorFor(identity: Identity): MembersChatAuthor | null;
-  // An office owner's reach (hasOfficeOwnerReach): deletes any member's
-  // message. A room-limited API token does not have it.
-  isOwner(identity: Identity): boolean;
-  emitMessage(message: MembersChatMessage, updateOnly?: boolean): void;
-  emitDeleted(id: string): void;
-  emitRead(userId: string, readPointer: string | null, unread: number): void;
+// The store calls a room chat handler makes (server/members-chat.ts).
+type RoomChatStore = Pick<
+  MembersChatStore,
+  | "setPinned"
+  | "page"
+  | "post"
+  | "edit"
+  | "setThumbsUp"
+  | "delete"
+  | "get"
+  | "getReadPointer"
+  | "setReadPointer"
+  | "unreadCount"
+  | "saveAttachment"
+  | "attachmentPath"
+>;
+
+// The reaction snapshot of an author: who, never the limited marker.
+export function reactorOf(author: MembersChatAuthor): MembersChatReactor {
+  return {
+    kind: author.kind,
+    userId: author.userId,
+    ...(author.agentId ? { agentId: author.agentId } : {}),
+    userName: author.userName,
+    ...(author.device ? { device: author.device } : {}),
+  };
 }
 
 function isAttachmentShape(v: unknown): v is Attachment {
@@ -215,31 +216,161 @@ export function storeError(err: unknown) {
   throw err;
 }
 
-export function membersChatHandlers(
-  deps: MembersChatDeps,
-): Record<string, RouteHandler> {
-  const requireUser = (identity: Identity): string | null =>
-    identity.userId ?? null;
+// ---------------------------------------------------------------------------
+// Room chats (task 5b055cf3). The members chat handlers above serve the
+// lobby's chat through the /api/members-chat aliases; the roomChat.* handlers
+// serve any room by :roomId.
 
-  return {
-    "membersChat.page": (ctx) => {
-      const userId = requireUser(ctx.identity);
-      if (!userId) return fail(403, "forbidden");
+// What the reach check reads of the live office.
+export interface RoomChatReachDeps {
+  // Whether roomId names a live room (the lobby included); false for an
+  // unknown or closed one.
+  roomOpen(roomId: string): boolean;
+  isLobby(roomId: string): boolean;
+  // The guard's room access: the identity's user reaches the room, and a
+  // room-limited token lists it.
+  hasRoomAccess(identity: Identity, roomId: string): boolean;
+  // A live agent's current room, or null.
+  agentRoomId(agentId: string): string | null;
+}
+
+export type RoomChatReach = { ok: true } | { ok: false; status: 403 | 404 };
+
+// Whether an agent identity is at the privileged stop: the stop its token
+// was minted with, or for a token from before the slider, its privileged
+// set. Never chat:room, which every agent stop holds.
+export function isPrivilegedAgent(identity: Identity): boolean {
+  if (identity.scope !== "agent") return false;
+  if (identity.agentAccess) return identity.agentAccess === "privileged";
+  return (
+    agentAccessOf({
+      privileged: identity.capabilities.includes("chat:members"),
+    }) === "privileged"
+  );
+}
+
+// An agent that is not privileged: it reaches only its live room, edits only
+// its own posts and has no read pointer of its own.
+function isRoomBoundAgent(identity: Identity): boolean {
+  return identity.scope === "agent" && !isPrivilegedAgent(identity);
+}
+
+// Whether identity reaches roomId's chat. An unknown or closed room is 404 for
+// everyone, owners too. People, API tokens and privileged agents: the lobby
+// always, other rooms by room access. Any other agent: only its live room,
+// while its manager reaches it (the lobby always passes). An agent with no
+// manager reaches the lobby only.
+export function roomChatReach(
+  identity: Identity,
+  roomId: string,
+  deps: RoomChatReachDeps,
+): RoomChatReach {
+  if (!deps.roomOpen(roomId)) return { ok: false, status: 404 };
+  const lobby = deps.isLobby(roomId);
+  if (isRoomBoundAgent(identity)) {
+    if (!identity.agentId || deps.agentRoomId(identity.agentId) !== roomId)
+      return { ok: false, status: 403 };
+  }
+  if (lobby || deps.hasRoomAccess(identity, roomId)) return { ok: true };
+  return { ok: false, status: 403 };
+}
+
+export interface RoomChatDeps extends RoomChatReachDeps {
+  // The chat of a live room (the lobby's is the old members chat).
+  store(roomId: string): RoomChatStore;
+  contentTypeFor(filename: string): string;
+  // Sandbox and private-cache headers: an opened file must not run as office
+  // content, and a shared cache must not store it.
+  untrustedFileHeaders(): Record<string, string>;
+  // The author snapshot for this identity, or null when it cannot be resolved
+  // (a user record that vanished, an agent that is gone) - rendered as 403.
+  authorFor(identity: Identity): MembersChatAuthor | null;
+  // An office owner's reach (hasOfficeOwnerReach): deletes any post. A
+  // room-limited API token does not have it; an agent that is not privileged
+  // never uses it.
+  isOwner(identity: Identity): boolean;
+  emitMessage(
+    roomId: string,
+    message: MembersChatMessage,
+    updateOnly?: boolean,
+  ): void;
+  emitDeleted(roomId: string, id: string): void;
+  emitRead(
+    roomId: string,
+    userId: string,
+    readPointer: string | null,
+    unread: number,
+  ): void;
+}
+
+// Whether identity wrote `message` in the ownership sense of the header.
+function ownsPost(identity: Identity, message: MembersChatMessage): boolean {
+  if (isRoomBoundAgent(identity))
+    return !!identity.agentId && message.agentId === identity.agentId;
+  return !!identity.userId && message.userId === identity.userId;
+}
+
+const OP_SUFFIXES = [
+  "page",
+  "post",
+  "pin",
+  "thumbsUp",
+  "edit",
+  "delete",
+  "markRead",
+  "upload",
+  "getFile",
+] as const;
+
+export const ROOM_CHAT_OP_IDS = OP_SUFFIXES.map((op) => `roomChat.${op}`);
+
+export function roomChatHandlers(
+  deps: RoomChatDeps,
+): Record<string, RouteHandler> {
+  // The room of a request, its store, or the refusal to answer.
+  const open = (
+    ctx: RouteHandlerContext,
+    roomId: string,
+  ): { roomId: string; store: RoomChatStore } | HandlerResult => {
+    const reach = roomChatReach(ctx.identity, roomId, deps);
+    if (!reach.ok)
+      return reach.status === 404
+        ? fail(404, "not_found")
+        : fail(403, "forbidden");
+    return { roomId, store: deps.store(roomId) };
+  };
+  const isOpen = (
+    r: { roomId: string; store: RoomChatStore } | HandlerResult,
+  ): r is { roomId: string; store: RoomChatStore } => "store" in r;
+
+  const handlers = (
+    roomOf: (ctx: RouteHandlerContext) => string,
+  ): Record<(typeof OP_SUFFIXES)[number], RouteHandler> => ({
+    page: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
       const before = ctx.query.get("before") ?? undefined;
       const rawLimit = ctx.query.get("limit");
       const limit = rawLimit ? Number.parseInt(rawLimit, 10) : undefined;
-      const page = deps.page({
+      const page = r.store.page({
         before,
         limit: Number.isFinite(limit) ? limit : undefined,
       });
+      // An agent that is not privileged has no pointer: its manager's is the
+      // manager's own.
+      const reader = isRoomBoundAgent(ctx.identity)
+        ? null
+        : ctx.identity.userId;
       return ok({
         ...page,
-        readPointer: deps.getReadPointer(userId),
-        unread: deps.unreadCount(userId),
+        readPointer: reader ? r.store.getReadPointer(reader) : null,
+        unread: reader ? r.store.unreadCount(reader) : 0,
       });
     },
 
-    "membersChat.post": (ctx) => {
+    post: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
       const author = deps.authorFor(ctx.identity);
       if (!author) return fail(403, "forbidden");
       const body = (ctx.body ?? {}) as Partial<MembersChatPostReq>;
@@ -249,15 +380,17 @@ export function membersChatHandlers(
       if (body.replyTo !== undefined && typeof body.replyTo !== "string")
         return fail(400, "invalid_request", "replyTo must be a message id");
       const attachments = postAttachments(body, (name) =>
-        deps.attachmentPath(name),
+        r.store.attachmentPath(name),
       );
       if (!Array.isArray(attachments)) return attachments;
       const device = postDevice(author, body);
       let message: MembersChatMessage;
       try {
-        message = deps.post({
+        message = r.store.post({
           kind: author.kind,
           userId: author.userId,
+          ...(author.agentId ? { agentId: author.agentId } : {}),
+          ...(author.limited ? { limited: true as const } : {}),
           userName: author.userName,
           ...(device ? { device } : {}),
           content: body.text,
@@ -267,92 +400,121 @@ export function membersChatHandlers(
       } catch (err) {
         return storeError(err);
       }
-      deps.emitMessage(message);
+      deps.emitMessage(r.roomId, message);
       return created(message);
     },
 
-    "membersChat.edit": (ctx) => {
-      const userId = requireUser(ctx.identity);
-      if (!userId) return fail(403, "forbidden");
-      const existing = deps.get(ctx.params.id);
+    edit: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
+      const existing = r.store.get(ctx.params.id);
       if (!existing) return fail(404, "not_found");
-      if (existing.userId !== userId) return fail(403, "forbidden");
+      if (!ownsPost(ctx.identity, existing)) return fail(403, "forbidden");
       const body = (ctx.body ?? {}) as Partial<MembersChatEditReq>;
       if (typeof body.text !== "string") {
         return fail(400, "invalid_request", "text must be a string");
       }
       let message: MembersChatMessage | null;
       try {
-        message = deps.edit(existing.id, body.text);
+        message = r.store.edit(existing.id, body.text);
       } catch (err) {
         return storeError(err);
       }
       if (!message) return fail(404, "not_found");
-      deps.emitMessage(message, true);
+      deps.emitMessage(r.roomId, message, true);
       return ok(message);
     },
 
-    "membersChat.pin": (ctx) => {
+    pin: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
       if (!deps.authorFor(ctx.identity)) return fail(403, "forbidden");
       const body = (ctx.body ?? {}) as Partial<MembersChatPinReq>;
       if (typeof body.active !== "boolean")
         return fail(400, "invalid_request", "active must be a boolean");
-      const message = deps.setPinned(ctx.params.id, body.active);
+      const message = r.store.setPinned(ctx.params.id, body.active);
       if (!message) return fail(404, "not_found");
-      deps.emitMessage(message, true);
+      deps.emitMessage(r.roomId, message, true);
       return ok(message);
     },
 
-    "membersChat.thumbsUp": (ctx) => {
-      const reactor = deps.authorFor(ctx.identity);
-      if (!reactor) return fail(403, "forbidden");
+    thumbsUp: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
+      const author = deps.authorFor(ctx.identity);
+      if (!author) return fail(403, "forbidden");
       const body = (ctx.body ?? {}) as Partial<MembersChatThumbsUpReq>;
       if (typeof body.active !== "boolean")
         return fail(400, "invalid_request", "active must be a boolean");
-      const message = deps.setThumbsUp(ctx.params.id, reactor, body.active);
+      const message = r.store.setThumbsUp(
+        ctx.params.id,
+        reactorOf(author),
+        body.active,
+      );
       if (!message) return fail(404, "not_found");
-      deps.emitMessage(message, true);
+      deps.emitMessage(r.roomId, message, true);
       return ok(message);
     },
 
-    "membersChat.delete": (ctx) => {
-      const userId = requireUser(ctx.identity);
-      if (!userId) return fail(403, "forbidden");
-      const existing = deps.get(ctx.params.id);
+    delete: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
+      const existing = r.store.get(ctx.params.id);
       if (!existing) return fail(404, "not_found");
-      if (existing.userId !== userId && !deps.isOwner(ctx.identity)) {
+      const ownerReach =
+        !isRoomBoundAgent(ctx.identity) && deps.isOwner(ctx.identity);
+      if (!ownsPost(ctx.identity, existing) && !ownerReach)
         return fail(403, "forbidden");
-      }
-      if (!deps.delete(existing.id)) return fail(404, "not_found");
-      deps.emitDeleted(existing.id);
+      if (!r.store.delete(existing.id)) return fail(404, "not_found");
+      deps.emitDeleted(r.roomId, existing.id);
       return noContent();
     },
 
-    "membersChat.markRead": (ctx) => {
-      const userId = requireUser(ctx.identity);
-      if (!userId) return fail(403, "forbidden");
+    markRead: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
+      const userId = ctx.identity.userId;
+      // An agent that is not privileged would move its manager's pointer.
+      if (!userId || isRoomBoundAgent(ctx.identity))
+        return fail(403, "forbidden");
       const body = (ctx.body ?? {}) as Partial<MembersChatReadReq>;
       if (typeof body.lastReadId !== "string") {
         return fail(400, "invalid_request", "lastReadId must be a string");
       }
-      const readPointer = deps.setReadPointer(userId, body.lastReadId);
-      const unread = deps.unreadCount(userId);
-      deps.emitRead(userId, readPointer, unread);
+      const readPointer = r.store.setReadPointer(userId, body.lastReadId);
+      const unread = r.store.unreadCount(userId);
+      deps.emitRead(r.roomId, userId, readPointer, unread);
       return ok({ readPointer, unread });
     },
 
-    "membersChat.upload": (ctx) =>
-      uploadFiles(ctx, "members-chat", (data, type, name) =>
-        deps.saveAttachment(data, type, name),
-      ),
+    upload: async (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
+      return uploadFiles(
+        ctx,
+        deps.isLobby(r.roomId) ? "members-chat" : `room-chats/${r.roomId}`,
+        (data, type, name) => r.store.saveAttachment(data, type, name),
+      );
+    },
 
-    "membersChat.getFile": (ctx) => {
-      const filePath = deps.attachmentPath(ctx.params.filename);
+    getFile: (ctx) => {
+      const r = open(ctx, roomOf(ctx));
+      if (!isOpen(r)) return r;
+      const filePath = r.store.attachmentPath(ctx.params.filename);
       if (!filePath) return fail(404, "not_found");
       return file(filePath, deps.contentTypeFor(ctx.params.filename), {
         ...deps.untrustedFileHeaders(),
         ...downloadHeader(ctx.query, ctx.params.filename),
       });
     },
-  };
+  });
+
+  const byRoom = handlers((ctx) => ctx.params.roomId);
+  const lobby = handlers(() => LOBBY_ROOM_ID);
+  return Object.fromEntries(
+    OP_SUFFIXES.flatMap((op) => [
+      [`roomChat.${op}`, byRoom[op]],
+      [`membersChat.${op}`, lobby[op]],
+    ]),
+  );
 }

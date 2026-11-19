@@ -25,7 +25,7 @@ import {
   type PendingPromptKind,
   type RoomWire,
 } from "../shared/types.ts";
-import { statSync } from "fs";
+import { readdirSync, statSync } from "fs";
 import { join } from "path";
 import { persistedAutoHandoffTokens } from "./auto-handoff.ts";
 import { STATE_ROOT } from "./config.ts";
@@ -82,7 +82,13 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
   }
 
   function createRoom(name?: string, skin?: RoomSkin | null): string {
-    const events = officeState.createRoom(name, skin);
+    // A closed room's chat stays on disk under its id (server/room-chats.ts):
+    // a new room must not take that id and open with the old chat.
+    let chatIds: string[] = [];
+    try {
+      chatIds = readdirSync(join(STATE_ROOT, "room-chats"));
+    } catch {}
+    const events = officeState.createRoom(name, skin, chatIds);
     const created = events.find((e) => e.type === "room_created");
     if (!created) throw new Error("failed to create room");
     for (const event of events) emit(event);

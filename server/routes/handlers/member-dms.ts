@@ -41,6 +41,7 @@ import { validateContent, type MembersChatStore } from "../../members-chat.ts";
 import {
   postAttachments,
   postDevice,
+  reactorOf,
   storeError,
   uploadFiles,
   type MembersChatAuthor,
@@ -227,7 +228,11 @@ export function memberDmHandlers(
       if (typeof body.active !== "boolean")
         return fail(400, "invalid_request", "active must be a boolean");
       const message =
-        existing(p)?.setThumbsUp(ctx.params.id, reactor, body.active) ?? null;
+        existing(p)?.setThumbsUp(
+          ctx.params.id,
+          reactorOf(reactor),
+          body.active,
+        ) ?? null;
       if (!message) return fail(404, "not_found");
       emitBoth(p, message, true);
       return ok(message);

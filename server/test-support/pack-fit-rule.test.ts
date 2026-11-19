@@ -151,9 +151,15 @@ function tokenOf(agentId: string): string {
   return token;
 }
 
-// The areas of the fixed grant, as token limits: a token with them fits an
-// agent at Office.
-const FIXED_AREAS = { agents: "write", tasks: "write", asks: "write" } as const;
+// The areas a token needs to fit an agent at Office: the fixed grant, with
+// the room chats at read (task 5b055cf3: the agent's posts are its own, but
+// what it reads it can pass on).
+const FIXED_AREAS = {
+  agents: "write",
+  tasks: "write",
+  asks: "write",
+  membersChat: "read",
+} as const;
 
 // Moves an agent with the member's slider.
 async function lower(
@@ -536,6 +542,28 @@ describe("a limited API token as the sender", () => {
       outcome(await send(o, talk.bearer, atOffice.id, "from talk")),
     ).toEqual(REFUSED);
     expect((await send(o, talk.bearer, chat.id, "from talk")).status).toBe(200);
+  });
+
+  // Task 5b055cf3: the fixed grant has the room chats at write. A sender
+  // needs them at read: without them the agent would read room chats for
+  // it; write is not needed, because the agent posts as itself.
+  it("fits an agent at Office only with the room chats at read or more", async () => {
+    const o = await office();
+    const atOffice = await spawn(o, "At office");
+    await lower(o, atOffice, "office");
+    const { membersChat: _read, ...noChat } = FIXED_AREAS;
+    const cases: Array<[string, Record<string, string>, boolean]> = [
+      ["no room chats", noChat, false],
+      ["room chats read", FIXED_AREAS, true],
+      ["room chats write", { ...noChat, membersChat: "write" }, true],
+    ];
+    for (const [label, areas, fits] of cases) {
+      const token = await mint(o, { areas });
+      const res = await send(o, token.bearer, atOffice.id, `from ${label}`);
+      expect({ label, ...outcome(res) }).toEqual(
+        fits ? { label, status: 200, code: undefined } : { label, ...REFUSED },
+      );
+    }
   });
 
   it("is outside the rule when its pack already reaches everything", async () => {

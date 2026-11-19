@@ -82,10 +82,10 @@ it("a 1:1 chat names the peer and sends to the peer's id; a member gets no setti
   expect(posts.map((r) => [r.path, (r.body as { text: string }).text])).toEqual(
     [["/api/users/u3/chat", "lunch?"]],
   );
-  // No members chat post.
+  // No room chat post.
   expect(
     requests.filter(
-      (r) => r.method === "POST" && r.path === "/api/members-chat",
+      (r) => r.method === "POST" && /^\/api\/rooms\/[^/]+\/chat$/.test(r.path),
     ).length,
   ).toBe(0);
 });

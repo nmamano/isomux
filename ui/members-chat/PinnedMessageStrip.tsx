@@ -10,7 +10,6 @@ import { UserMessage } from "../log-view/LogEntryCard.tsx";
 import { InlineMarkdown } from "./InlineMarkdown.tsx";
 import { ReplyQuote } from "./ReplyQuote.tsx";
 import { MessageActions } from "./MessageActions.tsx";
-import { MEMBERS_CHAT_FILES_BASE } from "./api.ts";
 import { noTranslate } from "../no-translate.ts";
 
 // The newest pin as a two-line bar above the list. Held (no message yet):
@@ -22,6 +21,8 @@ export function PinnedMessageStrip(
     | {
         message: MembersChatMessage;
         author: string;
+        // Where the room chat's files are served from.
+        fileBase: string;
         loaded: boolean;
         onJump: () => void;
         onUnpin: () => void;
@@ -132,7 +133,7 @@ export function PinnedMessageStrip(
               )
             }
             attachments={live.message.attachments}
-            fileBase={MEMBERS_CHAT_FILES_BASE}
+            fileBase={live.fileBase}
             extraActions={
               <MessageActions>
                 {(close) => (

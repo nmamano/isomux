@@ -17,7 +17,6 @@ const {
   boot,
   click,
   memberWire,
-  navRow,
   requests,
   setDmFail,
   setMemberDms,
@@ -68,20 +67,32 @@ async function type(view: View, text: string): Promise<void> {
   await act(async () => fireEvent.change(box!, { target: { value: text } }));
 }
 
-it("each chat keeps its own draft", async () => {
+// Each room chat row, by room (task 5b055cf3).
+const roomRow = (view: View, roomId: string) =>
+  view.container.querySelector<HTMLButtonElement>(
+    `nav[data-chat-sidebar] button[data-sidebar-nav="room-chat"][data-room-chat="${roomId}"]`,
+  );
+
+it("each chat keeps its own draft, each room's chat its own", async () => {
   seedOffice();
   const view = await boot();
   await click(memberRow(view, "u3"));
   await type(view, "to bea");
-  await click(navRow(view, "members-chat"));
-  expect(chatRoot(view)?.getAttribute("data-human-chat")).toBe("members");
+  await click(roomRow(view, "lobby"));
+  expect(chatRoot(view)?.getAttribute("data-human-chat")).toBe("room:lobby");
   expect(composer(view)?.value).toBe("");
   await type(view, "to all");
+  await click(roomRow(view, "r1"));
+  expect(chatRoot(view)?.getAttribute("data-human-chat")).toBe("room:r1");
+  expect(composer(view)?.value).toBe("");
+  await type(view, "to the first room");
 
   await click(memberRow(view, "u3"));
   expect(composer(view)?.value).toBe("to bea");
-  await click(navRow(view, "members-chat"));
+  await click(roomRow(view, "lobby"));
   expect(composer(view)?.value).toBe("to all");
+  await click(roomRow(view, "r1"));
+  expect(composer(view)?.value).toBe("to the first room");
 });
 
 it("a failed page load shows the error, and Retry loads the page again", async () => {
@@ -140,7 +151,7 @@ it("a chat opened from the sidebar puts the caret in its message box", async () 
     const view = await boot();
     const opens: [string, HTMLButtonElement | null][] = [
       ["u3", memberRow(view, "u3")],
-      ["members", navRow(view, "members-chat")],
+      ["room:lobby", roomRow(view, "lobby")],
     ];
     for (const [id, row] of opens) {
       (document.activeElement as HTMLElement | null)?.blur?.();

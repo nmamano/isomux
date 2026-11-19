@@ -138,11 +138,17 @@ export type Capability =
   // it: a run has nobody to hand a hook URL to.
   | "webhook:read"
   | "webhook:write"
-  // The members chat: humans and their proxies only. Held by
+  // The 1:1 chats between members: humans and their proxies only. Held by
   // USER, API and the PRIVILEGED agent set; deliberately absent from the AGENT
   // baseline, RUN and APP sets, so an ordinary agent, a cron run or an app can
-  // neither read nor write it (Nil, 2026-09-05).
+  // neither read nor write them (Nil, 2026-09-05).
   | "chat:members"
+  // The room chats (task 5b055cf3): people and agents are native users. Held by
+  // USER, API and the AGENT baseline (so every agent stop); the room chat
+  // handlers narrow an agent that is not privileged to its live room. Absent
+  // from RUN and never inherited by an APP: neither has a room or an author
+  // shape.
+  | "chat:room"
   // Shared by USER and AGENT - reading conversation logs (history search and
   // session retrieval, GET /api/agents/:id/logs). DELIBERATELY NOT office:read:
   // an ordinary agent token does not carry office:read, and widening that
@@ -230,6 +236,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "audit:read",
   "office:read",
   "chat:members",
+  "chat:room",
   "agent:manage",
   "agent:converse",
   "agent:privilege",
@@ -275,6 +282,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
 // mint invites - those capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:spawn",
+  "chat:room",
   "agent:send-as-self",
   "agent:send-to-api-token",
   "task:read",
@@ -415,6 +423,7 @@ export const APP_NEVER_INHERITED: readonly Capability[] = [
   "agent:send-as-self",
   "agent:send-to-api-token",
   "chat:members",
+  "chat:room",
   "secret:show",
   "office:rescue",
 ];
@@ -464,6 +473,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "api:drain-inbox",
   "office:read",
   "chat:members",
+  "chat:room",
   "agent:manage",
   "agent:converse",
   "room:manage",

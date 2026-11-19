@@ -170,7 +170,7 @@ import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
-import { identityFitsAgent } from "./identity/agent-fit.ts";
+import { identityFitsAgent, writesAsData } from "./identity/agent-fit.ts";
 import {
   agentReachRefusal,
   promptAnswerRefused,
@@ -358,7 +358,7 @@ import { openFile } from "./file-editor.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
 import {
-  membersChatHandlers,
+  roomChatHandlers,
   type MembersChatAuthor,
 } from "./routes/handlers/members-chat.ts";
 import { memberDmHandlers } from "./routes/handlers/member-dms.ts";
@@ -682,7 +682,8 @@ import {
   cronjobManager,
   scheduledMessageManager,
   askStore,
-  membersChat,
+  roomChats,
+  isLobbyRoomId,
   memberDms,
   floors,
   pagerSettings,
@@ -2927,9 +2928,7 @@ function pushPresenceListToEachWs() {
 // The receptionist's lobby. One test for room access (canAccess) and the
 // turn-end push, which skips the lobby.
 function isLobbyRoom(roomId: string): boolean {
-  return (
-    roomId === LOBBY_ROOM_ID || agentManager.roomById(roomId)?.type === "lobby"
-  );
+  return isLobbyRoomId(roomId);
 }
 
 // Rule-based room ACCESS. Owners have access to ALL rooms by
@@ -4983,59 +4982,70 @@ function buildExecutorDeps(
     }),
   );
 
-  // Members chat: the author snapshot is token-derived here, never from the
+  // Room chats and 1:1 chats: the author snapshot is token-derived here, never from the
   // body.
   const membersChatAuthorFor = (
     identity: Identity,
   ): MembersChatAuthor | null => {
-    if (!identity.userId) return null;
-    const user = getUserById(identity.userId);
-    if (!user) return null;
+    // An agent below Standard, or an identity whose pack the messaging rule
+    // bounds, writes text agents read as data, as on the board.
+    const limited = writesAsData(identity) ? { limited: true as const } : {};
     if (identity.scope === "agent" && identity.agentId) {
       const display = agentManager.getAgentDisplay(identity.agentId);
       if (!display) return null;
-      return { kind: "agent", userId: user.id, userName: display.name };
+      // An agent with no manager has no user: its posts carry an empty
+      // userId, which no person or token owns.
+      const user = identity.userId ? getUserById(identity.userId) : null;
+      if (identity.userId && !user) return null;
+      return {
+        kind: "agent",
+        userId: user?.id ?? "",
+        agentId: identity.agentId,
+        userName: display.name,
+        ...limited,
+      };
     }
+    if (!identity.userId) return null;
+    const user = getUserById(identity.userId);
+    if (!user) return null;
     if (identity.scope === "api") {
       return {
         kind: "api",
         userId: user.id,
         userName: user.name,
         ...(identity.apiTokenName ? { device: identity.apiTokenName } : {}),
+        ...limited,
       };
     }
-    return { kind: "user", userId: user.id, userName: user.name };
+    return { kind: "user", userId: user.id, userName: user.name, ...limited };
   };
   register(
-    membersChatHandlers({
-      setPinned: (id, active) => membersChat.setPinned(id, active),
-      page: (opts) => membersChat.page(opts),
-      post: (input) => membersChat.post(input),
-      edit: (id, content) => membersChat.edit(id, content),
-      setThumbsUp: (id, reactor, active) =>
-        membersChat.setThumbsUp(id, reactor, active),
-      delete: (id) => membersChat.delete(id),
-      get: (id) => membersChat.get(id),
-      getReadPointer: (userId) => membersChat.getReadPointer(userId),
-      setReadPointer: (userId, lastReadId) =>
-        membersChat.setReadPointer(userId, lastReadId),
-      unreadCount: (userId) => membersChat.unreadCount(userId),
-      saveAttachment: (data, mediaType, originalName) =>
-        membersChat.saveAttachment(data, mediaType, originalName),
-      attachmentPath: (filename) => membersChat.attachmentPath(filename),
+    roomChatHandlers({
+      roomOpen: (roomId) =>
+        isLobbyRoomId(roomId) ||
+        agentManager.getRooms().some((room) => room.id === roomId),
+      isLobby: isLobbyRoomId,
+      hasRoomAccess: (identity, roomId) =>
+        buildLiveGuardDeps().hasRoomAccess(identity, roomId),
+      agentRoomId: (agentId) =>
+        agentManager.getAllAgents().find((a) => a.id === agentId)?.roomId ??
+        null,
+      store: (roomId) => roomChats.forRoom(roomId),
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
       untrustedFileHeaders,
       authorFor: membersChatAuthorFor,
       isOwner: (identity) =>
         hasOfficeOwnerReach(identity, buildLiveGuardDeps()),
-      emitMessage: (message, updateOnly) =>
-        liveEmit("members_chat_message", {
+      emitMessage: (roomId, message, updateOnly) =>
+        liveEmit("room_chat_message", {
+          roomId,
           message,
           ...(updateOnly ? { updateOnly } : {}),
         }),
-      emitDeleted: (id) => liveEmit("members_chat_deleted", { id }),
-      emitRead: (userId, readPointer, unread) =>
-        liveEmit("members_chat_read", { readPointer, unread }, { userId }),
+      emitDeleted: (roomId, id) =>
+        liveEmit("room_chat_deleted", { roomId, id }),
+      emitRead: (roomId, userId, readPointer, unread) =>
+        liveEmit("room_chat_read", { roomId, readPointer, unread }, { userId }),
     }),
   );
 

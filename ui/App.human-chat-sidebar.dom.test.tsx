@@ -21,13 +21,13 @@ const {
   chatOpen,
   click,
   memberWire,
-  navRow,
   openFirstDesk,
   press,
   setMemberDms,
   setMembers,
   setOnline,
   setRole,
+  setRoomChats,
   setUpChatSidebarTests,
 } = await import("./test-support/chat-sidebar-fixture.tsx");
 type View = import("./test-support/chat-sidebar-fixture.tsx").View;
@@ -77,32 +77,23 @@ const humanChat = (view: View) =>
     .querySelector("[data-human-chat]")
     ?.getAttribute("data-human-chat") ?? null;
 
-it("lists Members chat, then each other member: newest chat first (sent or received), then the name; unread and online never move a row", async () => {
+it("lists each other member under Members, and no room chat there: newest chat first (sent or received), then the name; unread and online never move a row", async () => {
   seedOffice();
   const view = await boot();
   const section = view.container.querySelector("[data-sidebar-members]");
   expect(section).not.toBeNull();
-  // Document order: the section header, Members chat, then the member rows.
+  // Document order: the section header, then the member rows. The room chats
+  // left Members for their rooms' sections (task 5b055cf3).
   const order = [
     ...view.container.querySelectorAll(
-      "[data-sidebar-members], [data-sidebar-nav='members-chat'], [data-sidebar-member]",
+      "[data-sidebar-members], [data-sidebar-member]",
     ),
-  ].map(
-    (el) =>
-      el.getAttribute("data-sidebar-member") ??
-      el.getAttribute("data-sidebar-nav") ??
-      "header",
-  );
-  expect(order).toEqual([
-    "header",
-    "members-chat",
-    "u5",
-    "u3",
-    "u4",
-    "u9",
-    "u2",
-    "u6",
-  ]);
+  ].map((el) => el.getAttribute("data-sidebar-member") ?? "header");
+  expect(
+    section?.parentElement?.querySelectorAll("[data-sidebar-nav='room-chat']")
+      .length,
+  ).toBe(0);
+  expect(order).toEqual(["header", "u5", "u3", "u4", "u9", "u2", "u6"]);
   expect(memberRow(view, "u4")?.textContent).toContain("Cid");
   expect(
     memberRow(view, "u4")?.querySelector("[data-sidebar-badge]")?.textContent,
@@ -205,18 +196,22 @@ it("an owner gets a settings button on each live member's row, which opens Setti
   expect(humanChat(view)).toBeNull();
 });
 
-it("Members chat, from a page over a chat, opens Members chat full screen with no page or agent chat left", async () => {
+it("a room's chat row, from a page over a chat, opens that room's chat full screen with no page or agent chat left", async () => {
   const view = await boot();
   await openFirstDesk(view);
   await press("t");
-  await click(navRow(view, "members-chat"));
+  const row = () =>
+    view.container.querySelector<HTMLButtonElement>(
+      'nav[data-chat-sidebar] button[data-sidebar-nav="room-chat"][data-room-chat="r1"]',
+    );
+  await click(row());
   expect({
     chat: humanChat(view),
     agentChat: chatOpen(view),
     tasks: view.container.querySelector("[data-tasks-page]") !== null,
-    current: navRow(view, "members-chat")?.getAttribute("aria-current"),
+    current: row()?.getAttribute("aria-current"),
   }).toEqual({
-    chat: "members",
+    chat: "room:r1",
     agentChat: false,
     tasks: false,
     current: "page",
@@ -244,4 +239,48 @@ it("the collapsed sidebar's open button shows a dot while a human chat has unrea
     } as never);
   });
   expect(view.container.querySelector("[data-sidebar-unread-dot]")).toBeNull();
+});
+
+// Task 5b055cf3: each room the member sees has a room chat row first in its
+// section, with that chat's unread badge. A hidden room (r9: its summary
+// comes, it is not in the member's rooms) has no row and counts nowhere.
+it("puts a room chat row first in each open room section and in the Lobby section, with its badge; a hidden room has none", async () => {
+  setRoomChats({ lobby: 1, r1: 4, r2: 0, r9: 7 });
+  const view = await boot();
+  const rows = () =>
+    [
+      ...view.container.querySelectorAll<HTMLElement>(
+        'nav[data-chat-sidebar] [data-sidebar-nav="room-chat"]',
+      ),
+    ].map((row) => ({
+      room: row.getAttribute("data-room-chat"),
+      badge:
+        row.querySelector("[data-sidebar-badge]")?.textContent?.trim() ?? null,
+    }));
+  // The open sections: r1 (the room in view) and the Lobby.
+  expect(rows()).toEqual([
+    { room: "r1", badge: "4" },
+    { room: "lobby", badge: "1" },
+  ]);
+  // First in its section: the first row after the room's header (the
+  // header's own action buttons are not rows).
+  const header = view.container.querySelector(
+    'nav[data-chat-sidebar] button[data-sidebar-room="r1"]',
+  );
+  const rowButtons = [
+    ...view.container.querySelectorAll(
+      "nav[data-chat-sidebar] button.chat-sidebar-row",
+    ),
+  ];
+  const next = rowButtons[rowButtons.findIndex((b) => b === header) + 1];
+  expect(next?.getAttribute("data-room-chat")).toBe("r1");
+  // r2's section, opened, shows its row with no badge.
+  await click(
+    view.container.querySelector<HTMLButtonElement>(
+      'nav[data-chat-sidebar] button[data-sidebar-room="r2"]',
+    ),
+  );
+  expect(rows().map((r) => r.room)).toContain("r2");
+  expect(rows().find((r) => r.room === "r2")?.badge).toBeNull();
+  expect(rows().some((r) => r.room === "r9")).toBe(false);
 });

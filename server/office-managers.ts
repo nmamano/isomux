@@ -5,6 +5,7 @@
 // its one writer live here together.
 import { join } from "path";
 import {
+  LOBBY_ROOM_ID,
   runsInFolder,
   type AgentInfo,
   type AskEntry,
@@ -104,6 +105,7 @@ import {
   createMembersChatStore,
   type MembersChatStore,
 } from "./members-chat.ts";
+import { createRoomChats, type RoomChats } from "./room-chats.ts";
 import { createMemberDms, type MemberDmsStore } from "./member-dms.ts";
 import { createFloorsStore, type FloorsStore } from "./floors-store.ts";
 import { BrowserExtensionStore } from "./browser-extension-store";
@@ -222,9 +224,20 @@ export let cronjobManager: CronjobManager;
 
 export let scheduledMessageManager: ScheduledMessageManager;
 export let askStore: AskStore | undefined;
-// Members chat: the humans-only stream. The store is
-// month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
+// The lobby's room chat, once the members chat: month-file JSONL under
+// <STATE_ROOT>/members-chat (server/members-chat.ts).
 export let membersChat: MembersChatStore;
+// One chat per room (server/room-chats.ts); the lobby's is membersChat.
+export let roomChats: RoomChats;
+
+// The lobby: its fixed id, or a room of type lobby. One predicate for room
+// access (canAccess), the room chat reach and the room chat store, so a room
+// of type lobby never gets a second chat.
+export function isLobbyRoomId(roomId: string): boolean {
+  return (
+    roomId === LOBBY_ROOM_ID || agentManager?.roomById(roomId)?.type === "lobby"
+  );
+}
 // 1:1 chats between two members: one members chat store per pair under
 // <STATE_ROOT>/member-dms (server/member-dms.ts).
 export let memberDms: MemberDmsStore;
@@ -649,6 +662,11 @@ export function createManagers(
   // into agents), and delivery. The store and delivery call each other
   // through these closures.
   membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
+  roomChats = createRoomChats({
+    dir: join(STATE_ROOT, "room-chats"),
+    lobbyStore: membersChat,
+    isLobby: isLobbyRoomId,
+  });
   memberDms = createMemberDms(join(STATE_ROOT, "member-dms"));
   floors = createFloorsStore();
   const askHistory = officeAskHistory();

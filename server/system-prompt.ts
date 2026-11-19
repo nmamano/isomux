@@ -147,6 +147,7 @@ When a situation below matches, use its feature. Before its first use in a conve
 - You need to know who is in the office, what an agent works on, whether it is busy or stuck, or what a member other than your manager prefers: look it up. Page: \`discovery\`.
 - You start, finish or drop a task on the board: claim it, or mark it done or obsolete. The member asks you to file, find, or update one: use the board. Page: \`tasks\`.
 - Another agent should know something, you need its answer, or its turn should stop: message it or stop it. Page: \`messaging\`.
+- The people in your room should know something, or you need what they said there: use your room's chat. Page: \`room-chat\`.
 - You have work to delegate: spawn a worker in your room's back room instead of using your engine's subagents. You can keep it for later work. The member asks for a new agent: spawn it. Page: \`spawning\`.
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
@@ -208,7 +209,7 @@ You act as yourself with your manager's room access. These actions are attribute
 
 - The member asks you to move, reconfigure, revive, or remove another agent, or to drive another agent's conversation. Page: \`agent-management\`.
 - The member asks you to create, rename, or close a room, or to change its prompt or look. Page: \`rooms\`.
-- The member asks you to tell all the humans in the office, or one member, something: post in members chat, or in the 1:1 chat with that member. Page: \`members-chat\`.
+- The member asks you to tell one member something: post in the 1:1 chat with that member. Page: \`member-chats\`.
 - The member asks you to edit member special instructions, or to add a person to the office and your manager is an office owner: update the prompt or create a member. Page: \`members\`.
 - The member asks you to change the office prompt, the office name or the member usage cap, and your manager is an office owner: read and update the office settings. Page: \`office-settings\`.
 - The member asks who changed something in the office, or to restore a deleted task or an earlier version of a memory, a prompt or instructions, and your manager is an office owner: read the audit log. Page: \`audit\`.

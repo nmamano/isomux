@@ -23,12 +23,13 @@ export const AGENT_ACCESS_STOPS = [
 export type AgentAccess = (typeof AGENT_ACCESS_STOPS)[number];
 
 // The limits of the token of an agent at office, folder and web: agents,
-// tasks and asks write, no logs, every room its manager can access. Read it
-// through grantAt, which gives a fresh copy.
+// tasks, asks and room chats write, no logs, every room its manager can
+// access. Read it through grantAt, which gives a fresh copy.
 const AGENT_OFFICE_AREAS: Readonly<ApiTokenAreaLevels> = {
   agents: "write",
   tasks: "write",
   asks: "write",
+  membersChat: "write",
 };
 
 // A stop and its token limits. `pack` is present exactly at office, folder

@@ -29,7 +29,7 @@ A member's permission pack caps every token of theirs to its areas, live. Their 
 
 The form marks the areas where write equals full access: with them a token can make an agent act with all of its member's reach, for example by changing its memory.
 
-**Rooms** limits a token to some of your rooms. It then reaches only those rooms, while you can access them too, and not the lobby. Office-wide data, such as the members chat and tasks without a room, stays reachable by area. A room-limited token has no office-owner powers, also when an owner creates it. An agent that such a token creates still reaches all of your rooms.
+**Rooms** limits a token to some of your rooms. It then reaches only those rooms, while you can access them too, and not the lobby. Office-wide data, such as tasks without a room, stays reachable by area, and the lobby's chat stays reachable. A room-limited token has no office-owner powers, also when an owner creates it. An agent that such a token creates still reaches all of your rooms.
 
 The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
@@ -308,28 +308,30 @@ old folder, returns 422 `folder_not_allowed`.
 `GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet`, `decor`
 and `cwd`.
 
-### Members chat
+### Room chats
 
-Members, their API tokens and privileged agents can read and post to the office-wide members chat. Ordinary agents, scheduled runs and apps have no `chat:members` capability.
+Each room has a group chat; the lobby's was the members chat, and keeps its history. Members, their API tokens and agents read and post in it. A member reaches the lobby's chat and the chat of each room they can access. A room-limited token reaches its rooms' chats and the lobby's. An agent reaches only the chat of its current room, while its manager can access that room; a privileged agent reaches its manager's rooms and the lobby. Scheduled runs and apps have no room chat. A token needs the `membersChat` area. `:roomId` is `lobby` for the lobby.
 
-- `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer`, `unread` and `pinned`. Messages are in chronological order. `pinned` holds up to 21 live pinned messages from all history, newest `pinnedAt` first; the extra entry lets a client distinguish exactly 20 from more than 20.
-- `POST /api/members-chat` accepts `{"text":"..."}`, optional uploaded `attachments`, and optional `replyTo` (an existing message id). The server stores `replyTo: {id, userName, excerpt}` on the message. The excerpt holds the first 200 Unicode characters of the target text, or its attachment names when it has no text. Edits and deletion of the target leave this snapshot unchanged. An unknown or deleted target returns `404 reply_not_found`.
-- `PATCH /api/members-chat/:id` accepts `{"text":"..."}` and edits the caller's own post.
-- `PUT /api/members-chat/:id/thumbs-up` accepts `{"active":true}` to set the caller’s thumbs up, or `{"active":false}` to remove it. Repeating either request keeps that state.
-- `PUT /api/members-chat/:id/pin` accepts `{"active":true}` or `{"active":false}`. Anyone who can post can pin or unpin. Pinning sets `pinnedAt`; unpinning removes it. Repeating the current state preserves the timestamp. Deleting a message also removes its pin.
-- `DELETE /api/members-chat/:id` deletes the caller's own post, or any post when the caller acts for an office owner.
-- `POST /api/members-chat/read` accepts `{"lastReadId":"..."}` and updates that user's read pointer.
-- `POST /api/members-chat/uploads` accepts multipart files; `GET /api/members-chat/files/:filename` reads an uploaded file.
+- `GET /api/rooms/:roomId/chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer`, `unread` and `pinned`. Messages are in chronological order. `pinned` holds up to 21 live pinned messages from all history, newest `pinnedAt` first; the extra entry lets a client distinguish exactly 20 from more than 20. An agent that is not privileged gets `readPointer: null` and `unread: 0`.
+- `POST /api/rooms/:roomId/chat` accepts `{"text":"..."}`, optional uploaded `attachments`, and optional `replyTo` (an existing message id). The server stores `replyTo: {id, userName, excerpt}` on the message. The excerpt holds the first 200 Unicode characters of the target text, or its attachment names when it has no text. Edits and deletion of the target leave this snapshot unchanged. An unknown or deleted target returns `404 reply_not_found`.
+- `PATCH /api/rooms/:roomId/chat/:id` accepts `{"text":"..."}` and edits the caller's own post.
+- `PUT /api/rooms/:roomId/chat/:id/thumbs-up` accepts `{"active":true}` to set the caller's thumbs up, or `{"active":false}` to remove it. Repeating either request keeps that state.
+- `PUT /api/rooms/:roomId/chat/:id/pin` accepts `{"active":true}` or `{"active":false}`. Anyone who can post can pin or unpin. Pinning sets `pinnedAt`; unpinning removes it. Repeating the current state preserves the timestamp. Deleting a message also removes its pin.
+- `DELETE /api/rooms/:roomId/chat/:id` deletes the caller's own post, or any post when the caller acts for an office owner.
+- `POST /api/rooms/:roomId/chat/read` accepts `{"lastReadId":"..."}` and updates that user's read pointer.
+- `POST /api/rooms/:roomId/chat/uploads` accepts multipart files; `GET /api/rooms/:roomId/chat/files/:filename` reads an uploaded file.
 
-Messages carry an optional `thumbsUp` list with each reactor’s `userId`, `userName`, `kind` and optional `device`. Identity comes from the session; agent and API reactions retain their non-human attribution. Edits, reactions and pin changes use `members_chat_message` with `updateOnly: true`. Clients update the pinned strip even when the message is not in the loaded page, without appending it to the conversation or raising unread. Clients can refresh the page response to refill the capped pinned list after a change.
+A member, their tokens and their privileged agents share one identity: they edit those posts. Any other agent edits and deletes only its own posts, and has no office-owner reach. An agent post carries `agentId`. A post carries `limited: true`, so agents read it as data, when it comes from an agent below Standard, or from a member or API token whose permission pack or token limits bound what it may write to agents. An unknown or closed room returns 404, also for an owner. The `/api/members-chat` routes still work as aliases of the lobby's chat.
+
+Messages carry an optional `thumbsUp` list with each reactor's `userId`, `userName`, `kind`, and optional `agentId` and `device`. Identity comes from the session. Sockets that reach the room get `room_chat_message` and `room_chat_deleted` with `roomId`; edits, reactions and pin changes use `room_chat_message` with `updateOnly: true`. `room_chat_read` reaches only the reader. Clients update the pinned strip even when the message is not in the loaded page, without appending it to the conversation or raising unread.
 
 ### 1:1 chats
 
 A 1:1 chat is between two members. Only those two members, their API tokens and their privileged agents reach it; an office owner outside the pair does not. A token needs the `directMessages` area. `:username` is the other member's name or id. A removed member is addressed by id only.
 
 - `GET /api/member-chats` returns `chats:[{peerId,peerName,removed,readPointer,unread,lastAt}]`, the caller's chats, newest first. A chat exists once its first message or file was sent; reads never make one.
-- `GET /api/users/:username/chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`, as members chat does, without `pinned`.
-- `POST /api/users/:username/chat`, `PATCH /api/users/:username/chat/:id`, `PUT /api/users/:username/chat/:id/thumbs-up`, `DELETE /api/users/:username/chat/:id`, `POST /api/users/:username/chat/read`, `POST /api/users/:username/chat/uploads` and `GET /api/users/:username/chat/files/:filename` work as their members chat routes. There are no pins. Edit and delete reach only the caller's own messages, also for an office owner.
+- `GET /api/users/:username/chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`, as a room chat does, without `pinned`.
+- `POST /api/users/:username/chat`, `PATCH /api/users/:username/chat/:id`, `PUT /api/users/:username/chat/:id/thumbs-up`, `DELETE /api/users/:username/chat/:id`, `POST /api/users/:username/chat/read`, `POST /api/users/:username/chat/uploads` and `GET /api/users/:username/chat/files/:filename` work as their room chat routes. There are no pins. Edit and delete reach only the caller's own messages, also for an office owner.
 - While the other member is removed, posting, uploading and thumbs-up return `409 peer_removed`. A restore makes the chat writable again.
 
 Each member's sockets get `dm_message` and `dm_deleted` with `peerId`, the other member; `dm_read` reaches only the reader. A new message sends a web push to the recipient's devices.

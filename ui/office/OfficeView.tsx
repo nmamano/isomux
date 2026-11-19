@@ -250,8 +250,10 @@ interface OfficeViewProps {
   // Given while the sidebar is hidden on a desktop: the bar's button that
   // shows it again. On a phone: the bar's button that opens the drawer.
   onShowSidebar?: () => void;
-  // The phone lobby's chat button: Members chat, full screen.
-  onOpenMembersChat?: () => void;
+  // The phone's chat button in every room: that room's chat (or, without
+  // room chats, a 1:1 chat), full screen. Absent when the member has no
+  // human chat to open.
+  onOpenChat?: () => void;
 }
 
 export function OfficeView({
@@ -278,7 +280,7 @@ export function OfficeView({
   viewportControlsRef,
   sidebarOpen = false,
   onShowSidebar,
-  onOpenMembersChat,
+  onOpenChat,
 }: OfficeViewProps) {
   const {
     agents,
@@ -1260,8 +1262,8 @@ export function OfficeView({
           </div>
         )}
         {/* A phone has no sidebar: this button opens the human chats. */}
-        {!embed && lobbyOpen && isMobile && onOpenMembersChat && (
-          <MembersChatButton onClick={onOpenMembersChat} />
+        {!embed && isMobile && onOpenChat && (
+          <MembersChatButton onClick={onOpenChat} />
         )}
       </div>
     </div>

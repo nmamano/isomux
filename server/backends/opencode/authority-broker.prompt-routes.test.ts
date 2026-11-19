@@ -149,7 +149,7 @@ describe("OpenCode broker allowlist", () => {
     expect(routes).toContain("GET /agents");
     expect(routes).toContain("DELETE /api/skills/file");
     expect(routes).toContain("POST /api/apps");
-    expect(routes).toContain("GET /api/members-chat");
+    expect(routes).toContain("GET /api/rooms/:roomId/chat");
     expect(routes).toContain("GET /api/users/:username/instructions");
     expect(routes).toContain("PUT /api/users/:username/instructions");
     expect(routes).toContain("GET /api/apps/:name");

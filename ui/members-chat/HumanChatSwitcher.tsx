@@ -1,13 +1,15 @@
 // The title of a human chat where no sidebar lists the chats (a phone): the
-// current chat's name, opening a list of Members chat and each other member,
-// with online dot, unread badge and, for an owner, a gear to that member's
-// settings. Same order as the sidebar (member-rows.ts).
+// current chat's name, opening a list of the room chats (the lobby's, then
+// each room the member sees) and each other member, with online dot, unread
+// badge and, for an owner, a gear to that member's settings. Same order as
+// the sidebar (room-chat-rows.ts, member-rows.ts).
 import { useEffect, useRef, useState } from "react";
-import { humanChatId, MEMBERS_CHAT, type HumanChatKey } from "../human-chat.ts";
+import { humanChatId, roomChat, type HumanChatKey } from "../human-chat.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { useDmPeer, useMemberChatRows } from "./member-rows.ts";
+import { useRoomChatRows, useRoomChatTitle } from "./room-chat-rows.ts";
 import { ChevronDownIcon } from "./icons.tsx";
 import { SettingsIcon } from "../components/NavIcons.tsx";
 
@@ -43,6 +45,10 @@ export function HumanChatSwitcher({
   const { sessionContext } = useAppState();
   const peerName = useDmPeer(current.kind === "dm" ? current.peerId : "").name;
   const rows = useMemberChatRows();
+  const roomRows = useRoomChatRows();
+  const roomTitle = useRoomChatTitle(
+    current.kind === "room" ? current.roomId : "",
+  );
   const amOwner = sessionContext?.role === "owner";
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -55,7 +61,7 @@ export function HumanChatSwitcher({
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
   const currentId = humanChatId(current);
-  const title = current.kind === "members" ? t("membersChat.title") : peerName;
+  const title = current.kind === "room" ? roomTitle : peerName;
   const pick = (chat: HumanChatKey) => {
     setOpen(false);
     onSelect(chat);
@@ -127,21 +133,42 @@ export function HumanChatSwitcher({
             boxShadow: "0 8px 24px var(--shadow-heavy)",
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            data-chat-switcher-option="members"
-            aria-current={currentId === "members" ? "true" : undefined}
-            onClick={() => pick(MEMBERS_CHAT)}
-            style={{
-              ...optionStyle,
-              background:
-                currentId === "members" ? "var(--bg-hover)" : "transparent",
-            }}
-          >
-            <span style={{ width: 10 }} />
-            <span style={{ flex: 1 }}>{t("membersChat.title")}</span>
-          </button>
+          {roomRows.map((row) => {
+            const id = humanChatId(roomChat(row.roomId));
+            return (
+              <button
+                key={id}
+                type="button"
+                role="menuitem"
+                data-chat-switcher-option={id}
+                aria-current={currentId === id ? "true" : undefined}
+                onClick={() => pick(roomChat(row.roomId))}
+                style={{
+                  ...optionStyle,
+                  background:
+                    currentId === id ? "var(--bg-hover)" : "transparent",
+                }}
+              >
+                <span style={{ width: 10 }} />
+                <span
+                  {...(row.name === null ? {} : noTranslate())}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    fontWeight: row.unread > 0 ? 700 : 400,
+                  }}
+                >
+                  {row.name === null
+                    ? t("roomChat.title", { room: t("common.lobby") })
+                    : t("roomChat.title", { room: row.name })}
+                </span>
+                {row.unread > 0 && <UnreadPill count={row.unread} />}
+              </button>
+            );
+          })}
           {rows.map((row) => (
             <div
               key={row.id}
@@ -189,21 +216,7 @@ export function HumanChatSwitcher({
                     {t("humanChat.removed")}
                   </span>
                 )}
-                {row.unread > 0 && (
-                  <span
-                    style={{
-                      minWidth: 20,
-                      padding: "1px 6px",
-                      borderRadius: 10,
-                      background: "var(--red)",
-                      color: "white",
-                      fontSize: 12,
-                      textAlign: "center",
-                    }}
-                  >
-                    {row.unread}
-                  </span>
-                )}
+                {row.unread > 0 && <UnreadPill count={row.unread} />}
               </button>
               {amOwner && !row.removed && (
                 <button
@@ -235,5 +248,23 @@ export function HumanChatSwitcher({
         </div>
       )}
     </div>
+  );
+}
+
+function UnreadPill({ count }: { count: number }) {
+  return (
+    <span
+      style={{
+        minWidth: 20,
+        padding: "1px 6px",
+        borderRadius: 10,
+        background: "var(--red)",
+        color: "white",
+        fontSize: 12,
+        textAlign: "center",
+      }}
+    >
+      {count}
+    </span>
   );
 }
