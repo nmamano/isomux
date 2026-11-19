@@ -56,31 +56,96 @@ export function oauthTokenExpiry(
   return tokens.get(oauthTokenKey(scope, name, url))?.expiresAt;
 }
 
+// Every cached access token, for the secret proxy (secret-proxy/runtime.ts,
+// GitHub #77): a session's header carries a placeholder, and the proxy swaps
+// in the token that is current at the request. Expired tokens stay in the
+// list: a token leaves only through a change that notifies, so the set the
+// proxy and agent environments see never moves with the clock alone.
+export function listOAuthAccessTokens(): {
+  scope: SecretScope;
+  name: string;
+  url: string;
+  accessToken: string;
+}[] {
+  const out: {
+    scope: SecretScope;
+    name: string;
+    url: string;
+    accessToken: string;
+  }[] = [];
+  for (const [key, cached] of tokens) {
+    // The key is `${scopeKey}\n${name}\n${url}`: a name has no line break
+    // (the field rules), and a normalized URL has none either.
+    const first = key.indexOf("\n");
+    const second = key.indexOf("\n", first + 1);
+    const scopeKey = key.slice(0, first);
+    out.push({
+      scope:
+        scopeKey === "office"
+          ? { kind: "office" }
+          : { kind: "user", userId: scopeKey.slice("user:".length) },
+      name: key.slice(first + 1, second),
+      url: key.slice(second + 1),
+      accessToken: cached.accessToken,
+    });
+  }
+  return out;
+}
+
+// Called once after each change to the cached tokens, when the change is
+// complete: the secret proxy follows them (GitHub #77). A listener that
+// throws does not stop the change.
+const listeners = new Set<() => void>();
+
+export function onOAuthTokensChanged(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function notify(): void {
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch {
+      console.warn("[mcp] oauth_tokens_listener_failed");
+    }
+  }
+}
+
 export function setOAuthAccessToken(
   scope: SecretScope,
   name: string,
   url: string,
   token: CachedToken,
 ): void {
-  dropOAuthTokens(scope, name);
+  drop(scope, name);
   tokens.set(oauthTokenKey(scope, name, url), token);
+  notify();
 }
 
 export function markOAuthSignInNeeded(scope: SecretScope, name: string): void {
-  dropOAuthTokens(scope, name);
+  drop(scope, name);
   signInNeeded.add(registrationPrefix(scope, name));
+  notify();
 }
 
 export function oauthSignInNeeded(scope: SecretScope, name: string): boolean {
   return signInNeeded.has(registrationPrefix(scope, name));
 }
 
-// Every token of a registration, whatever its URL, and its sign-in mark.
-export function dropOAuthTokens(scope: SecretScope, name: string): void {
+// No notification: each public change notifies once, when it is complete,
+// so a renewal never shows the proxy a registration without a token.
+function drop(scope: SecretScope, name: string): void {
   const prefix = registrationPrefix(scope, name);
   for (const key of tokens.keys())
     if (key.startsWith(prefix)) tokens.delete(key);
   signInNeeded.delete(prefix);
+}
+
+// Every token of a registration, whatever its URL, and its sign-in mark.
+export function dropOAuthTokens(scope: SecretScope, name: string): void {
+  drop(scope, name);
+  notify();
 }
 
 // Every token and sign-in mark of a scope: the member left the office.
@@ -90,9 +155,10 @@ export function dropOAuthTokensOfScope(scope: SecretScope): void {
     if (key.startsWith(prefix)) tokens.delete(key);
   for (const key of signInNeeded)
     if (key.startsWith(prefix)) signInNeeded.delete(key);
+  notify();
 }
 
-// Tests only.
+// Tests only. Notifies no listener.
 export function resetOAuthTokens(): void {
   tokens.clear();
   signInNeeded.clear();

@@ -33,11 +33,23 @@ import {
 } from "../user-env.ts";
 import {
   connectThrough,
+  exchange,
   proxyBasic,
   startCompanyProxy,
   startEchoStub,
+  startHttpsStub,
+  tlsThrough,
 } from "../test-support/secret-proxy-stubs.ts";
+import { ByteReader } from "./http1.ts";
+import type { CertificateAuthority } from "./x509.ts";
 import { STATE_PATH_VARIABLES } from "../safety-policy.ts";
+import {
+  dropOAuthTokens,
+  listOAuthAccessTokens,
+  onOAuthTokensChanged,
+  resetOAuthTokens,
+  setOAuthAccessToken,
+} from "../mcp-oauth-tokens.ts";
 import { saveProxyPort, secretMaterialPaths } from "./material.ts";
 import {
   createSecretsRuntime,
@@ -1032,5 +1044,241 @@ describe("member OS users", () => {
     expect(runtime.caBundle()).toBe(onDisk);
     expect(bundles[0]).toContain("-----BEGIN CERTIFICATE-----");
     expect(bundles[0]).not.toContain("PRIVATE KEY");
+  });
+});
+
+// GitHub #77: an OAuth MCP access token is in memory only, but a live
+// session's header must survive its renewal: the session holds a fixed
+// placeholder, the proxy's snapshot holds the current token, and each change
+// of the token cache reaches the runtime. The token counts as a secret of its
+// scope: it starts the proxy and gives that scope's agents the proxy
+// variables; a sign-in or a drop marks the scope, a renewal marks nothing.
+describe("an OAuth MCP access token", () => {
+  const MCP_HOST = "mcp.example-stub.test";
+  const MCP_URL = `https://${MCP_HOST}/mcp`;
+  const TOKEN_1 = "fake-oauth-access-live-0001";
+  const TOKEN_2 = "fake-oauth-access-live-0002";
+  const HOUR = 3600_000;
+
+  // The office's wiring: the runtime reads the real token cache, and every
+  // change of the cache runs oauthTokensChanged. settle() waits for what the
+  // changes started.
+  let pending: Promise<void>[] = [];
+  let unsubscribe = () => {};
+  async function wire(
+    extra: Partial<Parameters<typeof createSecretsRuntime>[0]> = {},
+  ) {
+    await runtime.stop();
+    runtime = makeRuntime({
+      oauthAccess: () => listOAuthAccessTokens(),
+      ...extra,
+    });
+    unsubscribe = onOAuthTokensChanged(() => {
+      pending.push(runtime.oauthTokensChanged());
+    });
+  }
+  async function settle() {
+    const started = pending;
+    pending = [];
+    await Promise.all(started);
+  }
+  function signIn(
+    scope: SecretScope,
+    name: string,
+    url: string,
+    token: string,
+  ) {
+    setOAuthAccessToken(scope, name, url, {
+      accessToken: token,
+      expiresAt: Date.now() + HOUR,
+    });
+  }
+
+  afterEach(() => {
+    unsubscribe();
+    unsubscribe = () => {};
+    resetOAuthTokens();
+    pending = [];
+  });
+
+  test("with no stored secret, a sign-in starts the proxy, which swaps the fixed placeholder for the current token across a renewal that restarts no agent", async () => {
+    const stub = await startHttpsStub([MCP_HOST]);
+    try {
+      await wire({
+        childEnv: {
+          PATH: process.env.PATH ?? "",
+          ISOMUX_TEST_PROXY_SEAMS: JSON.stringify({
+            standIns: { [`${MCP_HOST}:443`]: stub.port },
+            upstreamRoots: stub.ca.certPem,
+          }),
+        },
+      });
+      await runtime.enable();
+      // Nothing to carry yet: no proxy, no proxy variables, no placeholder.
+      expect(store.hasAny()).toBe(false);
+      expect(runtime.proxyPort).toBeNull();
+      expect(buildEnvForUserId(ALICE)?.HTTPS_PROXY).toBeUndefined();
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toBeNull();
+
+      // The sign-in alone starts the proxy and marks Alice's agents.
+      signIn(AT_ALICE, "mail", MCP_URL, TOKEN_1);
+      await settle();
+      expect(store.hasAny()).toBe(false);
+      expect(runtime.proxyPort).not.toBeNull();
+      expect(changes).toEqual([[AT_ALICE]]);
+
+      const placeholder = runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL);
+      expect(placeholder).toMatch(/^[A-Za-z0-9]{40}$/);
+      // Fixed for the registration; none for another name, URL or scope.
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toBe(
+        placeholder,
+      );
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "other", MCP_URL)).toBeNull();
+      expect(
+        runtime.oauthPlaceholderOf(
+          AT_ALICE,
+          "mail",
+          "https://x.example-stub.test/mcp",
+        ),
+      ).toBeNull();
+      expect(runtime.oauthPlaceholderOf(AT_BOB, "mail", MCP_URL)).toBeNull();
+      // Bob has nothing in reach: his agents get no proxy variables.
+      expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBeUndefined();
+      // The token is masked in logs, and is no variable of the agent.
+      expect(values).toContain(TOKEN_1);
+      const env = buildEnvForUserId(ALICE)!;
+      expect(proxyAddress(env.HTTPS_PROXY)).toBe(
+        `http://127.0.0.1:${runtime.proxyPort}`,
+      );
+      expect(envText(env)).not.toContain(TOKEN_1);
+
+      // The agent's request path: through the proxy to the listed host with
+      // the header a session baked in at its start.
+      const password = new URL(env.HTTPS_PROXY!).password;
+      const ca = { certPem: runtime.caBundle()! } as CertificateAuthority;
+      const call = async () => {
+        const socket = await tlsThrough(
+          runtime.proxyPort!,
+          MCP_HOST,
+          ca,
+          MCP_HOST,
+          [proxyBasic(password)],
+        );
+        const reader = new ByteReader(socket);
+        const response = await exchange(
+          socket,
+          reader,
+          `GET /headers HTTP/1.1\r\nHost: ${MCP_HOST}\r\nAuthorization: Bearer ${placeholder}\r\nConnection: close\r\n\r\n`,
+        );
+        socket.destroy();
+        expect(response?.status).toBe(200);
+        const seen = stub.seen.at(-1)!;
+        return {
+          hostSaw:
+            seen.headers.find(
+              ([n]) => n.toLowerCase() === "authorization",
+            )?.[1] ?? "",
+          body: response?.body ?? "",
+        };
+      };
+
+      const first = await call();
+      expect(first.hostSaw).toBe(`Bearer ${TOKEN_1}`);
+      // The token never comes back to the agent: the host's echo is scrubbed.
+      expect(first.body).not.toContain(TOKEN_1);
+
+      // The renewal, as the refresh writes it: the same placeholder, and the
+      // baked-in header resolves to the new token.
+      changes = [];
+      const revision = environmentSourceRevisionForUserId(ALICE);
+      const key = environmentSourceKeyForUserId(ALICE);
+      signIn(AT_ALICE, "mail", MCP_URL, TOKEN_2);
+      await settle();
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toBe(
+        placeholder,
+      );
+      // The child applies the pushed snapshot asynchronously.
+      const deadline = Date.now() + 2_000;
+      for (;;) {
+        const { hostSaw, body } = await call();
+        if (hostSaw === `Bearer ${TOKEN_2}`) {
+          expect(body).not.toContain(TOKEN_2);
+          break;
+        }
+        expect(hostSaw).toBe(`Bearer ${TOKEN_1}`);
+        if (Date.now() > deadline)
+          throw new Error("the child never applied the renewed snapshot");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // A renewal restarts no agent and moves no environment.
+      expect(changes).toEqual([]);
+      expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
+      expect(environmentSourceKeyForUserId(ALICE)).toBe(key);
+      expect(values).toContain(TOKEN_2);
+    } finally {
+      await stub.close();
+    }
+  });
+
+  test("a member whose only credential is a token gets the proxy variables while another member's secret runs the proxy, and loses them at the drop", async () => {
+    await wire();
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    await runtime.enable();
+    expect(runtime.proxyPort).not.toBeNull();
+    // Bob has no stored secret.
+    expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBeUndefined();
+    const revision = environmentSourceRevisionForUserId(BOB);
+    changes = [];
+
+    signIn(AT_BOB, "mail", MCP_URL, TOKEN_1);
+    await settle();
+    expect(changes).toEqual([[AT_BOB]]);
+    const placeholder = runtime.oauthPlaceholderOf(AT_BOB, "mail", MCP_URL);
+    expect(placeholder).toMatch(/^[A-Za-z0-9]{40}$/);
+    const env = buildEnvForUserId(BOB)!;
+    for (const name of FIXED) expect(env[name]).toBeDefined();
+    expect(proxyAddress(env.HTTPS_PROXY)).toBe(
+      `http://127.0.0.1:${runtime.proxyPort}`,
+    );
+    // No variable carries the token or its placeholder: only the header does.
+    expect(envText(env)).not.toContain(TOKEN_1);
+    expect(envText(env)).not.toContain(placeholder!);
+    expect(environmentSourceRevisionForUserId(BOB)).not.toBe(revision);
+
+    // The drop (a sign-out, a delete, a refused refresh): Bob's agents are
+    // marked and get no proxy variables again.
+    dropOAuthTokens(AT_BOB, "mail");
+    await settle();
+    expect(changes).toEqual([[AT_BOB], [AT_BOB]]);
+    expect(runtime.oauthPlaceholderOf(AT_BOB, "mail", MCP_URL)).toBeNull();
+    expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBeUndefined();
+    expect(environmentSourceRevisionForUserId(BOB)).toBe(revision);
+  });
+
+  test("a token on a host the proxy does not end TLS for gets no placeholder, starts no proxy and gives no proxy variables", async () => {
+    await wire();
+    await runtime.enable();
+    const IP_URL = "https://192.0.2.10/mcp";
+    const NEVER_URL = "https://mcp.anthropic.com/mcp";
+    signIn(AT_ALICE, "ip", IP_URL, TOKEN_1);
+    signIn(AT_ALICE, "model", NEVER_URL, TOKEN_2);
+    await settle();
+    expect(listOAuthAccessTokens()).toHaveLength(2);
+    expect(runtime.proxyPort).toBeNull();
+    expect(buildEnvForUserId(ALICE)?.HTTPS_PROXY).toBeUndefined();
+    expect(changes).toEqual([]);
+
+    // With a proxy that runs for a stored secret, still no placeholder.
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    await runtime.changed();
+    expect(runtime.proxyPort).not.toBeNull();
+    expect(runtime.oauthPlaceholderOf(AT_ALICE, "ip", IP_URL)).toBeNull();
+    expect(runtime.oauthPlaceholderOf(AT_ALICE, "model", NEVER_URL)).toBeNull();
+    // A host it carries, in the same run, gets one.
+    signIn(AT_ALICE, "mail", MCP_URL, TOKEN_1);
+    await settle();
+    expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toMatch(
+      /^[A-Za-z0-9]{40}$/,
+    );
   });
 });

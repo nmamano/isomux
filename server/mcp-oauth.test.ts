@@ -18,7 +18,12 @@ import {
 import { createMcpOAuth } from "./mcp-oauth.ts";
 import { oauthSecretNames } from "../shared/mcp-servers.ts";
 import { SECRET_MIN_VALUE_LENGTH } from "../shared/secret-hosts.ts";
-import { resetOAuthTokens } from "./mcp-oauth-tokens.ts";
+import {
+  onOAuthTokensChanged,
+  resetOAuthTokens,
+  setOAuthAccessToken,
+} from "./mcp-oauth-tokens.ts";
+import { setMcpOAuthPlaceholderProvider } from "./mcp-servers.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import type { RouteHandlerContext } from "./routes/executor.ts";
 import {
@@ -381,6 +386,83 @@ describe("the refresh", () => {
     );
     expect(row.problem).toBe("sign_in_again");
     expect(logs.join("\n")).not.toContain(LEAK);
+  });
+});
+
+describe("the token a live session carries (GitHub #77)", () => {
+  it("tells the token cache's listeners of every access-token change, so the proxy's snapshot follows", async () => {
+    const context = setup();
+    let told = 0;
+    const off = onOAuthTokensChanged(() => told++);
+    try {
+      register(context.oauth);
+      expect(told).toBe(0);
+      await signIn(context);
+      expect(told).toBe(1);
+      clock += 3600_000 - 60_000;
+      await context.oauth.refreshDue();
+      expect(told).toBe(2);
+      context.rig.refuseRefresh = true;
+      clock += 3600_000;
+      await context.oauth.refreshDue();
+      expect(told).toBe(3);
+      expect(context.oauth.remove(member, "mail")).toBe(true);
+      expect(told).toBe(4);
+    } finally {
+      off();
+    }
+  });
+
+  it("gives every engine a fixed placeholder while the proxy carries the token, also past its expiry, and the token itself while it does not", async () => {
+    const context = setup();
+    register(context.oauth);
+    await signIn(context);
+    // No proxy: the header carries the token, as before this placeholder.
+    expect(mcpServersForUserId(context.sources, "u1")[0].headers).toEqual({
+      Authorization: `Bearer ${context.rig.access()}`,
+    });
+    const restore = setMcpOAuthPlaceholderProvider((scope, name, url) =>
+      scope.kind === "user" &&
+      scope.userId === "u1" &&
+      name === "mail" &&
+      url === MCP_URL
+        ? `${LEAK}placeholder-0001`
+        : null,
+    );
+    try {
+      const header = { Authorization: `Bearer ${LEAK}placeholder-0001` };
+      expect(mcpServersForUserId(context.sources, "u1")[0].headers).toEqual(
+        header,
+      );
+      const shapes = engineShapes(context.sources);
+      // Claude, Codex and OpenCode each carry the placeholder, and none
+      // carries the token - their config files never hold it either.
+      expect(shapes.split(`Bearer ${LEAK}placeholder-0001`).length - 1).toBe(3);
+      expect(shapes).not.toContain(context.rig.access());
+      // The renewal rotates the cached token; the header a live session
+      // holds stays the same placeholder.
+      const before = context.rig.access();
+      clock += 3600_000 - 60_000;
+      await context.oauth.refreshDue();
+      expect(context.rig.access()).not.toBe(before);
+      expect(mcpServersForUserId(context.sources, "u1")[0].headers).toEqual(
+        header,
+      );
+      // Past its expiry, before the next refresh: the placeholder still
+      // goes in, and the proxy puts in whatever token is current then.
+      setOAuthAccessToken(member, "mail", MCP_URL, {
+        accessToken: context.rig.access(),
+        expiresAt: Date.now() - 1,
+      });
+      expect(
+        mcpServersForUserId(context.sources, "u1").map((s) => s.headers),
+      ).toEqual([header]);
+      expect(logs.join("\n")).not.toContain(LEAK);
+    } finally {
+      setMcpOAuthPlaceholderProvider(restore);
+    }
+    // With no proxy, an expired token leaves the server out, as before.
+    expect(mcpServersForUserId(context.sources, "u1")).toEqual([]);
   });
 });
 

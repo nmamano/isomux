@@ -3,9 +3,10 @@
 // snapshot that the proxy child gets over IPC, and tells env-loader what to
 // put in an agent's environment.
 //
-// The store has one reader: this module. An office without secrets never
-// makes the material, never starts the child and never changes an
-// environment (ruling 8). The runtime acts only after `enable()`, which
+// The store has one reader: this module. An office without secrets, and
+// without a cached OAuth MCP access token (GitHub #77), never makes the
+// material, never starts the child and never changes an environment
+// (ruling 8). The runtime acts only after `enable()`, which
 // runOfficeMain calls; the in-process test harness never does.
 
 import {
@@ -14,8 +15,12 @@ import {
   type SecretStore,
   type ValuedSecret,
 } from "../secret-store.ts";
-import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
-import type { ExchangeSpec } from "../../shared/secret-hosts.ts";
+import { OAUTH_SECRET_NAME, mcpServerHost } from "../../shared/mcp-servers.ts";
+import {
+  isNeverListed,
+  isValidSecretHost,
+  type ExchangeSpec,
+} from "../../shared/secret-hosts.ts";
 import { placeholderFor, proxyClientToken, scopeId } from "./placeholders.ts";
 import {
   CA_BUNDLE_VARIABLES,
@@ -60,6 +65,15 @@ export interface SecretsRuntimeDeps {
   // The secrets that OAuth MCP registrations own in a scope (integrations
   // A2b), or null when the registrations cannot be read.
   oauthOwned?: (scope: SecretScope) => readonly string[] | null;
+  // The cached access tokens of OAuth MCP registrations (mcp-oauth-tokens.ts,
+  // GitHub #77): snapshot entries whose placeholders a live session's header
+  // carries, so a renewal needs no restart and no new session.
+  oauthAccess?: () => {
+    scope: SecretScope;
+    name: string;
+    url: string;
+    accessToken: string;
+  }[];
   // Tests only: another child entry, its environment, and roots that stand
   // in for the system roots.
   childEntry?: string;
@@ -144,6 +158,59 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     return (name) => names.has(name);
   }
 
+  // The access token itself is in memory only, no secret of the store - but
+  // a live session's header must still survive a renewal (GitHub #77): the
+  // snapshot carries each token as an entry of its own, which the proxy
+  // swaps in at the request. Its placeholder has a fixed generation and a
+  // fixed shape, and its HMAC input names a NUL no member secret can carry,
+  // so it is stable across renewals and restarts and collides with nothing.
+  // A token counts as a secret in its scope: its agents get the proxy
+  // variables, and a sign-in or a drop changes the scope's set. A renewal
+  // keeps the placeholder, so it changes no set and restarts no agent.
+  function oauthPlaceholder(scope: SecretScope, name: string): string {
+    return placeholderFor(
+      ensureMaterial().placeholderKey,
+      scope,
+      `${name}\u0000access`,
+      0,
+      "",
+    );
+  }
+
+  // The tokens the proxy can carry: on a host it ends TLS for. A server on
+  // another host (an IP address, a never-listed host) keeps the token itself
+  // in its header.
+  function carriedOAuth(): {
+    scope: SecretScope;
+    name: string;
+    url: string;
+    host: string;
+    accessToken: string;
+  }[] {
+    return (deps.oauthAccess?.() ?? []).flatMap((token) => {
+      const host = mcpServerHost(token.url);
+      return isValidSecretHost(host) && !isNeverListed(host)
+        ? [{ ...token, host }]
+        : [];
+    });
+  }
+
+  function oauthEntries(scope: SecretScope): ProxySecret[] {
+    const id = scopeId(scope);
+    return carriedOAuth()
+      .filter((token) => scopeId(token.scope) === id)
+      .map((token) => ({
+        scope: id,
+        ownerId: scope.kind === "user" ? scope.userId : null,
+        // The registration's name, as the audit of a use and a 403 read it.
+        name: token.name,
+        value: token.accessToken,
+        hosts: [token.host],
+        form: { kind: "authorization" },
+        placeholder: oauthPlaceholder(scope, token.name),
+      }));
+  }
+
   // Waits for the first listen, at most `startWaitMs`. A child that never
   // listens must not hold the office's boot or a secret route.
   async function waitForListen(start: Promise<number>): Promise<void> {
@@ -177,10 +244,16 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
   // Every stored secret with its placeholder, scope by scope.
   // The material is made only when a secret needs a placeholder: an office
   // whose secrets only apps read has no CA.
-  function readAll(): { scope: SecretScope; secrets: ProxySecret[] }[] {
+  // Each scope's cached OAuth access tokens come with it, in `oauth`.
+  function readAll(): {
+    scope: SecretScope;
+    secrets: ProxySecret[];
+    oauth: ProxySecret[];
+  }[] {
     const key = () => ensureMaterial().placeholderKey;
-    return deps.store.scopes().map((scope) => ({
+    return allScopes().map((scope) => ({
       scope,
+      oauth: oauthEntries(scope),
       secrets: agentSecrets(scope).map((secret) => ({
         scope: scopeId(scope),
         ownerId: scope.kind === "user" ? scope.userId : null,
@@ -198,6 +271,16 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         ),
       })),
     }));
+  }
+
+  // The store's scopes and the scopes of the cached OAuth tokens.
+  function allScopes(): SecretScope[] {
+    const scopes = new Map<string, SecretScope>();
+    for (const scope of deps.store.scopes()) scopes.set(scopeId(scope), scope);
+    for (const token of deps.oauthAccess?.() ?? [])
+      if (!scopes.has(scopeId(token.scope)))
+        scopes.set(scopeId(token.scope), token.scope);
+    return [...scopes.values()];
   }
 
   // The secrets agents use: not one an OAuth registration owns, and not
@@ -225,14 +308,25 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     });
   }
 
-  function signatureOf(secrets: ProxySecret[]): string {
-    return JSON.stringify(secrets.map((s) => [s.name, s.placeholder]).sort());
+  // True when the proxy has something to carry: a secret that agents use,
+  // or a cached OAuth access token on a host it can carry.
+  function hasAgentCredentials(): boolean {
+    return hasAgentSecrets() || carriedOAuth().length > 0;
+  }
+
+  function signatureOf(secrets: ProxySecret[], oauth: ProxySecret[]): string {
+    return JSON.stringify(
+      [
+        ...secrets.map((s) => [s.name, s.placeholder]),
+        ...oauth.map((s) => [`${s.name}\u0000access`, s.placeholder]),
+      ].sort(),
+    );
   }
 
   function snapshot(): ProxySnapshot {
     const current = ensureMaterial();
     return {
-      secrets: readAll().flatMap((entry) => entry.secrets),
+      secrets: readAll().flatMap((entry) => [...entry.secrets, ...entry.oauth]),
       caCertPem: current.ca.certPem,
       caKeyPem: current.ca.keyPem,
       rootsPem: systemRoots ?? "",
@@ -279,8 +373,8 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     const entries = readAll();
     const next = new Map<string, string>();
     const changed: SecretScope[] = [];
-    for (const { scope, secrets } of entries) {
-      const signature = signatureOf(secrets);
+    for (const { scope, secrets, oauth } of entries) {
+      const signature = signatureOf(secrets, oauth);
       next.set(scopeId(scope), signature);
       if ((signatures.get(scopeId(scope)) ?? "[]") !== signature)
         changed.push(scope);
@@ -294,13 +388,27 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
             : { kind: "user", userId: id.slice("user:".length) },
         );
     signatures = next;
-    // Log redaction masks the owned values too.
-    deps.onValues(
-      deps.store
+    // Log redaction masks the owned values and the access tokens too.
+    deps.onValues([
+      ...deps.store
         .scopes()
         .flatMap((scope) => readScope(scope).map((s) => s.value)),
-    );
+      ...(deps.oauthAccess?.() ?? []).map((token) => token.accessToken),
+    ]);
     return changed;
+  }
+
+  // After a secret or an OAuth access-token change: pushes the new snapshot
+  // (or starts the proxy), and marks the scopes whose set of secrets or
+  // placeholders changed.
+  async function applyChange(): Promise<void> {
+    if (!enabled) return;
+    const scopes = refresh();
+    if (!supervisor) {
+      if (!hasAgentCredentials()) return;
+      await waitForListen(startProxy());
+    } else supervisor.push();
+    if (scopes.length > 0) deps.onSetChanged(scopes);
   }
 
   return {
@@ -308,22 +416,17 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     // office whose secrets only apps read still feeds log redaction.
     async enable(): Promise<void> {
       enabled = true;
-      if (!deps.store.hasAny()) return;
+      if (!deps.store.hasAny() && (deps.oauthAccess?.() ?? []).length === 0)
+        return;
       refresh();
-      if (!hasAgentSecrets()) return;
+      if (!hasAgentCredentials()) return;
       await waitForListen(startProxy());
     },
 
     // After any successful secret change. Pushes the new snapshot, and marks
     // the scopes whose set of secrets or placeholders changed.
     async changed(): Promise<void> {
-      if (!enabled) return;
-      const changed = refresh();
-      if (!supervisor) {
-        if (!hasAgentSecrets()) return;
-        await waitForListen(startProxy());
-      } else supervisor.push();
-      if (changed.length > 0) deps.onSetChanged(changed);
+      await applyChange();
     },
 
     // The variables for an agent, terminal or scheduled run of `userId`
@@ -363,6 +466,15 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
             placeholder,
           ]);
         }
+        // A cached OAuth access token: no variable, but its MCP header
+        // carries a placeholder, so the agent needs the proxy.
+        for (const entry of oauthEntries(scope))
+          state.push([
+            scopeId(scope),
+            `${entry.name}\u0000access`,
+            0,
+            entry.placeholder,
+          ]);
       }
       if (state.length === 0) return null;
       const proxyPort = port();
@@ -444,6 +556,37 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
             secret.value,
           )
         : null;
+    },
+
+    // The placeholder of an OAuth registration's access token, for its MCP
+    // header, or null while no proxy listens, no token is cached for that
+    // registration's current URL, or the proxy cannot carry its host. The
+    // header carries the token itself then, which a renewal leaves stale.
+    oauthPlaceholderOf(
+      scope: SecretScope,
+      name: string,
+      url: string,
+    ): string | null {
+      if (!enabled || !material) return null;
+      if (port() === null) {
+        withheld = true;
+        logOnce("no_proxy_port", "no_proxy_port");
+        return null;
+      }
+      const wanted = scopeId(scope);
+      const found = carriedOAuth().some(
+        (token) =>
+          token.name === name &&
+          token.url === url &&
+          scopeId(token.scope) === wanted,
+      );
+      return found ? oauthPlaceholder(scope, name) : null;
+    },
+
+    // An access token appeared, renewed or went (mcp-oauth-tokens.ts): as
+    // changed(). A renewal keeps the placeholder, so only the snapshot moves.
+    async oauthTokensChanged(): Promise<void> {
+      await applyChange();
     },
 
     async stop(): Promise<void> {

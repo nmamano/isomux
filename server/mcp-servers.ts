@@ -8,7 +8,11 @@
 // A header carries the secret's placeholder, never its value (secrets B2):
 // the secret proxy swaps it for the value on the way to the server's host,
 // which the secret lists. With no proxy listening, a server with a secret is
-// left out.
+// left out. An OAuth server's access token travels as a placeholder of its
+// own, which the proxy resolves to the token at the request, so a live
+// session survives a renewal (GitHub #77); while the proxy cannot carry it
+// (none listens, or the host is one it does not end TLS for), the header
+// carries the token itself.
 //
 // Resolution fails closed and quiet: an unreadable file, a missing secret or
 // a secret that no longer lists the host leaves servers out with a fixed log
@@ -123,6 +127,25 @@ export function setMcpPlaceholderProvider(
   return previous;
 }
 
+// The placeholder for an OAuth registration's access token (GitHub #77),
+// from the secrets runtime: the proxy swaps it for the token that is current
+// at the request, so a live session survives a renewal. Null: no proxy
+// listens, no token is cached, or the proxy cannot carry the host, and the
+// header carries the token itself.
+let oauthPlaceholderOf: (
+  scope: SecretScope,
+  name: string,
+  url: string,
+) => string | null = () => null;
+
+export function setMcpOAuthPlaceholderProvider(
+  fn: typeof oauthPlaceholderOf,
+): typeof oauthPlaceholderOf {
+  const previous = oauthPlaceholderOf;
+  oauthPlaceholderOf = fn;
+  return previous;
+}
+
 type CredentialProblem = McpServerProblem | "unreadable";
 
 // A signed-in server with no token yet, before the refresh after a restart:
@@ -197,9 +220,20 @@ function headersFor(
 ):
   | { ok: true; headers: Record<string, string> }
   | { ok: false; problem: CredentialProblem | "no_proxy" } {
-  // An OAuth server's access token is not a secret of the store, so the
-  // proxy has no placeholder for it: the header carries the token itself.
+  // An OAuth server's access token is in memory only, no secret of the
+  // store: the header carries the token's proxy placeholder, which resolves
+  // to the token that is current at the request, so a live session survives
+  // a renewal (GitHub #77). The placeholder holds while the token is cached,
+  // also past its expiry: the next refresh reaches a session that starts in
+  // that window. Without one, the header carries the token itself, which a
+  // renewal leaves stale.
   if (server.oauth) {
+    const placeholder = oauthPlaceholderOf(scope, server.name, server.url);
+    if (placeholder)
+      return {
+        ok: true,
+        headers: credentialHeader({ kind: "authorization" }, placeholder),
+      };
     const token = mcpServerSecret(sources, scope, server);
     if (!token.ok) return token;
     return {

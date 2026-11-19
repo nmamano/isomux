@@ -385,10 +385,15 @@ import { createStepAsks, type StepAsks } from "./step-asks.ts";
 import { createInProcessDispatch, officeStepRuns } from "./office-step-runs.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
+import {
+  listOAuthAccessTokens,
+  onOAuthTokensChanged,
+} from "./mcp-oauth-tokens.ts";
 import { createMcpServerStore } from "./mcp-server-store.ts";
 import {
   createMcpServerSources,
   mcpServerRows,
+  setMcpOAuthPlaceholderProvider,
   setMcpPlaceholderProvider,
 } from "./mcp-servers.ts";
 import {
@@ -855,6 +860,9 @@ const secretsRuntime = createSecretsRuntime({
       return null;
     }
   },
+  // The cached access tokens of the OAuth registrations, so a live session's
+  // placeholder header survives their renewal (GitHub #77).
+  oauthAccess: () => listOAuthAccessTokens(),
   memberUids: memberOsUidTies,
   onBundle: () => void writeMemberCaBundles(),
 });
@@ -926,6 +934,17 @@ const isLiveAppGrant = (grant: AppGrant): boolean =>
   appRegistry.get(grant.name)?.createdAt === grant.createdAt;
 setMcpPlaceholderProvider((scope, name) =>
   secretsRuntime.placeholderOf(scope, name),
+);
+setMcpOAuthPlaceholderProvider((scope, name, url) =>
+  secretsRuntime.oauthPlaceholderOf(scope, name, url),
+);
+// Each access-token change (a sign-in, a renewal, a drop) reaches the proxy,
+// so the placeholder a live session carries resolves to the current token.
+onOAuthTokensChanged(
+  () =>
+    void secretsRuntime
+      .oauthTokensChanged()
+      .catch(() => console.log("[secret-proxy] oauth_change_failed")),
 );
 // Step asks (task c71cb60f): made with the routes. Every hook that may have
 // done a step calls stepsChanged.
