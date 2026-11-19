@@ -59,6 +59,8 @@ When a name is set more than once, the order is: personal secret, personal varia
 
 The secrets an OAuth MCP registration owns (its refresh token and client secret, integrations A2b) are the server's own credentials: no placeholder, not in the proxy snapshot, and the flow's rotation of one restarts no agent. The registration lists them (`ownedSecrets` in the MCP servers file); when that file cannot be read, every name of the flow's shape (`MCP_<NAME>_OAUTH`, `MCP_<NAME>_OAUTH_CLIENT`) counts as owned. See server/secret-proxy/runtime.ts, `ownedIn`.
 
+The registration's access token goes the other way (task 387a038c): it is in memory only, no secret of the store, but the proxy snapshot carries each cached token as an entry of its own - the registration's host, the authorization form, the current token as the value - with a fixed placeholder: a fixed generation, a fixed shape, and a NUL in the HMAC input's name that no member secret can carry, so it is stable across renewals and restarts and collides with nothing. An engine's MCP header holds that placeholder while a proxy listens, and every token change pushes a fresh snapshot to the child, so a live session survives a renewal; with no proxy listening, the header carries the token itself. The entry joins no signature and no environment: a renewal restarts no agent and moves no revision. See server/secret-proxy/runtime.ts, `oauthEntries`.
+
 ### 2.2 The secret proxy
 
 A server-user process that the server starts and supervises (`server/secret-proxy/`). It runs no code that an agent chose. The server sends it the values over a pipe, so the store has one reader.
