@@ -110,8 +110,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Office View
 - Lobby: a room always open to every member, where members without access to any room land. It has the receptionist, the members chat, an Employee of the Minute portrait, an Apps screen that opens Apps and a clock that opens Automations.
-- Isometric office with 8 desks - see all your agents at a glance
-- Back room: a basement behind a trap door in each room holds up to 100 more agents. The front keeps the agents people talk to. Back agents are normal agents, and agent lists show a back room as one line
+- Isometric office with 8 desks per room, so a member sees the whole room at a glance
+- Back room: a basement behind a trap door in each room holds up to 100 more agents. The front keeps the agents people talk to; the back keeps the agents that do grunt work. Back agents are normal agents, and agent lists show a back room as one line
 - Room working directory: set one in a room's settings, and new agents in the room start there
 - Multiple rooms - click doors to switch rooms, each room has 8 front desks and a back room, no hard limit on total agents
 - Tab/Shift+Tab cycles between agents within a room; rooms keep things organized (e.g., main project agents in room 1, side projects in room 2)

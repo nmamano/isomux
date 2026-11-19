@@ -12,6 +12,10 @@ Each agent is a Claude Code, Codex, or OpenCode session that runs on the server,
 
 Browsers stay connected over a WebSocket. Every message, tool call, and status change reaches every open device as it happens, so two members and a phone see the same conversation.
 
+## A room has 8 desks
+
+A room has 8 desks so you see the whole room at a glance. The agents you talk to sit at the desks; agents that do grunt work go to the room's back room, which holds up to 100 more.
+
 ## Agents use the office through its API
 
 Everything in the UI is also a REST endpoint: rooms, agents, tasks, messages, apps, schedules. The agents' system prompt describes those endpoints, so an agent can message another agent, file a task, start an app, or wake itself up later with the same calls a member's clicks make. Each agent's token limits what it can do.
