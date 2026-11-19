@@ -31,7 +31,7 @@ import { createMember } from "../users.ts";
 import { officeAgentHost, type AgentHost } from "../agent-host.ts";
 import {
   ensureCodexSafetyHook,
-  MEMBER_HOOK_REFUSAL,
+  HOOK_SETUP_REFUSAL,
   setMemberHookDeps,
   type MemberHookDeps,
 } from "../backends/codex/safety-hook-install.ts";
@@ -104,8 +104,8 @@ function deps(over: Partial<MemberHookDeps> = {}): Recorded {
   return rec;
 }
 
-// The runner's own reply when configureCodexHooks fails in their space: a
-// warning and no identity (safety-hook-install.ts configureCodexHooks).
+// A runner's reply when configureCodexHooks fails in their space: no
+// identity. An older runner also sends a warning key, which is ignored.
 const RUNNER_FAILURE = {
   warning: "the safety check is off",
   hookIdentity: null,
@@ -116,9 +116,8 @@ afterEach(() => setMemberHookDeps(null));
 function expectRefused(
   result: Awaited<ReturnType<typeof ensureCodexSafetyHook>>,
 ) {
-  expect(result.refusal).toBe(MEMBER_HOOK_REFUSAL);
+  expect(result.refusal).toBe(HOOK_SETUP_REFUSAL);
   expect(result.hookIdentity).toBeNull();
-  expect(result.warning).toBeNull();
 }
 
 describe("a member's Codex preflight", () => {
@@ -126,7 +125,6 @@ describe("a member's Codex preflight", () => {
     const rec = deps();
     const result = await ensureCodexSafetyHook(CODEX_HOME, memberHost);
     expect(result.refusal).toBeUndefined();
-    expect(result.warning).toBeNull();
     expect(result.hookIdentity).toEqual(IDENTITY);
     expect(rec.calls).toContain(`installedHash ${HOOK_PATH}`);
     expect(rec.reinstalls).toBe(0);
@@ -283,7 +281,7 @@ describe("a member's Codex preflight", () => {
       office,
     );
     expect(rec.calls).toEqual([]);
-    expect(result.refusal).not.toBe(MEMBER_HOOK_REFUSAL);
+    expect(result.refusal).not.toBe(HOOK_SETUP_REFUSAL);
   });
 });
 
@@ -348,8 +346,8 @@ describe("a member's Codex start", () => {
       },
     });
     // Twice: a refused start leaves nothing half started.
-    expect(await start()).toBe(MEMBER_HOOK_REFUSAL);
-    expect(await start()).toBe(MEMBER_HOOK_REFUSAL);
+    expect(await start()).toBe(HOOK_SETUP_REFUSAL);
+    expect(await start()).toBe(HOOK_SETUP_REFUSAL);
     expect(spawned()).toEqual([]);
   });
 });

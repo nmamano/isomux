@@ -70,7 +70,7 @@ import type {
   OneShotOptions,
 } from "../types.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
-import type { CodexSafetyPreflightResult } from "./safety-hook-install.ts";
+import type { CodexSafetyHookIdentity } from "./safety-hook-install.ts";
 import {
   codexSandboxProbe,
   resetCodexSandboxProbeForTests,
@@ -156,10 +156,10 @@ class FakeCodexTransport implements CodexTransport {
   ) => ({
     data: (params.cwds ?? []).map((cwd) => ({ cwd, skills: [], errors: [] })),
   });
-  startResult: CodexSafetyPreflightResult = {
-    warning: null,
-    hookIdentity: null,
-  };
+  // What start() resolves to: the installed hook's identity (task 00f25e1e).
+  startResult: CodexSafetyHookIdentity | null = null;
+  // When set, start() rejects with it (the safety preflight refused).
+  startError: Error | null = null;
 
   private notificationHandler: NotificationHandler | null = null;
   private serverRequestHandler: ServerRequestHandler | null = null;
@@ -171,9 +171,12 @@ class FakeCodexTransport implements CodexTransport {
   // ----- CodexTransport (production surface) -----
   // The options of each start (task 8db21c8b: isolate).
   readonly startOptions: ({ isolate?: boolean } | undefined)[] = [];
-  start(options?: { isolate?: boolean }): Promise<CodexSafetyPreflightResult> {
+  start(options?: {
+    isolate?: boolean;
+  }): Promise<CodexSafetyHookIdentity | null> {
     this.started = true;
     this.startOptions.push(options);
+    if (this.startError) return Promise.reject(this.startError);
     return Promise.resolve(this.startResult);
   }
 
@@ -762,6 +765,28 @@ describe("CodexSession bootstrap", () => {
     );
     expect(err).toBeInstanceOf(BackendNotConfiguredError);
     expect((err as Error).message).toMatch(/401 Unauthorized/);
+  });
+
+  // Task 00f25e1e: a refused safety preflight (start() rejects) takes the
+  // same deferred path: the agent looks idle, the refusal shows at the first
+  // send, and no thread starts.
+  it("a refused safety preflight defers like a bootstrap failure and starts no thread", async () => {
+    const fake = new FakeCodexTransport();
+    fake.startError = new Error("safety preflight refused");
+    const { session, it } = start(fake);
+    const init = expectKind(await nextEvent(it, "system_init"), "system_init");
+    expect(init.sessionId).toBe("");
+    const err = await session.send("hi").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect((err as Error).message).toContain("safety preflight refused");
+    expect(fake.started).toBe(true);
+    expect(
+      fake.requests.filter(
+        (r) => r.method === "thread/start" || r.method === "thread/resume",
+      ).length,
+    ).toBe(0);
   });
 });
 
@@ -3381,33 +3406,9 @@ describe("CodexSession misc notifications", () => {
     expect(next.text).toBe("[warning] after hook");
   });
 
-  it("surfaces the exact pre-spawn safety warning after system_init", async () => {
-    const fake = new FakeCodexTransport();
-    fake.startResult = { warning: SAFETY_WARNING, hookIdentity: null };
-    const { it } = start(fake);
-    expectKind(await nextEvent(it, "system init"), "system_init");
-    expect(
-      expectKind(await nextEvent(it, "safety warning"), "system_text").text,
-    ).toBe(SAFETY_WARNING);
-  });
-
-  it("keeps the pre-spawn safety warning visible when bootstrap also fails", async () => {
-    const fake = new FakeCodexTransport();
-    fake.startResult = { warning: SAFETY_WARNING, hookIdentity: null };
-    fake.bootstrapError = new Error("thread start failed");
-    const { it } = start(fake);
-    expectKind(await nextEvent(it, "failed system init"), "system_init");
-    expect(
-      expectKind(await nextEvent(it, "safety warning"), "system_text").text,
-    ).toBe(SAFETY_WARNING);
-  });
-
   it("warns only for the installed Isomux hook/completed identity", async () => {
     const fake = new FakeCodexTransport();
-    fake.startResult = {
-      warning: null,
-      hookIdentity: { sourcePath: "/tmp/codex/hooks.json", displayOrder: 1 },
-    };
+    fake.startResult = { sourcePath: "/tmp/codex/hooks.json", displayOrder: 1 };
     const { it } = await bootstrapped(fake);
     fake.fireNotification("hook/completed", {
       threadId: FIXTURE_THREAD_ID,
@@ -3442,10 +3443,7 @@ describe("CodexSession misc notifications", () => {
 
   it("surfaces the checker caught-fault systemMessage for its owned run", async () => {
     const fake = new FakeCodexTransport();
-    fake.startResult = {
-      warning: null,
-      hookIdentity: { sourcePath: "/tmp/codex/hooks.json", displayOrder: 2 },
-    };
+    fake.startResult = { sourcePath: "/tmp/codex/hooks.json", displayOrder: 2 };
     const { it } = await bootstrapped(fake);
     fake.fireNotification("hook/completed", {
       threadId: FIXTURE_THREAD_ID,
@@ -7013,7 +7011,7 @@ describe("CodexSession refused cards", () => {
 
   async function session() {
     const fake = new FakeCodexTransport();
-    fake.startResult = { warning: null, hookIdentity: HOOK };
+    fake.startResult = HOOK;
     return bootstrapped(fake);
   }
 

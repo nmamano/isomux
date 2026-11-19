@@ -127,7 +127,7 @@ describe.skipIf(!enabled || !authHome)(
         // As the office server: only the preparing process repairs the hook.
         await prepareCodexSafetyHookArtifact();
         const installed = await ensureCodexSafetyHook(home);
-        expect(installed.warning).toBeNull();
+        expect(installed.refusal).toBeUndefined();
         expect(installed.hookIdentity?.displayOrder).toBe(2);
 
         client = new JsonRpcLiteClient({
@@ -220,15 +220,14 @@ describe.skipIf(!paidEnabled || !authHome)(
           copyFileSync(join(authHome!, "auth.json"), join(home, "auth.json"));
           chmodSync(join(home, "auth.json"), 0o600);
           await prepareCodexSafetyHookArtifact();
-          expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
+          expect((await ensureCodexSafetyHook(home)).refusal).toBeUndefined();
 
           client = new JsonRpcLiteClient({
             cwd,
             env: { ...process.env, CODEX_HOME: home },
           });
           const start = await client.start();
-          expect(start.warning).toBeNull();
-          expect(start.hookIdentity).toEqual({
+          expect(start).toEqual({
             sourcePath: hooksPath,
             displayOrder: 0,
           });
@@ -297,7 +296,7 @@ describe.skipIf(!paidEnabled || !authHome)(
             codexVersion: CODEX_HOOK_TRUST_HASH_PROVEN_VERSION,
             model,
             authSourceReadOnly: authHome,
-            installedIdentity: start.hookIdentity,
+            installedIdentity: start,
             listing,
             cells: {
               allow: { sideEffect: existsSync(allowMarker) },

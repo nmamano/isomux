@@ -289,7 +289,7 @@ The safety hooks are a guardrail against mistakes by honest agents. They are not
 - They recognize known command forms. A script, a renamed program, an interpreter or a variable set in an earlier command can do the same thing.
 - They see only the tools that they map. For example, an MCP server with file access goes around them.
 - Claude Code reads a file that the prompt names after an at-sign without a tool call, so no check sees that read. Isomux escapes such at-signs in prompt text that no member typed, so a sender cannot make an agent read a file. A member's own mention still reads the file.
-- For Codex and OpenCode, if the checker cannot run, the call runs. Isomux then shows a warning in the chat.
+- For Codex and OpenCode, if the checker cannot run, the call runs. Isomux then shows a warning in the chat. If Isomux cannot set up the Codex checker, Codex does not start.
 - Reads in the state directory are allowed, because agents need logs and discovery.
 
 ### 6.4 Owner recovery

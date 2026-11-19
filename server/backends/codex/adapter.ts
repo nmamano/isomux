@@ -140,10 +140,7 @@ import {
   type CodexRefusal,
 } from "./safety-hook.ts";
 import { safetyDenialEvent } from "../safety-denial.ts";
-import type {
-  CodexSafetyHookIdentity,
-  CodexSafetyPreflightResult,
-} from "./safety-hook-install.ts";
+import type { CodexSafetyHookIdentity } from "./safety-hook-install.ts";
 import {
   codexWrapperCommandForShell,
   ensureCodexWrapperScript,
@@ -1080,7 +1077,9 @@ interface PendingApproval {
 export interface CodexTransport {
   // isolate: the App Server runs in its own PID namespace
   // (server/process-isolation.ts).
-  start(options?: { isolate?: boolean }): Promise<CodexSafetyPreflightResult>;
+  start(options?: {
+    isolate?: boolean;
+  }): Promise<CodexSafetyHookIdentity | null>;
   initialize(params: InitializeParams): Promise<InitializeResponse>;
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
   respondWithError(
@@ -1501,7 +1500,6 @@ export class CodexSession implements BackendSession {
   }
 
   private async bootstrap(): Promise<void> {
-    let safety: CodexSafetyPreflightResult | null = null;
     try {
       // The folder the thread runs in below standard: the agent's own at
       // folder and web, an empty one at chat and office.
@@ -1516,10 +1514,9 @@ export class CodexSession implements BackendSession {
           ? this.opts.cwd
           : await codexEmptyCwd(this.opts.agentId, this.opts.env);
       }
-      safety = await this.client.start(
+      this.safetyHookIdentity = await this.client.start(
         this.opts.isolation === "session" ? { isolate: true } : {},
       );
-      this.safetyHookIdentity = safety.hookIdentity;
       const initParams: InitializeParams = {
         clientInfo: {
           name: CLIENT_INFO_NAME,
@@ -1638,9 +1635,6 @@ export class CodexSession implements BackendSession {
         }
         this.enqueue({ kind: "plan_mode", on });
       }
-      if (safety.warning) {
-        this.enqueue({ kind: "system_text", text: safety.warning });
-      }
       if (sandboxChoice.fellBack) {
         this.enqueue({
           kind: "system_text",
@@ -1668,9 +1662,6 @@ export class CodexSession implements BackendSession {
         slashCommands: [],
         model: this.opts.modelFamily,
       });
-      if (safety?.warning) {
-        this.enqueue({ kind: "system_text", text: safety.warning });
-      }
       this.markEnded();
     }
   }

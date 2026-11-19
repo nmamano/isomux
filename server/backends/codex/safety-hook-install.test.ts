@@ -20,6 +20,7 @@ import { STATE_ROOT } from "../../config.ts";
 import {
   CODEX_SAFETY_HOOK_PATH,
   configureCodexHooks,
+  HOOK_SETUP_REFUSAL,
   ensureCodexSafetyHook,
   prepareCodexSafetyHookArtifact,
   _test,
@@ -161,7 +162,7 @@ describe("Codex safety hook installation", () => {
     writeFileSync(join(defaultHome, "config.toml"), userTrust);
 
     const first = await ensureCodexSafetyHook(defaultHome);
-    expect(first.warning).toBeNull();
+    expect(first.refusal).toBeUndefined();
     expect(first.hookIdentity).toEqual({
       sourcePath: hooksPath,
       displayOrder: 2,
@@ -196,36 +197,103 @@ describe("Codex safety hook installation", () => {
     );
 
     const next = await ensureCodexSafetyHook(defaultHome);
-    expect(next.warning).toBeNull();
+    expect(next.refusal).toBeUndefined();
+    expect(next.hookIdentity).not.toBeNull();
     expect(readFileSync(hooksPath, "utf8")).toBe(hooksAfterFirst);
     expect(readFileSync(join(defaultHome, "config.toml"), "utf8")).toBe(
       configAfterFirst,
     );
   });
 
-  // Fail open: the session still starts, and the caller gets the warning.
-  it("starts the subprocess and returns the warning when the preflight fails", async () => {
+  // Strict (task 00f25e1e): an office-host hook setup failure refuses the
+  // start the same way a member's does, and Codex never spawns. The control
+  // start on a good home after it proves the spawn marker and that start()
+  // resolves to the identity.
+  it("an office-host preflight failure refuses JsonRpcLiteClient.start() before Codex spawns", async () => {
     const dir = join(STATE_ROOT, "client-preflight");
+    rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
+    const marker = join(dir, "spawned");
+    const bin = join(dir, "codex.sh");
+    writeFileSync(bin, `#!/bin/sh\ntouch '${marker}'\nexec sleep 600\n`);
+    chmodSync(bin, 0o755);
+    const clientFor = (home: string) =>
+      new JsonRpcLiteClient({
+        codexBin: bin,
+        args: [],
+        cwd: dir,
+        env: { ...process.env, CODEX_HOME: home },
+      });
+
+    // A file where the Codex home should be: the hooks.json merge fails.
     const invalidHome = join(dir, "not-a-directory");
     writeFileSync(invalidHome, "x");
-    const bin = join(dir, "codex.sh");
-    writeFileSync(bin, "#!/bin/sh\nexec sleep 600\n");
-    chmodSync(bin, 0o755);
-    const client = new JsonRpcLiteClient({
-      codexBin: bin,
-      args: [],
-      cwd: dir,
-      env: { ...process.env, CODEX_HOME: invalidHome },
-    });
+    const client = clientFor(invalidHome);
     try {
-      const result = await client.start();
-      expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
-      expect(client.pid()).toBeDefined();
+      // Twice: a refused start must not leave the client half started.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const message = await client.start().then(
+          () => "started",
+          (err) => (err as Error).message,
+        );
+        expect(message).toBe(HOOK_SETUP_REFUSAL);
+      }
+      expect(client.pid()).toBeUndefined();
+      await Bun.sleep(100);
+      expect(existsSync(marker)).toBe(false);
     } finally {
       await client.close();
     }
-  });
+
+    const goodHome = join(dir, "good-home");
+    const control = clientFor(goodHome);
+    try {
+      const identity = await control.start();
+      expect(identity?.sourcePath).toBe(join(goodHome, "hooks.json"));
+      expect(control.pid()).toBeDefined();
+      const deadline = Date.now() + 2_000;
+      while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(20);
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      await control.close();
+    }
+  }, 30_000);
+
+  // Strict (task 00f25e1e): a repair that cannot write the hook refuses.
+  // A non-empty directory squats the install path, so the rename fails.
+  it("refuses when the repair cannot write the installed hook", async () => {
+    assertTestStatePath(CODEX_SAFETY_HOOK_PATH);
+    rmSync(CODEX_SAFETY_HOOK_PATH, { recursive: true, force: true });
+    mkdirSync(CODEX_SAFETY_HOOK_PATH, { recursive: true });
+    writeFileSync(join(CODEX_SAFETY_HOOK_PATH, "squatter"), "x");
+    const errors = spyOn(console, "error");
+    let lines: string[];
+    let result: Awaited<ReturnType<typeof ensureCodexSafetyHook>>;
+    try {
+      result = await ensureCodexSafetyHook(defaultHome);
+    } finally {
+      lines = errors.mock.calls.map((call) => call.join(" "));
+      errors.mockRestore();
+      rmSync(CODEX_SAFETY_HOOK_PATH, { recursive: true, force: true });
+    }
+    expect(result.refusal).toBe(HOOK_SETUP_REFUSAL);
+    expect(result.hookIdentity).toBeNull();
+    // The cause and the refusal in one line, never "ran unchecked".
+    expect(
+      lines.filter(
+        (line) =>
+          line.includes("repair write failed") &&
+          line.includes(HOOK_SETUP_REFUSAL),
+      ).length,
+    ).toBe(1);
+    expect(lines.filter((line) => line.includes(SAFETY_WARNING)).length).toBe(
+      0,
+    );
+    // The next start repairs: a refusal is not sticky once the cause is gone.
+    const next = await ensureCodexSafetyHook(defaultHome);
+    expect(next.refusal).toBeUndefined();
+    expect(next.hookIdentity).not.toBeNull();
+  }, 30_000);
 
   it("repairs a same-size, same-mtime content swap without rebuilding the golden artifact", async () => {
     installGolden();
@@ -244,7 +312,8 @@ describe("Codex safety hook installation", () => {
     expect(swapped.mtimeMs).toBe(installedBefore.mtimeMs);
 
     const result = await ensureCodexSafetyHook(defaultHome);
-    expect(result.warning).toBeNull();
+    expect(result.refusal).toBeUndefined();
+    expect(result.hookIdentity).not.toBeNull();
     expectRepairedFromGolden(installedBefore.ino, offset);
     const goldenAfter = statSync(_test.goldenPath);
     expect(goldenAfter.ino).toBe(goldenBefore.ino);
@@ -260,7 +329,10 @@ describe("Codex safety hook installation", () => {
     const results = await Promise.all(
       Array.from({ length: 2 }, () => ensureCodexSafetyHook(defaultHome)),
     );
-    for (const result of results) expect(result.warning).toBeNull();
+    for (const result of results) {
+      expect(result.refusal).toBeUndefined();
+      expect(result.hookIdentity).not.toBeNull();
+    }
     expectRepairedFromGolden(inoBefore, offset);
   }, 30_000);
 
@@ -316,7 +388,6 @@ describe("Codex safety hook installation", () => {
       try {
         for (const result of results)
           expect(result).toEqual({
-            warning: null,
             hookIdentity: {
               sourcePath: join(defaultHome, "hooks.json"),
               displayOrder: 2,
@@ -336,7 +407,7 @@ describe("Codex safety hook installation", () => {
     30_000,
   );
 
-  it("fails open on a changed golden artifact instead of preparing it again", async () => {
+  it("refuses on a changed golden artifact instead of preparing it again", async () => {
     // A missing hook takes the same repair path as a changed one.
     assertTestStatePath(CODEX_SAFETY_HOOK_PATH);
     rmSync(CODEX_SAFETY_HOOK_PATH, { force: true });
@@ -345,7 +416,8 @@ describe("Codex safety hook installation", () => {
     const changed = statSync(_test.goldenPath);
     try {
       const result = await ensureCodexSafetyHook(defaultHome);
-      expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
+      expect(result.refusal).toBe(HOOK_SETUP_REFUSAL);
+      expect(result.hookIdentity).toBeNull();
       // Nothing installed from the changed copy, and the copy is neither
       // rebuilt nor written.
       expect(existsSync(CODEX_SAFETY_HOOK_PATH)).toBe(false);
@@ -366,7 +438,6 @@ describe("Codex safety hook installation", () => {
   it("installs and trusts the same hook in a fresh per-user CODEX_HOME", () => {
     const override = join(STATE_ROOT, "users/test-user/codex-home");
     const result = configure(override);
-    expect(result.warning).toBeNull();
     expect(result.hookIdentity?.sourcePath).toBe(join(override, "hooks.json"));
     const hooks = JSON.parse(
       readFileSync(join(override, "hooks.json"), "utf8"),
@@ -412,7 +483,6 @@ describe("Codex safety hook installation", () => {
 
     const result = configure(home);
     expect(result).toEqual({
-      warning: null,
       hookIdentity: { sourcePath: hooksPath, displayOrder: 1 },
     });
     const configText = readFileSync(join(home, "config.toml"), "utf8");
@@ -478,7 +548,7 @@ describe("Codex safety hook installation", () => {
       [userBlock, ...ownedBlocks, ""].join("\n"),
     );
 
-    expect(configure(home).warning).toBeNull();
+    expect(configure(home).hookIdentity).not.toBeNull();
 
     const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
     expect(hooks.hooks.PreToolUse).toEqual([
@@ -572,7 +642,7 @@ describe("Codex safety hook installation", () => {
     );
     writeFileSync(join(home, "config.toml"), `${blocks.join("\n")}\n`);
 
-    expect(configure(home).warning).toBeNull();
+    expect(configure(home).hookIdentity).not.toBeNull();
 
     const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
     expect(hooks.hooks.PreToolUse).toEqual([
@@ -606,7 +676,7 @@ describe("Codex safety hook installation", () => {
     );
   });
 
-  it("fails open with the exact warning when hooks.json cannot be merged", () => {
+  it("the runner entry returns no identity when hooks.json cannot be merged, and does not decide the outcome", () => {
     const badHome = join(STATE_ROOT, "bad-codex-home");
     mkdirSync(badHome, { recursive: true });
     writeFileSync(join(badHome, "hooks.json"), "not json");
@@ -619,18 +689,22 @@ describe("Codex safety hook installation", () => {
       lines = errors.mock.calls.map((call) => call.join(" "));
       errors.mockRestore();
     }
-    expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
-    // The merge runs in agent space and does not know the outcome: a
-    // member's preflight refuses on this reply (task 5beaa7a5). It logs the
-    // failure only, never that the call ran unchecked.
+    expect(result).toEqual({ hookIdentity: null });
+    // The merge runs in agent space and does not know the outcome: the
+    // preflight that called it refuses on this reply (task 5beaa7a5). It
+    // logs the failure only, neither the refusal nor a warning.
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines.filter((line) => line.includes(SAFETY_WARNING)).length).toBe(
-      0,
-    );
+    expect(
+      lines.filter(
+        (line) =>
+          line.includes(SAFETY_WARNING) || line.includes(HOOK_SETUP_REFUSAL),
+      ).length,
+    ).toBe(0);
   });
 
-  // The office preflight decides the warn outcome, so it logs it, once.
-  it("logs the unchecked outcome once when the office preflight cannot merge hooks.json", async () => {
+  // The office preflight decides the outcome (refuse), so it logs it, once,
+  // and never says the call ran unchecked.
+  it("refuses and logs the refusal once when the office preflight cannot merge hooks.json", async () => {
     const badHome = join(STATE_ROOT, "bad-codex-home-office");
     mkdirSync(badHome, { recursive: true });
     writeFileSync(join(badHome, "hooks.json"), "not json");
@@ -643,9 +717,13 @@ describe("Codex safety hook installation", () => {
       lines = errors.mock.calls.map((call) => call.join(" "));
       errors.mockRestore();
     }
-    expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
+    expect(result.refusal).toBe(HOOK_SETUP_REFUSAL);
+    expect(result.hookIdentity).toBeNull();
+    expect(
+      lines.filter((line) => line.includes(HOOK_SETUP_REFUSAL)).length,
+    ).toBe(1);
     expect(lines.filter((line) => line.includes(SAFETY_WARNING)).length).toBe(
-      1,
+      0,
     );
   });
 
@@ -772,11 +850,50 @@ describe("Codex safety hook in a process other than the office server", () => {
         ensureCodexSafetyHook(defaultHome),
       );
       expect(result.refusal).toBeUndefined();
-      expect(result.warning).toBeNull();
       expect(result.hookIdentity?.sourcePath).toBe(
         join(defaultHome, "hooks.json"),
       );
       expect(binSnapshot()).toEqual(before);
+    });
+  }, 30_000);
+
+  // Strict (task 00f25e1e): when this process cannot read the artifact it
+  // refuses with the setup refusal, not the stale-hook one. The golden copy
+  // is made execute-only: its stamp still runs, its hash read fails.
+  it("refuses with the setup refusal when the artifact cannot be read", async () => {
+    await withGoldenRestored(async () => {
+      installGolden();
+      const control = await asOtherProcess(() =>
+        ensureCodexSafetyHook(defaultHome),
+      );
+      expect(control.refusal).toBeUndefined();
+      expect(control.hookIdentity).not.toBeNull();
+      const mode = statSync(_test.goldenPath).mode & 0o7777;
+      chmodSync(_test.goldenPath, 0o100);
+      let result: Awaited<ReturnType<typeof ensureCodexSafetyHook>>;
+      let before: string[];
+      try {
+        before = binSnapshot();
+        result = await asOtherProcess(() => ensureCodexSafetyHook(defaultHome));
+      } finally {
+        // withGoldenRestored reads and writes the golden copy.
+        chmodSync(_test.goldenPath, mode);
+      }
+      expect(result.refusal).toBe(HOOK_SETUP_REFUSAL);
+      expect(result.hookIdentity).toBeNull();
+      // The chmod back is the only change: nothing was written.
+      const after = binSnapshot().map((line) =>
+        line.startsWith(`${_test.goldenPath} `)
+          ? line.split(" ").slice(0, 4).join(" ")
+          : line,
+      );
+      expect(after).toEqual(
+        before.map((line) =>
+          line.startsWith(`${_test.goldenPath} `)
+            ? line.split(" ").slice(0, 4).join(" ")
+            : line,
+        ),
+      );
     });
   }, 30_000);
 
@@ -785,7 +902,8 @@ describe("Codex safety hook in a process other than the office server", () => {
     expect(_test.isHookWriter()).toBe(true);
     const result = await ensureCodexSafetyHook(defaultHome);
     expect(result.refusal).toBeUndefined();
-    expect(result.warning).toBeNull();
+    expect(result.refusal).toBeUndefined();
+    expect(result.hookIdentity).not.toBeNull();
     expectRepairedFromGolden(ino, offset);
   }, 30_000);
 

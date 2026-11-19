@@ -346,9 +346,8 @@ describe("agent-space entries", () => {
       hookPath,
       trustedHash,
     });
-    expect(expected.warning).toBeNull();
+    expect(expected.hookIdentity).not.toBeNull();
     expect(result).toEqual({
-      warning: null,
       hookIdentity: {
         sourcePath: join(remote, "hooks.json"),
         displayOrder: expected.hookIdentity!.displayOrder,

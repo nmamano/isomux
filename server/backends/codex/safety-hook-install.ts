@@ -27,7 +27,6 @@ import {
   buildCodexSafetyHook,
   hashCodexSafetyHookSources,
 } from "./safety-hook-build.ts";
-import { SAFETY_WARNING } from "./safety-hook.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 
 // The installed hook. In split mode it is in the share, where the agent user
@@ -44,9 +43,10 @@ const GOLDEN_HOOK_PATH = join(
   "bin/.isomux-codex-safety-hook.golden",
 );
 const TRUST_SENTINEL = "# isomux-managed-codex-safety-hook";
-// A member's Codex does not start without the hook
-// (internal-docs/member-os-user-design.md, slice 2d-i).
-export const MEMBER_HOOK_REFUSAL =
+// No Codex App Server starts without the hook: an office agent's, an
+// isolated member's (internal-docs/member-os-user-design.md, slice 2d-i) or
+// an office client's (the sign-in card, usage, the model list).
+export const HOOK_SETUP_REFUSAL =
   "Codex not started: Isomux could not set up its safety check for this agent. Tell the office owner.";
 const HOOK_REFUSAL =
   "Codex not started: the installed safety hook differs from this checkout's source, and only the office server installs it.";
@@ -57,12 +57,21 @@ export interface CodexSafetyHookIdentity {
   displayOrder: number;
 }
 
-export interface CodexSafetyPreflightResult {
-  warning: string | null;
+// The hook is configured, or Codex must not start: `refusal` is the error
+// the start throws.
+export type CodexSafetyPreflightResult =
+  | { hookIdentity: CodexSafetyHookIdentity; refusal?: undefined }
+  | { hookIdentity: null; refusal: string };
+
+// What the hook configuration in agent space sends back. It does not
+// decide: its caller refuses on a null identity.
+export interface CodexHookConfigResult {
   hookIdentity: CodexSafetyHookIdentity | null;
-  // Set when this process may not start Codex: the live hook does not match
-  // this checkout and only the office server may write it.
-  refusal?: string;
+}
+
+function refuseSetup(why: string): CodexSafetyPreflightResult {
+  console.error(`[codex safety] ${why}; ${HOOK_SETUP_REFUSAL}`);
+  return { hookIdentity: null, refusal: HOOK_SETUP_REFUSAL };
 }
 
 interface PreparedArtifact {
@@ -566,8 +575,8 @@ async function repairInstalledArtifact(
   if (SPLIT_CONFIG)
     chmodShare(dirname(CODEX_SAFETY_HOOK_PATH), INSTALLED_DIR_MODE);
   // Unique per call: two repairs in one process within the same millisecond
-  // must not share a temporary file, or the second one fails and its tool
-  // call runs without the safety check.
+  // must not share a temporary file, or the second one fails and its Codex
+  // does not start.
   const temporary = `${CODEX_SAFETY_HOOK_PATH}.new-${process.pid}-${randomUUID()}`;
   try {
     await Bun.write(temporary, Bun.file(artifact.path));
@@ -580,18 +589,18 @@ async function repairInstalledArtifact(
 
 // The hooks.json and config.toml merge in CODEX_HOME, which is agent space:
 // in split mode the agent user runs it (server/agent-runner/entries). Its
-// logs name only the failure: the caller decides whether Codex runs.
+// logs name only the failure: the caller refuses the start.
 export function configureCodexHooks(
   codexHome: string,
   hookPath: string,
   trustedHash: string,
-): CodexSafetyPreflightResult {
+): CodexHookConfigResult {
   let merged: ReturnType<typeof mergeHooksFile>;
   try {
     merged = mergeHooksFile(codexHome, hookPath);
   } catch (err) {
     console.error(`[codex safety] hooks.json merge failed: ${errMessage(err)}`);
-    return { warning: SAFETY_WARNING, hookIdentity: null };
+    return { hookIdentity: null };
   }
   try {
     mergeTrustConfig(
@@ -606,11 +615,10 @@ export function configureCodexHooks(
     console.error(
       `[codex safety] config.toml write failed: ${errMessage(err)}`,
     );
-    return { warning: SAFETY_WARNING, hookIdentity: null };
+    return { hookIdentity: null };
   }
   try {
     return {
-      warning: null,
       hookIdentity: verifyConfiguration(
         codexHome,
         hookPath,
@@ -623,7 +631,7 @@ export function configureCodexHooks(
     console.error(
       `[codex safety] hook configuration verification failed: ${errMessage(err)}`,
     );
-    return { warning: SAFETY_WARNING, hookIdentity: null };
+    return { hookIdentity: null };
   }
 }
 
@@ -639,17 +647,11 @@ async function configureInAgentSpace(
       () => configureCodexHooks(codexHome, CODEX_SAFETY_HOOK_PATH, trustedHash),
     );
   } catch (err) {
-    console.error(
-      `[codex safety] hook configuration failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
-    );
-    return { warning: SAFETY_WARNING, hookIdentity: null };
+    return refuseSetup(`hook configuration failed: ${errMessage(err)}`);
   }
   const hookIdentity = completeIdentity(result);
-  if (hookIdentity) return { warning: null, hookIdentity };
-  console.error(
-    `[codex safety] the hook configuration returned no identity; ${SAFETY_WARNING}`,
-  );
-  return { warning: SAFETY_WARNING, hookIdentity: null };
+  if (hookIdentity) return { hookIdentity };
+  return refuseSetup("the hook configuration returned no identity");
 }
 
 // Agent-space data: accept only a complete identity.
@@ -748,10 +750,7 @@ async function memberCodexSafetyHook(
 ): Promise<CodexSafetyPreflightResult> {
   const d = memberHookDeps;
   const member = host.member!;
-  const refuse = (why: string): CodexSafetyPreflightResult => {
-    console.error(`[codex safety] ${member}: ${why}; ${MEMBER_HOOK_REFUSAL}`);
-    return { warning: null, hookIdentity: null, refusal: MEMBER_HOOK_REFUSAL };
-  };
+  const refuse = (why: string) => refuseSetup(`${member}: ${why}`);
   try {
     let artifact: { sha256: string };
     try {
@@ -795,7 +794,7 @@ async function memberCodexSafetyHook(
     }
     const hookIdentity = completeIdentity(result);
     if (!hookIdentity) return refuse("the runner sent an incomplete identity");
-    return { warning: null, hookIdentity };
+    return { hookIdentity };
   } catch (err) {
     return refuse(`unexpected preflight failure: ${errMessage(err)}`);
   }
@@ -837,20 +836,18 @@ async function compareLiveHook(
     const mismatch = await liveHookMismatch();
     if (mismatch) {
       console.error(`[codex safety] ${mismatch}; ${HOOK_REFUSAL}`);
-      return { warning: null, hookIdentity: null, refusal: HOOK_REFUSAL };
+      return { hookIdentity: null, refusal: HOOK_REFUSAL };
     }
     trustedHash = await measuredTrustedHash();
   } catch (err) {
-    console.error(
-      `[codex safety] artifact unavailable: ${errMessage(err)}; ${SAFETY_WARNING}`,
-    );
-    return { warning: SAFETY_WARNING, hookIdentity: null };
+    return refuseSetup(`artifact unavailable: ${errMessage(err)}`);
   }
   return configureInAgentSpace(codexHome, trustedHash);
 }
 
 // `host`: the host the Codex App Server starts on. An isolated member's
-// takes memberCodexSafetyHook, which refuses where this one warns.
+// takes memberCodexSafetyHook. Every failure refuses: Codex never runs
+// without the hook.
 export async function ensureCodexSafetyHook(
   codexHome: string,
   host: AgentHost = officeAgentHost(),
@@ -862,10 +859,7 @@ export async function ensureCodexSafetyHook(
     try {
       artifact = await preparedArtifact();
     } catch (err) {
-      console.error(
-        `[codex safety] artifact unavailable: ${errMessage(err)}; ${SAFETY_WARNING}`,
-      );
-      return { warning: SAFETY_WARNING, hookIdentity: null };
+      return refuseSetup(`artifact unavailable: ${errMessage(err)}`);
     }
 
     let installedHash: string | null = null;
@@ -880,10 +874,7 @@ export async function ensureCodexSafetyHook(
       try {
         await repairInstalledArtifact(artifact);
       } catch (err) {
-        console.error(
-          `[codex safety] repair write failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
-        );
-        return { warning: SAFETY_WARNING, hookIdentity: null };
+        return refuseSetup(`repair write failed: ${errMessage(err)}`);
       }
     }
     try {
@@ -898,18 +889,14 @@ export async function ensureCodexSafetyHook(
       }
       chmodSync(CODEX_SAFETY_HOOK_PATH, INSTALLED_HOOK_MODE);
     } catch (err) {
-      console.error(
-        `[codex safety] installed artifact verification failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+      return refuseSetup(
+        `installed artifact verification failed: ${errMessage(err)}`,
       );
-      return { warning: SAFETY_WARNING, hookIdentity: null };
     }
 
     return await configureInAgentSpace(codexHome, artifact.trustedHash);
   } catch (err) {
-    console.error(
-      `[codex safety] unexpected preflight failure: ${errMessage(err)}; ${SAFETY_WARNING}`,
-    );
-    return { warning: SAFETY_WARNING, hookIdentity: null };
+    return refuseSetup(`unexpected preflight failure: ${errMessage(err)}`);
   }
 }
 

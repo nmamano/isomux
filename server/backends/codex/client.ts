@@ -42,7 +42,7 @@ import {
 } from "./native-bin.ts";
 import {
   ensureCodexSafetyHook,
-  type CodexSafetyPreflightResult,
+  type CodexSafetyHookIdentity,
 } from "./safety-hook-install.ts";
 
 // Surfaced verbatim into chat by sendMessage's BackendNotConfiguredError
@@ -248,7 +248,7 @@ export class JsonRpcLiteClient {
   // sessions only; server/process-isolation.ts).
   async start(
     opts: { isolate?: boolean } = {},
-  ): Promise<CodexSafetyPreflightResult> {
+  ): Promise<CodexSafetyHookIdentity | null> {
     if (this.child || this.starting) {
       throw new Error("JsonRpcLiteClient.start() called twice");
     }
@@ -268,16 +268,18 @@ export class JsonRpcLiteClient {
     // makes it, as the member.
     else if (host.member !== undefined && effectiveEnv.CODEX_HOME)
       await host.fs.mkdir(effectiveEnv.CODEX_HOME, 0o700).catch(() => {});
-    let safety: CodexSafetyPreflightResult = {
-      warning: null,
-      hookIdentity: null,
-    };
+    // Null only for a test probe that skips the preflight.
+    let hookIdentity: CodexSafetyHookIdentity | null = null;
     if (!this.opts.skipSafetyPreflightForTestProbe) {
-      safety = await ensureCodexSafetyHook(effectiveEnv.CODEX_HOME!, host);
-    }
-    if (safety.refusal) {
-      this.starting = false;
-      throw new Error(safety.refusal);
+      const safety = await ensureCodexSafetyHook(
+        effectiveEnv.CODEX_HOME!,
+        host,
+      );
+      if (safety.refusal !== undefined) {
+        this.starting = false;
+        throw new Error(safety.refusal);
+      }
+      hookIdentity = safety.hookIdentity;
     }
     // Analytics starts with the App Server, before thread config overrides.
     // A launch override also covers per-user CODEX_HOME without file writes.
@@ -418,7 +420,7 @@ export class JsonRpcLiteClient {
         child.once("spawn", resolve);
         child.once("error", () => resolve());
       });
-    return safety;
+    return hookIdentity;
   }
 
   // Send the JSON-RPC `initialize` handshake. Caller is responsible for
