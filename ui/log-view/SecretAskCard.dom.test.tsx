@@ -565,6 +565,40 @@ it("an office OAuth request signs in to the office server", async () => {
   }
 });
 
+// A sign-in the office refuses to start (a service that refuses the
+// automatic client registration): the save closed the ask, so no card is
+// left to say why. The browser goes to the Integrations page with the
+// reason instead, where the server's row shows it and offers the sign-in.
+it("a refused sign-in start sends the browser to the Integrations page with the reason", async () => {
+  answer = async (path) => {
+    if (path.endsWith("/sign-in"))
+      throw new ApiError(502, "sign_in_failed", "refused", {
+        reason: "registration_refused",
+      });
+    return { name: "docs" };
+  };
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    const view = await mount(false, OAUTH_ASK("personal"));
+    await act(async () => {
+      fireEvent.click(saveAndSignIn(view));
+    });
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(
+        "/integrations?mcpSignIn=registration_refused",
+      ),
+    );
+    // The note names the server and its owner, as after a started sign-in.
+    expect(takeSignIn()).toEqual({
+      server: "docs",
+      target: { kind: "self", username: "alice" },
+    });
+    view.unmount();
+  } finally {
+    assign.mockRestore();
+  }
+});
+
 it("the request's OAuth is only the starting choice: with None the save makes a plain server and no sign-in starts", async () => {
   signInAnswers();
   const assign = spyOn(window.location, "assign").mockImplementation(() => {});

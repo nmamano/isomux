@@ -1183,6 +1183,8 @@ export const zh: Catalog = {
   "settings.mcpServers.signInFailed": "登录失败。请重试。",
   "settings.mcpServers.signInError.clientNeeded":
     "此服务器不注册客户端。请输入客户端 ID。",
+  "settings.mcpServers.signInError.registrationRefused":
+    "此服务拒绝了自动注册客户端。请在“集成 → MCP”中该服务器的设置里输入服务文档提供的客户端 ID。",
   "settings.mcpServers.signInError.redirectRefused":
     "授权服务器拒绝了此办公室的地址。有些服务器只接受 https 或 localhost 地址。",
   "settings.mcpServers.signInError.metadata":

@@ -163,6 +163,8 @@ export function signInErrorText(
   switch (reason) {
     case "client_needed":
       return t("settings.mcpServers.signInError.clientNeeded");
+    case "registration_refused":
+      return t("settings.mcpServers.signInError.registrationRefused");
     case "redirect_refused":
       return t("settings.mcpServers.signInError.redirectRefused");
     case "discovery_failed":
