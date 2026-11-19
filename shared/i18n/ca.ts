@@ -1329,7 +1329,7 @@ Coses que pots fer per ell:
   "settings.mcpServers.signInError.clientNeeded":
     "Aquest servidor no registra clients. Introdueix un ID de client.",
   "settings.mcpServers.signInError.registrationRefused":
-    "Aquest servidor ha rebutjat registrar un client. Introdueix un ID de client de la seva documentació.",
+    "Aquest servidor ha rebutjat registrar un client. Introdueix un ID de client.",
   "settings.mcpServers.signInError.redirectRefused":
     "El servidor d'autorització ha rebutjat l'adreça d'aquesta oficina. Alguns servidors només accepten adreces https o localhost.",
   "settings.mcpServers.signInError.metadata":

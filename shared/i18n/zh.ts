@@ -1184,7 +1184,7 @@ export const zh: Catalog = {
   "settings.mcpServers.signInError.clientNeeded":
     "此服务器不注册客户端。请输入客户端 ID。",
   "settings.mcpServers.signInError.registrationRefused":
-    "此服务器拒绝注册客户端。请输入其文档中提供的客户端 ID。",
+    "此服务器拒绝注册客户端。请输入客户端 ID。",
   "settings.mcpServers.signInError.redirectRefused":
     "授权服务器拒绝了此办公室的地址。有些服务器只接受 https 或 localhost 地址。",
   "settings.mcpServers.signInError.metadata":
