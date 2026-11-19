@@ -59,3 +59,25 @@ describe("codexDefaultModel", () => {
     });
   }
 });
+
+describe("CODEX_MODELS", () => {
+  // Nil, 2026-11-19: the fallback list keeps the two newest generations of
+  // each model line. A line is the slug after its version (gpt-6.2-sol is the
+  // "sol" line; plain gpt-5.5 is its own line), so an upgrade that adds a
+  // third generation must drop the oldest.
+  it("keeps at most two generations of each model line", () => {
+    const generations = new Map<string, Set<string>>();
+    for (const { value } of CODEX_MODELS) {
+      const match = /^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/.exec(value);
+      expect(match).not.toBeNull();
+      const [, version, line = ""] = match!;
+      generations.set(line, (generations.get(line) ?? new Set()).add(version));
+    }
+    const over = [...generations]
+      .filter(([, versions]) => versions.size > 2)
+      .map(
+        ([line, versions]) => `${line || "plain"}: ${[...versions].join(", ")}`,
+      );
+    expect(over).toEqual([]);
+  });
+});

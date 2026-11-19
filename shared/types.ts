@@ -379,11 +379,15 @@ export function effortLabelParam(level: string): LogMessage | string {
 // no-model spawns take the login's discovered default (codexDefaultModel), and
 // this order is the fallback when discovery is unavailable (boot restore,
 // failed discovery, offline dialogs). A ChatGPT login can lack gpt-6.2-sol.
+// From 6.2 on, keep the two newest generations of each model line (the slug
+// after its version: gpt-6.2-sol is the sol line, gpt-5.5 its own line). An
+// upgrade that adds a generation removes the oldest (Nil, 2026-11-19);
+// shared/types.test.ts checks it. A removed slug still works: Codex
+// validation accepts any slug and familyDisplayLabel derives its label.
 export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-6.2-sol", label: "GPT-6.2 Sol" },
   { value: "gpt-6.2-astra", label: "GPT-6.2 Astra" },
   { value: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
-  { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
   { value: "gpt-6-astra", label: "GPT-6 Astra" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
