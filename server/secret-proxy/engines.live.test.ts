@@ -5,9 +5,9 @@
 // - curl with a placeholder reaches a listed stub host, which gets the value;
 //   the reply comes back scrubbed.
 // - printenv shows the placeholder, never the value.
-// - Claude's remote MCP server, registered with the placeholder in its
-//   header (as integrations A2 now does), reaches the listed host with the
-//   value.
+// - The remote MCP server of Claude, Codex and OpenCode, registered with
+//   the placeholder in its header (as integrations A2 now does), reaches the
+//   listed host with the value.
 // - Claude, Codex and OpenCode, each with a fake key, reach their model host
 //   (a stub that answers as api.anthropic.com or api.openai.com) through the
 //   proxy as a tunnel, and the stub gets their own key untouched.
@@ -34,6 +34,7 @@ import {
   setSecretEnvironmentProvider,
 } from "../env-loader.ts";
 import { resolveCodexLauncherPath } from "../backends/codex/native-bin.ts";
+import { openCodeMcpServerConfig } from "../backends/opencode/config-layers.ts";
 import { resolveOpenCodeBinary } from "../backends/opencode/runtime.ts";
 import { createSecretStore } from "../secret-store.ts";
 import {
@@ -255,6 +256,15 @@ function header(seen: { headers: [string, string][] }, name: string) {
   return seen.headers.find(([n]) => n.toLowerCase() === name)?.[1] ?? "";
 }
 
+// The MCP request on the listed stub. OpenCode adds a query (?codemode=false).
+function mcpRequest() {
+  return listed.seen.find(
+    (s) => s.method === "POST" && s.target.split("?")[0] === "/mcp",
+  );
+}
+
+const MCP_URL = "https://api.stub-listed.test/mcp";
+
 describe.skipIf(!LIVE || !HAS_OPENSSL)(
   "a throwaway office with a secret, real tools and engines (live; SKIPPED without ISOMUX_TEST_LIVE=1 or openssl)",
   () => {
@@ -353,7 +363,7 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
         mcpServers: {
           docs: {
             type: "http",
-            url: "https://api.stub-listed.test/mcp",
+            url: MCP_URL,
             headers: { Authorization: `Bearer ${env.GH_TOKEN}` },
           },
         },
@@ -380,16 +390,18 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
       );
       expect(call).toBeDefined();
       expect(header(call!, "x-api-key")).toBe(FAKE_ANTHROPIC);
-      const mcp = listed.seen.find(
-        (s) => s.method === "POST" && s.target === "/mcp",
-      );
+      const mcp = mcpRequest();
       expect(mcp).toBeDefined();
       expect(header(mcp!, "authorization")).toBe(`Bearer ${VALUE}`);
       expect(out).not.toContain(VALUE);
     }, 30000);
 
-    test("Codex reaches api.openai.com through a tunnel with its own key", async () => {
+    // The office sends the same url and http_headers entry over the
+    // app-server's stdin (codexThreadConfig); argv is fine here, as the
+    // header holds only the placeholder.
+    test("Codex reaches api.openai.com through a tunnel with its own key, and its MCP server gets the value", async () => {
       model.seen.length = 0;
+      listed.seen.length = 0;
       mkdirSync(join(STATE_ROOT, "live-codex"), { recursive: true });
       const out = await run(
         [
@@ -397,6 +409,10 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
           resolveCodexLauncherPath(),
           "exec",
           "--skip-git-repo-check",
+          "-c",
+          `mcp_servers.docs.url=${JSON.stringify(MCP_URL)}`,
+          "-c",
+          `mcp_servers.docs.http_headers={Authorization=${JSON.stringify(`Bearer ${env.GH_TOKEN}`)}}`,
           "hello",
         ],
         {
@@ -412,11 +428,16 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
       );
       expect(call).toBeDefined();
       expect(header(call!, "authorization")).toBe(`Bearer ${FAKE_OPENAI}`);
+      const mcp = mcpRequest();
+      expect(mcp).toBeDefined();
+      expect(header(mcp!, "authorization")).toBe(`Bearer ${VALUE}`);
       expect(out).not.toContain(VALUE);
     }, 30000);
 
-    test("OpenCode reaches api.anthropic.com through a tunnel with its own key", async () => {
+    // The office adds the same entry at run time (PUT /experimental/mcp).
+    test("OpenCode reaches api.anthropic.com through a tunnel with its own key, and its MCP server gets the value", async () => {
       model.seen.length = 0;
+      listed.seen.length = 0;
       const out = await run(
         [
           resolveOpenCodeBinary(),
@@ -430,6 +451,15 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
           OPENCODE_DISABLE_AUTOUPDATE: "1",
           OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
           OPENCODE_DISABLE_MODELS_FETCH: "1",
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({
+            mcp: {
+              docs: openCodeMcpServerConfig({
+                name: "docs",
+                url: MCP_URL,
+                headers: { Authorization: `Bearer ${env.GH_TOKEN}` },
+              }),
+            },
+          }),
         },
         25000,
       );
@@ -439,6 +469,9 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
       );
       expect(call).toBeDefined();
       expect(header(call!, "x-api-key")).toBe(FAKE_ANTHROPIC);
+      const mcp = mcpRequest();
+      expect(mcp).toBeDefined();
+      expect(header(mcp!, "authorization")).toBe(`Bearer ${VALUE}`);
       expect(out).not.toContain(VALUE);
     }, 30000);
 
