@@ -34,7 +34,10 @@ import {
 } from "../integrations/DiscordSection.tsx";
 import { DISCORD_BOTS_MAX } from "../../shared/discord.ts";
 import { Choice } from "../integrations/kit.tsx";
-import { startMcpSignIn } from "../integrations/sign-in-return.ts";
+import {
+  startMcpSignIn,
+  failMcpSignIn,
+} from "../integrations/sign-in-return.ts";
 import type { Target } from "../integrations/target.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import {
@@ -250,10 +253,13 @@ export function SecretAskCard({
       setValue("");
       dispatch({ type: "ask_removed", id: entry.id });
       // The save closed the ask, so the card can be gone by now: nothing
-      // here waits on it. A sign-in that does not start leaves the server
-      // signed out, and its Integrations row offers the sign-in.
+      // here waits on it. A sign-in that does not start sends the browser
+      // to the Integrations page with the reason, where the server's row
+      // shows it and offers the sign-in again.
       if (kind === "save" && isMcp && auth === "oauth" && target)
-        startMcpSignIn(target, secret.name).catch(() => {});
+        startMcpSignIn(target, secret.name).catch((caught) => {
+          failMcpSignIn(target, secret.name, caught);
+        });
     } catch (caught) {
       // 404: the request closed elsewhere (another owner, the agent's
       // withdraw); the push removes it too.

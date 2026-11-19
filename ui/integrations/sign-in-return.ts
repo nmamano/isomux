@@ -6,7 +6,7 @@
 // sessionStorage, is read once, and goes stale after 15 minutes.
 
 import type { McpServerSignInRes } from "../../shared/contract-shapes.ts";
-import { apiFetch } from "../api.ts";
+import { apiFetch, ApiError } from "../api.ts";
 import { basePath, type Target } from "./target.ts";
 
 const KEY = "isomux:mcpSignIn";
@@ -68,4 +68,25 @@ export async function startMcpSignIn(
   );
   if (!askId) rememberSignIn({ server, target });
   window.location.assign(authorizationUrl);
+}
+
+// A sign-in the office refused to start, for a caller whose card the save
+// already closed (an ask card): there is no card left to show the reason on,
+// so the browser goes where the callback would have gone. The Integrations
+// page shows the reason on the server's row, which offers the sign-in again.
+// The code is the office's own fixed reason, never the authorization
+// server's text.
+export function failMcpSignIn(
+  target: Target,
+  server: string,
+  caught: unknown,
+): void {
+  const reason =
+    caught instanceof ApiError && typeof caught.detail?.reason === "string"
+      ? caught.detail.reason
+      : "unexpected";
+  rememberSignIn({ server, target });
+  window.location.assign(
+    `/integrations?mcpSignIn=${encodeURIComponent(reason)}`,
+  );
 }

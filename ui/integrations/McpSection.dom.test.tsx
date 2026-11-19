@@ -244,6 +244,40 @@ it("explains a refused sign-in redirect by its code", async () => {
   );
 });
 
+// A service that refuses the automatic client registration (a 403 from its
+// registration endpoint) gets its own message, not the bare failure - it
+// tells the member to paste the client ID the service's docs name. The
+// notice of a code that came back to the page says the same.
+it("explains a registration the service refused, in the form and in the returned notice", async () => {
+  setApiShim(async (method, path) => {
+    if (path === "/api/me/connections") return EMPTY_CONNECTIONS;
+    if (path.endsWith("/secrets")) return { secrets: [] };
+    if (method === "GET")
+      return {
+        servers: [
+          server("mail", { oauth: { clientId: "c1", signedIn: true } }),
+        ],
+      };
+    throw new ApiError(502, "sign_in_failed", "x", {
+      reason: "registration_refused",
+    });
+  });
+  const view = await mount();
+  await click(view.container.querySelector("[data-mcp-edit]"));
+  await click(view.container.querySelector("[data-mcp-sign-in-again]"));
+  const text = t("settings.mcpServers.signInError.registrationRefused");
+  expect(view.getByRole("alert").textContent).toBe(text);
+  expect(text).not.toBe(t("settings.mcpServers.signInFailed"));
+  view.unmount();
+  const notice = render(
+    createElement(SignInNotice, {
+      code: "registration_refused",
+      server: "mail",
+    }),
+  );
+  expect(notice.getByRole("alert").textContent).toBe(text);
+});
+
 // AGENTS.md "UI rules" (task ea76bd44): the secret a sign-in would make,
 // named in its refusal, is Data.
 it("names the secret in the way of a sign-in as data", async () => {

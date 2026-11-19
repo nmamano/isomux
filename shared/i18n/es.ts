@@ -1332,6 +1332,8 @@ Cosas que puedes hacer por él:
     "No se pudo iniciar sesión. Inténtalo de nuevo.",
   "settings.mcpServers.signInError.clientNeeded":
     "Este servidor no registra clientes. Introduce un ID de cliente.",
+  "settings.mcpServers.signInError.registrationRefused":
+    "Este servidor rechazó registrar un cliente. Introduce un ID de cliente de su documentación.",
   "settings.mcpServers.signInError.redirectRefused":
     "El servidor de autorización rechazó la dirección de esta oficina. Algunos servidores solo aceptan direcciones https o localhost.",
   "settings.mcpServers.signInError.metadata":

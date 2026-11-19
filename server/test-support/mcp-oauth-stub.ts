@@ -16,6 +16,8 @@ export interface StubOptions {
   tokenEndpoint?: string;
   registration?: boolean;
   dcrError?: string;
+  // The status the registration refusal answers with (400 by default).
+  dcrStatus?: number;
 }
 
 export function stubRig(options: StubOptions = {}) {
@@ -105,7 +107,8 @@ export function stubRig(options: StubOptions = {}) {
       if (url === `${ISSUER}/register`) {
         const body = JSON.parse(typeof init.body === "string" ? init.body : "");
         rig.registeredRedirects.push(...body.redirect_uris);
-        if (options.dcrError) return json({ error: options.dcrError }, 400);
+        if (options.dcrError)
+          return json({ error: options.dcrError }, options.dcrStatus ?? 400);
         return json({ client_id: "client-dcr-1" }, 201);
       }
       if (url === `${ISSUER}/token`) {

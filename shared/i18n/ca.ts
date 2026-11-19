@@ -1328,6 +1328,8 @@ Coses que pots fer per ell:
     "No s'ha pogut iniciar la sessió. Torna-ho a provar.",
   "settings.mcpServers.signInError.clientNeeded":
     "Aquest servidor no registra clients. Introdueix un ID de client.",
+  "settings.mcpServers.signInError.registrationRefused":
+    "Aquest servidor ha rebutjat registrar un client. Introdueix un ID de client de la seva documentació.",
   "settings.mcpServers.signInError.redirectRefused":
     "El servidor d'autorització ha rebutjat l'adreça d'aquesta oficina. Alguns servidors només accepten adreces https o localhost.",
   "settings.mcpServers.signInError.metadata":

@@ -565,6 +565,58 @@ it("an office OAuth request signs in to the office server", async () => {
   }
 });
 
+// A sign-in the office refuses to start (a service that refuses the
+// automatic client registration): the save closed the ask, so no card is
+// left to say why. The browser goes to the Integrations page with the
+// reason instead, where the server's row shows it and offers the sign-in.
+// A start that fails with no reason of the office's (the network) lands
+// there too, with the generic code: no failure leaves the member with
+// nothing.
+for (const [label, refusal, code] of [
+  [
+    "with the reason",
+    () =>
+      new ApiError(502, "sign_in_failed", "refused", {
+        reason: "registration_refused",
+      }),
+    "registration_refused",
+  ],
+  ["with no reason", () => new TypeError("Failed to fetch"), "unexpected"],
+] as const) {
+  it(`a sign-in start that fails ${label} sends the browser to the Integrations page`, async () => {
+    answer = async (path) => {
+      if (path.endsWith("/sign-in")) throw refusal();
+      return { name: "docs" };
+    };
+    const assign = spyOn(window.location, "assign").mockImplementation(
+      () => {},
+    );
+    try {
+      const view = await mount(false, OAUTH_ASK("personal"));
+      await act(async () => {
+        fireEvent.click(saveAndSignIn(view));
+      });
+      await waitFor(() =>
+        expect(assign).toHaveBeenCalledWith(`/integrations?mcpSignIn=${code}`),
+      );
+      // The save closed the ask: no card is left to show the failure.
+      expect(card(view)).toBeNull();
+      expect(posts.map((p) => p.path)).toEqual([
+        "/api/agents/a%201/secret-requests/req-1/save",
+        "/api/users/alice/mcp-servers/docs/sign-in",
+      ]);
+      // The note names the server and its owner, as after a started sign-in.
+      expect(takeSignIn()).toEqual({
+        server: "docs",
+        target: { kind: "self", username: "alice" },
+      });
+      view.unmount();
+    } finally {
+      assign.mockRestore();
+    }
+  });
+}
+
 it("the request's OAuth is only the starting choice: with None the save makes a plain server and no sign-in starts", async () => {
   signInAnswers();
   const assign = spyOn(window.location, "assign").mockImplementation(() => {});

@@ -229,6 +229,22 @@ describe("the sign-in", () => {
     });
   });
 
+  it("names a registration the authorization server refuses with any other answer", async () => {
+    // The real case (Harness's Keycloak): a 403 whose policy rejects the
+    // registration, which the member must answer with a pasted client ID.
+    const context = setup({ dcrError: "insufficient_scope", dcrStatus: 403 });
+    register(context.oauth);
+    expect(await context.oauth.startSignIn(member, "mail", "u1")).toEqual({
+      ok: false,
+      reason: "registration_refused",
+    });
+    // Nothing of a client is stored: the sign-in left the server as it was.
+    expect(context.sources.servers.list(member)[0].oauth).toEqual({
+      clientId: null,
+      signedIn: false,
+    });
+  });
+
   it("refuses metadata whose resource is not the registered URL", async () => {
     const context = setup({ resource: "https://other.example.test/mcp" });
     register(context.oauth);

@@ -1304,6 +1304,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.mcpServers.signInFailed": "The sign-in failed. Try again.",
   "settings.mcpServers.signInError.clientNeeded":
     "This server does not register clients. Enter a client ID.",
+  "settings.mcpServers.signInError.registrationRefused":
+    "This server refused to register a client. Enter a client ID from its documentation.",
   "settings.mcpServers.signInError.redirectRefused":
     "The authorization server refused this office's address. Some servers accept only https or localhost addresses.",
   "settings.mcpServers.signInError.metadata":
