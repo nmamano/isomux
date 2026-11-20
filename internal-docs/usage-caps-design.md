@@ -81,8 +81,9 @@ session, and it does not say which account it belongs to.
 
 New module `server/office-usage.ts`: one reader per provider for the office
 sign-in (`ProviderAccountManager` office target: its `dir` and `env`).
-Since task 3e70b6d4 the same reader also serves the owners' account usage
-card (`server/account-usage.ts`): its slots are keyed by the usage key
+Since task 3e70b6d4 the same reader also serves the account usage card
+(every member since task faf036ad, cut to the office's accounts and their
+own) (`server/account-usage.ts`): its slots are keyed by the usage key
 (`server/usage-account.ts`), the office slot is the cap's warm one, and a
 member account's slot closes its process after each answer.
 

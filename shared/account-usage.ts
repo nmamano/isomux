@@ -1,4 +1,4 @@
-// Pure helpers of the owners' account usage card (task 3e70b6d4).
+// Pure helpers of the account usage card (tasks 3e70b6d4, faf036ad).
 
 import type { AccountUsageRowWire } from "./contract-shapes.ts";
 
@@ -70,69 +70,64 @@ export function accountUsageOrder(
 }
 
 // What a row draws, for the card to hold its layout while the list loads
-// (AGENTS.md UI rules): the state line, the weekly bar and its tick, the
-// other bars, the members line and the age line.
+// (AGENTS.md UI rules). A row is one line (task faf036ad), two with an email
+// under the name: its state, its section and its email line set the card's
+// height.
 export type AccountUsageRowShape = {
   state: "usage" | "no_limit" | "signed_out" | "failed";
-  weekly: boolean;
-  resets: boolean;
-  others: number;
-  members: boolean;
-  age: boolean;
+  office: boolean;
+  email: boolean;
 };
 
 // A reading older than this shows its age.
 export const ACCOUNT_USAGE_AGE_MS = 60_000;
 
-// The shape a loaded row draws at `nowMs`; null for a loading row.
+// Whether the row is one of the office's accounts: the card's first section.
+export function isOfficeAccountUsage(row: AccountUsageRowWire): boolean {
+  return row.owners.some((owner) => owner.kind === "office");
+}
+
+// The shape a loaded row draws; null for a loading row.
 export function accountUsageRowShape(
   row: AccountUsageRowWire,
-  nowMs: number,
+  _nowMs: number,
 ): AccountUsageRowShape | null {
   if (row.state === "loading") return null;
-  const weekly =
-    row.weeklyIndex === null ? null : (row.windows[row.weeklyIndex] ?? null);
   return {
     state: row.state,
-    weekly: weekly !== null,
-    resets: weekly !== null && weekly.resetsAtMs !== null,
-    others: row.windows.length - (weekly ? 1 : 0),
-    members: row.members.length > 0,
-    age:
-      row.observedAtMs !== null &&
-      nowMs - row.observedAtMs >= ACCOUNT_USAGE_AGE_MS,
+    office: isOfficeAccountUsage(row),
+    email: row.accountLabel !== null,
   };
 }
 
-// A blank row that draws `shape`, for the held layout.
+// A blank row that draws `shape`, for the held layout: a weekly window for a
+// usage row, an empty email for a row with an email line.
 export function heldAccountUsageRow(
   shape: AccountUsageRowShape,
   id: string,
   nowMs: number,
 ): AccountUsageRowWire {
-  const blank = (resetsAtMs: number | null) => ({
-    label: "",
-    usedPercent: 0,
-    resetsAtMs,
-  });
-  const windows = [
-    ...(shape.weekly
-      ? [blank(shape.resets ? nowMs + 3 * 24 * 60 * 60 * 1000 : null)]
-      : []),
-    ...Array.from({ length: shape.others }, () => blank(null)),
-  ];
   return {
     id,
     provider: "claude",
-    owners: [],
-    accountLabel: null,
+    owners: shape.office ? [{ kind: "office" }] : [],
+    accountLabel: shape.email ? "" : null,
     identity: null,
-    members: shape.members ? [""] : [],
+    members: [],
     state: shape.state,
     plan: null,
-    windows,
-    weeklyIndex: shape.weekly ? 0 : null,
-    observedAtMs: shape.age ? nowMs - 2 * ACCOUNT_USAGE_AGE_MS : nowMs,
+    windows:
+      shape.state === "usage"
+        ? [
+            {
+              label: "",
+              usedPercent: 0,
+              resetsAtMs: nowMs + 3 * 24 * 60 * 60 * 1000,
+            },
+          ]
+        : [],
+    weeklyIndex: shape.state === "usage" ? 0 : null,
+    observedAtMs: nowMs,
   };
 }
 
@@ -168,5 +163,12 @@ export function foldAccountUsageRow(
   const members = [...into.members];
   for (const member of from.members)
     if (!members.includes(member)) members.push(member);
-  return { ...into, owners, members };
+  // A member reads the office's row with no email: their own row of the
+  // same account names it.
+  return {
+    ...into,
+    owners,
+    members,
+    accountLabel: into.accountLabel ?? from.accountLabel,
+  };
 }

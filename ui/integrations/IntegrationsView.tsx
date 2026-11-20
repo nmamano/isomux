@@ -37,6 +37,7 @@ import {
   useMyConnectionsFailed,
 } from "./my-connections.tsx";
 import { ProvidersSection, useProviderAccounts } from "./ProvidersSection.tsx";
+import { AccountUsageCard } from "../components/AccountUsageCard.tsx";
 import { McpSection, SignInNotice } from "./McpSection.tsx";
 import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
@@ -535,6 +536,14 @@ function IntegrationsPage({
           )
         ) : CARD_TABS.includes(tab) ? (
           <>
+            {/* Usage of every account, above the sign-ins (Nil, 2026-11-20):
+                the office's and, for an owner, every member's. */}
+            {tab === "providers" && sessionContext && (
+              <AccountUsageCard
+                style={{ ...card, marginBottom: 16 }}
+                viewer={{ username: self, owner: role === "owner" }}
+              />
+            )}
             <section
               data-integrations-card="office"
               style={card}

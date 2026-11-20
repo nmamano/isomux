@@ -613,9 +613,9 @@ export function setMemberUsageLayout(layout: MemberUsageLayout): void {
   setHeldLayout(KEY_MEMBER_USAGE_LAYOUT, layout);
 }
 
-// Integrations → Model providers: the rows the owners' account usage card
-// drew last (task 3e70b6d4). A first visit holds one office row with a
-// weekly and a 5-hour bar.
+// Integrations → Model providers: the rows the account usage card drew last
+// (tasks 3e70b6d4, faf036ad). A first visit holds one office row. A layout
+// stored in an older shape is dropped.
 const KEY_ACCOUNT_USAGE_LAYOUT = "isomux-account-usage-layout";
 const ACCOUNT_USAGE_STATES: readonly unknown[] = [
   "usage",
@@ -626,27 +626,11 @@ const ACCOUNT_USAGE_STATES: readonly unknown[] = [
 
 function accountUsageShape(raw: unknown): AccountUsageRowShape | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const { state, weekly, resets, others, members, age } = raw as Record<
-    string,
-    unknown
-  >;
+  const { state, office, email } = raw as Record<string, unknown>;
   return ACCOUNT_USAGE_STATES.includes(state) &&
-    typeof weekly === "boolean" &&
-    typeof resets === "boolean" &&
-    typeof others === "number" &&
-    Number.isInteger(others) &&
-    others >= 0 &&
-    others <= 8 &&
-    typeof members === "boolean" &&
-    typeof age === "boolean"
-    ? {
-        state: state as AccountUsageRowShape["state"],
-        weekly,
-        resets,
-        others,
-        members,
-        age,
-      }
+    typeof office === "boolean" &&
+    typeof email === "boolean"
+    ? { state: state as AccountUsageRowShape["state"], office, email }
     : null;
 }
 
@@ -658,18 +642,7 @@ export function getAccountUsageLayout(): AccountUsageRowShape[] {
       const shapes = rows.map(accountUsageShape);
       return shapes.every((shape) => shape !== null) ? { rows: shapes } : null;
     },
-    {
-      rows: [
-        {
-          state: "usage",
-          weekly: true,
-          resets: true,
-          others: 1,
-          members: true,
-          age: false,
-        },
-      ],
-    },
+    { rows: [{ state: "usage", office: true, email: true }] },
   ).rows;
 }
 

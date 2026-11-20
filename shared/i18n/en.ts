@@ -811,9 +811,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.memberUsageFailed":
     "{provider}: weekly usage could not be read. Members are not capped.",
   "settings.office.memberUsageLoading": "{provider}: reading weekly usage…",
-  "accountUsage.title": "Account usage",
+  "accountUsage.title": "Usage",
   "accountUsage.hint":
-    "Every Claude and Codex account the office's agents run on.",
+    "Weekly use of each account. {tick} marks how much of its week has passed.",
   "accountUsage.refresh": "Refresh",
   "accountUsage.office": "Office",
   "accountUsage.loading": "Reading accounts…",
@@ -821,6 +821,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "accountUsage.signedOut": "Signed out",
   "accountUsage.failed": "Usage could not be read.",
   "accountUsage.weekPassed": "{percent}% of the week passed",
+  "accountUsage.pace": "<strong>{used}%</strong> · week {passed}%",
+  "accountUsage.used": "<strong>{used}%</strong>",
+  "accountUsage.sectionMembers": "Members",
+  "accountUsage.sectionYours": "Yours",
   "accountUsage.members": "In use by agents of {names}",
   "accountUsage.empty": "No accounts.",
   "accountUsage.listFailed": "Accounts could not be read.",

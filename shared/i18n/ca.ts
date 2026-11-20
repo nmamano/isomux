@@ -810,9 +810,9 @@ Coses que pots fer per ell:
   "settings.office.memberUsageFailed":
     "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres no tenen topall.",
   "settings.office.memberUsageLoading": "{provider}: llegint l'ús setmanal…",
-  "accountUsage.title": "Ús dels comptes",
+  "accountUsage.title": "Ús",
   "accountUsage.hint":
-    "Cada compte de Claude i Codex en què treballen els agents de l'oficina.",
+    "Ús setmanal de cada compte. {tick} marca quina part de la setmana ha passat.",
   "accountUsage.refresh": "Actualitza",
   "accountUsage.office": "Oficina",
   "accountUsage.loading": "Llegint els comptes…",
@@ -820,6 +820,10 @@ Coses que pots fer per ell:
   "accountUsage.signedOut": "Sessió tancada",
   "accountUsage.failed": "No s'ha pogut llegir l'ús.",
   "accountUsage.weekPassed": "Ha passat el {percent} % de la setmana",
+  "accountUsage.pace": "<strong>{used} %</strong> · setmana {passed} %",
+  "accountUsage.used": "<strong>{used} %</strong>",
+  "accountUsage.sectionMembers": "Membres",
+  "accountUsage.sectionYours": "Teus",
   "accountUsage.members": "En ús per agents de {names}",
   "accountUsage.empty": "No hi ha comptes.",
   "accountUsage.listFailed": "No s'han pogut llegir els comptes.",

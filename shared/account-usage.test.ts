@@ -1,7 +1,13 @@
-// Task 3e70b6d4: the card's week-passed tick and its row order.
+// Task 3e70b6d4: the card's week-passed tick and its row order. Task
+// faf036ad: the held layout and the fold of one account's rows.
 
 import { describe, expect, it } from "bun:test";
-import { accountUsageOrder, weekElapsedPercent } from "./account-usage.ts";
+import {
+  accountUsageOrder,
+  accountUsageRowShape,
+  foldAccountUsageRow,
+  weekElapsedPercent,
+} from "./account-usage.ts";
 import type { AccountUsageRowWire } from "./contract-shapes.ts";
 
 const NOW = Date.parse("2026-11-19T12:00:00Z");
@@ -105,5 +111,64 @@ describe("accountUsageOrder", () => {
         NOW,
       ).filter((id) => id !== "new"),
     ).toEqual(["mid", "roomy"]);
+  });
+});
+
+// Task faf036ad: a row is one line, so the held layout keeps only what moves
+// the card's height: each row's section, its state, and whether it has an
+// email line under the name.
+describe("accountUsageRowShape", () => {
+  it("is the row's state, whether it is an office row and whether it has an email; null while it loads", () => {
+    const member: AccountUsageRowWire = {
+      ...row("m", 20),
+      owners: [{ kind: "member", username: "ana" }],
+      accountLabel: "ana@example.test",
+    };
+    expect([
+      accountUsageRowShape(row("o", 20), NOW),
+      accountUsageRowShape(member, NOW),
+      accountUsageRowShape(
+        { ...member, accountLabel: null, state: "failed", windows: [] },
+        NOW,
+      ),
+      accountUsageRowShape(row("l", null, "loading"), NOW),
+    ]).toEqual([
+      { state: "usage", office: true, email: false },
+      { state: "usage", office: false, email: true },
+      { state: "failed", office: false, email: false },
+      null,
+    ]);
+  });
+});
+
+describe("foldAccountUsageRow", () => {
+  // A member's sign-in on the office's account: the office row (no email for
+  // a member) takes the member's row, which carries the email.
+  it("keeps the host's place and id and takes the email from the row it folds in when the host has none", () => {
+    const host: AccountUsageRowWire = { ...row("office", 20), identity: "t1" };
+    const mine: AccountUsageRowWire = {
+      ...row("mine", 20),
+      identity: "t1",
+      owners: [{ kind: "member", username: "ana" }],
+      accountLabel: "shared@example.test",
+      members: ["ana"],
+    };
+    const folded = foldAccountUsageRow(host, mine);
+    expect({
+      id: folded.id,
+      accountLabel: folded.accountLabel,
+      owners: folded.owners,
+      members: folded.members,
+    }).toEqual({
+      id: "office",
+      accountLabel: "shared@example.test",
+      owners: [{ kind: "office" }, { kind: "member", username: "ana" }],
+      members: ["ana"],
+    });
+    // A host with an email keeps it.
+    expect(
+      foldAccountUsageRow({ ...host, accountLabel: "host@example.test" }, mine)
+        .accountLabel,
+    ).toBe("host@example.test");
   });
 });

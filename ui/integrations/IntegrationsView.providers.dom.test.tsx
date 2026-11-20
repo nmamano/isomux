@@ -137,37 +137,56 @@ it("reads the accounts again after a variable or secret save", async () => {
   expect(reads()).toBe(first + 2);
 });
 
-// Task 3e70b6d4: the account usage card is the owners'. A member's office
-// card keeps it in place (nothing moves for another role) with Refresh
-// disabled, and does not ask the route: it carries every member's email.
-it("reads the account usage card for an owner only, and keeps its place on a member's page", async () => {
+// Task faf036ad (Nil, 2026-11-20): the Usage card sits at the top of Model
+// providers, above the Office-wide card and outside it, for an owner and a
+// member alike; both read it (the server cuts a member's rows). Other tabs
+// do not show it.
+it("draws the Usage card above the Office-wide card on Model providers, and reads it for an owner and a member", async () => {
   const usageCard = (view: Awaited<ReturnType<typeof open>>) => {
+    const cards = view.container.querySelectorAll("[data-account-usage]");
+    const card = cards[0] ?? null;
     const office = view.container.querySelector(
       '[data-integrations-card="office"]',
-    )!;
-    const card = office.querySelector("[data-account-usage]");
+    );
     const refresh = card?.querySelector<HTMLButtonElement>(
       "[data-account-usage-refresh]",
     );
-    return { card: card !== null, refreshDisabled: refresh?.disabled ?? null };
+    return {
+      cards: cards.length,
+      aboveOffice:
+        card !== null &&
+        office !== null &&
+        (card.compareDocumentPosition(office) &
+          Node.DOCUMENT_POSITION_FOLLOWING) !==
+          0,
+      insideOffice: card !== null && office?.contains(card) === true,
+      refreshDisabled: refresh?.disabled ?? null,
+    };
   };
   const asked = () =>
     sent.some((line) => line.includes("/api/office/account-usage"));
-
-  const owner = await open(OWNER, { request: { tab: "providers" } });
-  expect({ ...usageCard(owner), asked: asked() }).toEqual({
-    card: true,
+  const shown = {
+    cards: 1,
+    aboveOffice: true,
+    insideOffice: false,
     refreshDisabled: false,
-    asked: true,
-  });
-  owner.unmount();
+  };
+
+  for (const who of [OWNER, MEMBER]) {
+    sent.length = 0;
+    const view = await open(who, { request: { tab: "providers" } });
+    expect({ ...usageCard(view), asked: asked() }).toEqual({
+      ...shown,
+      asked: true,
+    });
+    view.unmount();
+  }
 
   sent.length = 0;
-  const member = await open(MEMBER, { request: { tab: "providers" } });
-  expect({ ...usageCard(member), asked: asked() }).toEqual({
-    card: true,
-    refreshDisabled: true,
+  const mcp = await open(OWNER, { request: { tab: "mcp" } });
+  expect({ cards: usageCard(mcp).cards, asked: asked() }).toEqual({
+    cards: 0,
     asked: false,
   });
-  member.unmount();
+  mcp.unmount();
 });

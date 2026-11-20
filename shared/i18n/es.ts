@@ -813,9 +813,9 @@ Cosas que puedes hacer por él:
   "settings.office.memberUsageFailed":
     "{provider}: no se pudo leer el uso semanal. Los miembros no tienen tope.",
   "settings.office.memberUsageLoading": "{provider}: leyendo el uso semanal…",
-  "accountUsage.title": "Uso de las cuentas",
+  "accountUsage.title": "Uso",
   "accountUsage.hint":
-    "Cada cuenta de Claude y Codex en la que trabajan los agentes de la oficina.",
+    "Uso semanal de cada cuenta. {tick} marca qué parte de la semana ha pasado.",
   "accountUsage.refresh": "Actualizar",
   "accountUsage.office": "Oficina",
   "accountUsage.loading": "Leyendo las cuentas…",
@@ -823,6 +823,10 @@ Cosas que puedes hacer por él:
   "accountUsage.signedOut": "Sesión cerrada",
   "accountUsage.failed": "No se pudo leer el uso.",
   "accountUsage.weekPassed": "Ha pasado el {percent} % de la semana",
+  "accountUsage.pace": "<strong>{used} %</strong> · semana {passed} %",
+  "accountUsage.used": "<strong>{used} %</strong>",
+  "accountUsage.sectionMembers": "Miembros",
+  "accountUsage.sectionYours": "Tuyos",
   "accountUsage.members": "En uso por agentes de {names}",
   "accountUsage.empty": "No hay cuentas.",
   "accountUsage.listFailed": "No se pudieron leer las cuentas.",

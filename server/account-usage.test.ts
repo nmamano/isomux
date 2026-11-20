@@ -1,5 +1,6 @@
-// Task 3e70b6d4: the owners' account usage card. Which accounts it lists,
-// what a row says, and that the usage key never reaches the wire.
+// Task 3e70b6d4: the account usage card. Which accounts it lists, what a
+// row says, and that the usage key never reaches the wire. Task faf036ad:
+// what a member sees of it.
 
 import { describe, expect, it } from "bun:test";
 import {
@@ -323,6 +324,11 @@ function service(
   });
 }
 
+// Who reads the list (task faf036ad): an owner sees every row, a member the
+// office's rows and their own.
+const OWNER = { userId: "u0", owner: true };
+const ANA = { userId: "u1", owner: false };
+
 const byOwner = (rows: AccountUsageRowWire[]) =>
   Object.fromEntries(
     rows.map((r) => [
@@ -354,7 +360,7 @@ describe("createAccountUsageService", () => {
       { key: K.office, userId: null },
       { key: null, userId: "u4" },
     ]);
-    const list = s.list({ refresh: false });
+    const list = s.list({ refresh: false, viewer: OWNER });
     const rows = byOwner(list.rows);
     expect(Object.keys(rows).sort()).toEqual(["ana", "ben", "cy", "office"]);
     expect({
@@ -414,8 +420,8 @@ describe("createAccountUsageService", () => {
   it("gives a row once its read ends, keeps its id across lists, and answers null for an unknown id", async () => {
     const f = fakeReader();
     const s = service(f.reader, sources);
-    const first = byOwner(s.list({ refresh: false }).rows);
-    const ana = s.row(first.ana!.id);
+    const first = byOwner(s.list({ refresh: false, viewer: OWNER }).rows);
+    const ana = s.row(first.ana!.id, OWNER);
     await settled();
     await f.answer(K.ana, claudeUsage("ana@example.test"));
     const row = await ana;
@@ -431,13 +437,13 @@ describe("createAccountUsageService", () => {
     expect(row!.windows[row!.weeklyIndex!]!.modelFamily).toBeUndefined();
     expect(row!.windows.some((w) => w.modelFamily === "fable")).toBe(true);
 
-    const second = byOwner(s.list({ refresh: false }).rows);
+    const second = byOwner(s.list({ refresh: false, viewer: OWNER }).rows);
     expect(second.ana!.id).toBe(first.ana!.id);
     expect(second.ana!.state).toBe("usage");
-    expect(await s.row("no-such-row")).toBeNull();
+    expect(await s.row("no-such-row", OWNER)).toBeNull();
 
     // Codex: the weekly window by its length, in either slot.
-    const cy = s.row(first.cy!.id);
+    const cy = s.row(first.cy!.id, OWNER);
     await settled();
     await f.answer(K.cy, codexUsage("cy@example.test"));
     const cyRow = await cy;
@@ -456,9 +462,9 @@ describe("createAccountUsageService", () => {
     );
     let current = sources();
     const s = service(f.reader, () => current);
-    const first = byOwner(s.list({ refresh: false }).rows);
+    const first = byOwner(s.list({ refresh: false, viewer: OWNER }).rows);
     f.calls.length = 0;
-    s.list({ refresh: true });
+    s.list({ refresh: true, viewer: OWNER });
     expect(
       f.calls
         .filter((c) => c.refresh)
@@ -467,10 +473,10 @@ describe("createAccountUsageService", () => {
     ).toEqual([K.ana, K.cy, K.office].sort());
 
     current = current.filter((x) => x.key !== K.ana);
-    const after = byOwner(s.list({ refresh: false }).rows);
+    const after = byOwner(s.list({ refresh: false, viewer: OWNER }).rows);
     expect(Object.keys(after).sort()).toEqual(["ben", "cy", "office"]);
     expect(f.retained.at(-1)).not.toContain(K.ana);
-    expect(await s.row(first.ana!.id)).toBeNull();
+    expect(await s.row(first.ana!.id, OWNER)).toBeNull();
   });
 
   it("merges rows of one provider account and lists every owner and member; rows with no identity never merge", async () => {
@@ -506,7 +512,7 @@ describe("createAccountUsageService", () => {
         { key: K.ana, userId: "u1" },
       ],
     );
-    const rows = s.list({ refresh: false }).rows;
+    const rows = s.list({ refresh: false, viewer: OWNER }).rows;
     const shape = rows
       .map((r) => ({
         provider: r.provider,
@@ -528,6 +534,183 @@ describe("createAccountUsageService", () => {
         { provider: "claude", owners: ["dee"], members: [] },
       ].sort((a, b) => a.owners.join().localeCompare(b.owners.join())),
     );
+  });
+});
+
+// Task faf036ad (Nil, sign-off of 3e70b6d4): every member sees the card, with
+// the office's accounts and their own only. Another member's account is not
+// listed, read or reachable by id; an office account shows no email and no
+// other member.
+describe("createAccountUsageService for a member", () => {
+  const officeCodex = "key-office-codex-/home/office/.codex";
+  // ben's env also points at ana's sign-in directory: one account, two
+  // owners.
+  const sources = () => [
+    src(K.office, "claude", [{ kind: "office" }]),
+    src(officeCodex, "codex", [{ kind: "office" }]),
+    src(K.ana, "claude", [
+      { kind: "member", userId: "u1" },
+      { kind: "member", userId: "u2" },
+    ]),
+    src(K.cy, "codex", [{ kind: "member", userId: "u3" }]),
+    src(K.dee, "claude", [{ kind: "member", userId: "u4" }]),
+  ];
+  // Agents of ana, cy and dee run on the office's Claude account; agents of
+  // ana and ben on ana's.
+  const live = () => [
+    { key: K.office, userId: "u1" },
+    { key: K.office, userId: "u3" },
+    { key: K.office, userId: "u4" },
+    { key: K.ana, userId: "u1" },
+    { key: K.ana, userId: "u2" },
+  ];
+  const cachedAll = () =>
+    new Map([
+      [K.office, claudeUsage("office@example.test")],
+      [officeCodex, codexUsage("office-codex@example.test")],
+      [K.ana, claudeUsage("ana@example.test")],
+      [K.cy, codexUsage("cy@example.test")],
+      [K.dee, claudeUsage("dee@example.test")],
+    ]);
+  const who = (row: AccountUsageRowWire) =>
+    row.owners.map((o) => (o.kind === "office" ? "office" : o.username));
+
+  it("lists the office's accounts and the member's own, with no email of an office account and no other member", () => {
+    const f = fakeReader(cachedAll());
+    const s = service(f.reader, sources, live);
+    const rows = s.list({ refresh: false, viewer: ANA }).rows;
+    const shown = rows
+      .map((r) => ({
+        provider: r.provider,
+        owners: who(r),
+        accountLabel: r.accountLabel,
+        members: r.members,
+        state: r.state,
+      }))
+      .sort((a, b) =>
+        `${a.owners}${a.provider}`.localeCompare(`${b.owners}${b.provider}`),
+      );
+    expect(shown as unknown).toEqual([
+      {
+        provider: "claude",
+        owners: ["ana"],
+        accountLabel: "ana@example.test",
+        members: ["ana"],
+        state: "usage",
+      },
+      {
+        provider: "claude",
+        owners: ["office"],
+        accountLabel: null,
+        members: ["ana"],
+        state: "usage",
+      },
+      {
+        provider: "codex",
+        owners: ["office"],
+        accountLabel: null,
+        members: [],
+        state: "usage",
+      },
+    ]);
+    const wire = JSON.stringify(rows);
+    for (const hidden of [
+      "office@example.test",
+      "office-codex@example.test",
+      "cy@example.test",
+      "dee@example.test",
+      '"cy"',
+      '"dee"',
+      '"ben"',
+    ])
+      expect({ hidden, onWire: wire.includes(hidden) }).toEqual({
+        hidden,
+        onWire: false,
+      });
+  });
+
+  it("starts reads only for the rows the member sees, and keeps every other account's slot and id", () => {
+    const f = fakeReader();
+    const s = service(f.reader, sources, live);
+    const before = s.list({ refresh: false, viewer: OWNER }).rows;
+    const idOf = (rows: AccountUsageRowWire[], owner: string) =>
+      rows.find((r) => who(r).includes(owner))!.id;
+    f.calls.length = 0;
+    f.retained.length = 0;
+    s.list({ refresh: true, viewer: ANA });
+    expect(f.calls.map((c) => c.target.key).sort()).toEqual(
+      [K.office, officeCodex, K.ana].sort(),
+    );
+    // The member's list keeps the slots of every listed account.
+    expect(f.retained).toHaveLength(1);
+    expect([...f.retained[0]!].sort()).toEqual(
+      sources()
+        .map((x) => x.key)
+        .sort(),
+    );
+    // An owner's list after it: the other members' rows, with their ids.
+    const after = s.list({ refresh: false, viewer: OWNER }).rows;
+    expect([idOf(after, "cy"), idOf(after, "dee")]).toEqual([
+      idOf(before, "cy"),
+      idOf(before, "dee"),
+    ]);
+  });
+
+  it("answers null for another member's row id without reading it, and gives an office row as the list does", async () => {
+    const f = fakeReader(cachedAll());
+    const s = service(f.reader, sources, live);
+    const all = s.list({ refresh: false, viewer: OWNER }).rows;
+    const idOf = (owner: string, provider = "claude") =>
+      all.find((r) => who(r).includes(owner) && r.provider === provider)!.id;
+    f.calls.length = 0;
+    expect(await s.row(idOf("cy", "codex"), ANA)).toBeNull();
+    expect(await s.row(idOf("dee"), ANA)).toBeNull();
+    expect(f.calls).toEqual([]);
+    // The owner still reads it.
+    expect((await s.row(idOf("dee"), OWNER))?.accountLabel).toBe(
+      "dee@example.test",
+    );
+
+    const office = await s.row(idOf("office"), ANA);
+    expect({
+      owners: office && who(office),
+      accountLabel: office?.accountLabel,
+      members: office?.members,
+      state: office?.state,
+    }).toEqual({
+      owners: ["office"],
+      accountLabel: null,
+      members: ["ana"],
+      state: "usage",
+    });
+    const own = await s.row(idOf("ana"), ANA);
+    expect([own?.accountLabel, own?.members]).toEqual([
+      "ana@example.test",
+      ["ana"],
+    ]);
+  });
+
+  it("shows the member's email on an office account they are also signed in to", () => {
+    // ana's personal sign-in is the office's Claude account.
+    const f = fakeReader(
+      new Map([
+        [K.office, claudeUsage("shared@example.test")],
+        [K.ana, claudeUsage("shared@example.test")],
+      ]),
+    );
+    const s = service(f.reader, () => [
+      src(K.office, "claude", [{ kind: "office" }]),
+      src(K.ana, "claude", [{ kind: "member", userId: "u1" }]),
+    ]);
+    const rows = s.list({ refresh: false, viewer: ANA }).rows;
+    expect(
+      rows.map((r) => ({
+        owners: who(r).sort(),
+        accountLabel: r.accountLabel,
+      })),
+    ).toEqual([
+      { owners: ["ana", "office"], accountLabel: "shared@example.test" },
+    ]);
   });
 });
 
@@ -566,7 +749,7 @@ describe("createAccountUsageService weekly window", () => {
     const s = service(f.reader, () => [
       src(K.office, "claude", [{ kind: "office" }]),
     ]);
-    const [row] = s.list({ refresh: false }).rows;
+    const [row] = s.list({ refresh: false, viewer: OWNER }).rows;
     expect({
       state: row!.state,
       windows: row!.windows.length,
@@ -638,5 +821,35 @@ describe("accountUsageHandlers", () => {
     expect(
       await status(handlers["accountUsage.read"]!(ctx({ rowId: "nope" }))),
     ).toEqual({ status: 404 });
+  });
+
+  // Task faf036ad: the list and a row are cut to what the caller may see.
+  it("gives the service the caller as viewer: an owner or a member", async () => {
+    const viewers: unknown[] = [];
+    const handlers = accountUsageHandlers({
+      service: () => ({
+        list: (opts: unknown): AccountUsageListRes => {
+          viewers.push((opts as { viewer?: unknown }).viewer);
+          return { rows: [] };
+        },
+        row: async (_id: string, viewer?: unknown) => {
+          viewers.push(viewer);
+          return null;
+        },
+      }),
+    });
+    const member: Identity = { ...identity, userId: "u7", role: "member" };
+    const as = (who: Identity, params: Record<string, string> = {}) => ({
+      ...ctx(params),
+      identity: who,
+    });
+    await handlers["accountUsage.list"]!(as(identity));
+    await handlers["accountUsage.list"]!(as(member));
+    await handlers["accountUsage.read"]!(as(member, { rowId: "row-1" }));
+    expect(viewers).toEqual([
+      { userId: "u1", owner: true },
+      { userId: "u7", owner: false },
+      { userId: "u7", owner: false },
+    ]);
   });
 });

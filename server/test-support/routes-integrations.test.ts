@@ -872,10 +872,6 @@ describe("privileged agents", () => {
           "memberProviderAccounts.callback",
           "memberProviderAccounts.cancel",
           "memberProviderAccounts.disconnect",
-          // Every provider account's usage, emails included: an owner's
-          // session only (task 3e70b6d4).
-          "accountUsage.list",
-          "accountUsage.read",
           "pagerSettings.get",
           "pagerSettings.update",
           "pagerSettings.test",
@@ -1034,6 +1030,47 @@ describe("privileged agents", () => {
             },
           );
           expect([route.opId, res.status]).toEqual([route.opId, 403]);
+        }
+    });
+
+    // Task faf036ad: every member's browser session reads the account usage
+    // card (cut to the office's accounts and their own); the rows carry
+    // emails, so no agent and no API token reads it.
+    it("lets a member's session read account usage, and refuses every agent and API token", async () => {
+      const o = await office();
+      const memberId = getUserByName(o.member.username)!.id;
+      const memberApi = (
+        await mintApiToken({
+          userId: memberId,
+          name: "API",
+          expiresInDays: null,
+        })
+      ).token;
+      const ownerApi = (
+        await mintApiToken({
+          userId: o.morganId,
+          name: "API",
+          expiresInDays: null,
+        })
+      ).token;
+      // An id no list gave: the handler answers it, and reads nothing.
+      const read = "/api/office/account-usage/no-such-row";
+      const mine = await call(o.srv, "GET", read, {
+        session: o.member.rawSessionId,
+      });
+      expect([mine.status, mine.text.includes("not_found")]).toEqual([
+        404,
+        true,
+      ]);
+      for (const [name, bearer] of [
+        ["member agent", o.memberAgent],
+        ["owner agent", o.ownerAgent],
+        ["member API token", memberApi],
+        ["owner API token", ownerApi],
+      ] as const)
+        for (const path of ["/api/office/account-usage", read]) {
+          const res = await call(o.srv, "GET", path, { bearer });
+          expect([name, path, res.status]).toEqual([name, path, 403]);
         }
     });
 

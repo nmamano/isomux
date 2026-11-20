@@ -1,8 +1,9 @@
-// The owners' account usage card (Integrations > Model providers, task
-// 3e70b6d4): every provider account the office's agents can run on, with its
-// usage read straight from the provider by the account usage reader
-// (server/office-usage.ts). Owners only. The usage key never leaves the
-// server: rows carry opaque ids.
+// The account usage card (Integrations > Model providers, task 3e70b6d4):
+// every provider account the office's agents can run on, with its usage read
+// straight from the provider by the account usage reader
+// (server/office-usage.ts). Owners see every account, a member the office's
+// and their own (task faf036ad). The usage key never leaves the server: rows
+// carry opaque ids.
 
 import type {
   AccountUsageListRes,
@@ -222,11 +223,24 @@ export interface AccountUsageServiceDeps {
   now?: () => number;
 }
 
+// Who reads the card (task faf036ad): an owner sees every account; a member
+// sees the office's accounts and their own, with no other member's name and
+// no email of an account that is not theirs.
+export type AccountUsageViewer = { userId: string; owner: boolean };
+
 export interface AccountUsageService {
-  // The rows at once, with what each slot holds; starts the reads they need.
-  list(opts: { refresh: boolean }): AccountUsageListRes;
-  // The row once its read ends. Null for an id the last list did not give.
-  row(rowId: string): Promise<AccountUsageRowWire | null>;
+  // The rows the viewer sees, at once, with what each slot holds; starts the
+  // reads they need.
+  list(opts: {
+    refresh: boolean;
+    viewer: AccountUsageViewer;
+  }): AccountUsageListRes;
+  // The row once its read ends. Null for an id the last list did not give,
+  // or a row the viewer does not see.
+  row(
+    rowId: string,
+    viewer: AccountUsageViewer,
+  ): Promise<AccountUsageRowWire | null>;
 }
 
 export function createAccountUsageService(
@@ -373,8 +387,45 @@ export function createAccountUsageService(
     return out;
   }
 
+  // Whether the viewer sees the account: an owner every one, a member the
+  // office's and their own.
+  function visible(
+    source: AccountUsageSource,
+    viewer: AccountUsageViewer,
+  ): boolean {
+    return (
+      viewer.owner ||
+      source.owners.some(
+        (owner) =>
+          owner.kind === "office" ||
+          (owner.kind === "member" && owner.userId === viewer.userId),
+      )
+    );
+  }
+
+  // A row as a member reads it: the office and the member as owners, the
+  // member alone as a member on it, and the email only on their own
+  // account. The identity token stays: it names no one.
+  function redact(
+    row: AccountUsageRowWire,
+    viewer: AccountUsageViewer,
+  ): AccountUsageRowWire {
+    if (viewer.owner) return row;
+    const name = deps.username(viewer.userId);
+    const owners = row.owners.filter(
+      (owner) => owner.kind === "office" || owner.username === name,
+    );
+    const theirs = owners.some((owner) => owner.kind === "member");
+    return {
+      ...row,
+      owners,
+      members: row.members.filter((member) => member === name),
+      accountLabel: theirs ? row.accountLabel : null,
+    };
+  }
+
   return {
-    list({ refresh }) {
+    list({ refresh, viewer }) {
       const sources = deps.sources();
       listed = new Map(sources.map((source) => [source.key, source]));
       // Ids of accounts no longer listed go, and the reader drops their
@@ -385,7 +436,10 @@ export function createAccountUsageService(
           keyOfId.delete(id);
         }
       deps.reader.retain(new Set(listed.keys()));
-      for (const source of sources) {
+      // The viewer's accounts only: a member's visit reads no other
+      // member's account, and keeps every slot above.
+      const shown = sources.filter((source) => visible(source, viewer));
+      for (const source of shown) {
         if (noLimitFromEnv(source.provider, source.env)) continue;
         // The read lands in the reader's slot; the card asks for the row.
         void deps.reader
@@ -393,7 +447,7 @@ export function createAccountUsageService(
           .catch(() => {});
       }
       const members = membersByKey();
-      const rows = sources.map((source) => {
+      const rows = shown.map((source) => {
         const slot = deps.reader.peek(source.key);
         return rowOf(
           source,
@@ -401,18 +455,23 @@ export function createAccountUsageService(
           members.get(source.key) ?? [],
         );
       });
-      return { rows: merged(rows) };
+      // Redacted after the merge: a merged row lists the viewer as an
+      // owner when any of its accounts is theirs.
+      return { rows: merged(rows).map((row) => redact(row, viewer)) };
     },
-    async row(rowId) {
+    async row(rowId, viewer) {
       const key = keyOfId.get(rowId);
       const source = key === undefined ? undefined : listed.get(key);
-      if (!source) return null;
+      if (!source || !visible(source, viewer)) return null;
       const answer = noLimitFromEnv(source.provider, source.env)
         ? null
         : await deps.reader.readAccount(targetOf(source));
       // The account may have left the list during the read.
       if (!listed.has(source.key)) return null;
-      return rowOf(source, answer, membersByKey().get(source.key) ?? []);
+      return redact(
+        rowOf(source, answer, membersByKey().get(source.key) ?? []),
+        viewer,
+      );
     },
   };
 }

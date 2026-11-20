@@ -2942,16 +2942,17 @@ export const API_ROUTES: readonly RouteDef[] = [
   // the member's personal sign-in. Like memberConnections.list, an owner's
   // browser session only: account emails and sign-in links never reach an
   // API token or an agent. The member gets the pushes.
-  // The owners' account usage card (task 3e70b6d4): every provider account
-  // the office's agents can run on, read from the provider. An owner's
-  // browser session only, as the members' sign-ins: rows carry emails.
-  // refresh=1 reads again (10 s floor per account).
+  // The account usage card (task 3e70b6d4): every provider account the
+  // office's agents can run on, read from the provider. Every member's
+  // browser session; the handler cuts a member's rows to the office's
+  // accounts and their own (task faf036ad). No agent or API token: rows
+  // carry emails. refresh=1 reads again (10 s floor per account).
   defineRoute<void, AccountUsageListRes>({
     opId: "accountUsage.list",
     tokenArea: { area: "environment", level: "read" },
     method: "GET",
     path: "/api/office/account-usage",
-    auth: cap("integration:manage", officeOwner),
+    auth: cap("user:self", userScope),
     emits: [],
   }),
   // One row once its read ends (at most the 20 s probe bound).
@@ -2960,7 +2961,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "environment", level: "read" },
     method: "GET",
     path: "/api/office/account-usage/:rowId",
-    auth: cap("integration:manage", officeOwner),
+    auth: cap("user:self", userScope),
     emits: [],
   }),
   defineRoute<void, ProviderAccountsWire>({
