@@ -5,31 +5,87 @@
 //
 //   ISOMUX_TEST_OPENCODE=1 bun test server/backends/opencode/authority-broker.opencode.test.ts
 
-import { afterEach, expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
+import { readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { NormalizedEvent } from "../types.ts";
 import { OpenCodeAuthorityBroker } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import { processIsRunning } from "./process-identity.ts";
 import {
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
   OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { OpenCodeTransport } from "./transport.ts";
 import {
+  livePhase,
   openCodeLiveConfig,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "../../test-support/opencode-live-config.ts";
+import { createOpenCodeTestReaper } from "../../test-support/opencode-test-reaper.ts";
 import { INTEL_MAC } from "../../test-support/platform.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
+// One hook, so a failed test stops the server before its mock servers go
+// away. A test folder goes only after the last stop: it holds the server
+// record, and a stop without it leaves the server running.
+const reaper = createOpenCodeTestReaper();
 const cleanup: Array<() => void | Promise<void>> = [];
+const roots: string[] = [];
 afterEach(async () => {
+  await reaper.afterEach();
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
 });
+afterAll(async () => {
+  await reaper.afterAll();
+  for (const root of roots.splice(0))
+    await rm(root, { recursive: true, force: true });
+});
+
+// The live processes whose working directory is in dir. A process that ends
+// during the scan, or a zombie, counts as gone.
+function processesIn(dir: string): number[] {
+  const real = realpathSync(dir);
+  const rows: Array<{ pid: number; cwd: string }> = [];
+  if (process.platform === "linux") {
+    for (const name of readdirSync("/proc")) {
+      if (!/^\d+$/.test(name)) continue;
+      try {
+        rows.push({
+          pid: Number(name),
+          cwd: readlinkSync(`/proc/${name}/cwd`),
+        });
+      } catch {}
+    }
+  } else {
+    // macOS has no /proc. lsof exits 1 when it cannot read some processes,
+    // so its output is read whatever its status.
+    const lsof = Bun.spawnSync([
+      "lsof",
+      "-a",
+      "-u",
+      String(process.getuid?.() ?? ""),
+      "-d",
+      "cwd",
+      "-Fpn",
+    ]);
+    let pid = 0;
+    for (const line of lsof.stdout.toString().split("\n")) {
+      if (line.startsWith("p")) pid = Number(line.slice(1));
+      else if (line.startsWith("n")) rows.push({ pid, cwd: line.slice(1) });
+    }
+  }
+  return rows
+    .filter(
+      ({ pid, cwd }) =>
+        (cwd === real || cwd.startsWith(`${real}/`)) && processIsRunning(pid),
+    )
+    .map(({ pid }) => pid);
+}
 
 function quote(value: string): string {
   return "'" + value.replaceAll("'", "'\\''") + "'";
@@ -44,7 +100,7 @@ it.skipIf(!LIVE || INTEL_MAC)(
   "runs an office call from a real OpenCode shell tool and refuses a process outside its server",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-abo-"));
-    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    roots.push(root);
     const socketPath = join(root, "authority", "authority.sock");
 
     const officeCalls: Array<{ authorization: string | null; path: string }> =
@@ -191,7 +247,7 @@ it.skipIf(!LIVE || INTEL_MAC)(
         gate: openCodeMockProvider(`http://127.0.0.1:${provider.port}/v1`),
       }),
     });
-    cleanup.push(() => supervisor.shutdown());
+    reaper.track(supervisor);
 
     const transport = new OpenCodeTransport({
       supervisor,
@@ -203,17 +259,39 @@ it.skipIf(!LIVE || INTEL_MAC)(
       authorityBroker: broker,
       agent: OPENCODE_INTERACTIVE_BYPASS_AGENT,
     });
-    cleanup.push(() => transport.close());
+    // The stop runs in the test's own time: it can take over 5 s, Bun's
+    // limit for a hook (nightly 2026-11-20). The hook only covers a failure.
+    const teardown = reaper.add(async () => {
+      transport.close();
+      await livePhase("office call teardown", () => supervisor.shutdown());
+    });
     const events: NormalizedEvent[] = [];
-    const completed = Promise.withResolvers<void>();
-    await transport.send(
-      [{ type: "text", text: "Call the office." }],
-      (event) => {
-        events.push(event);
-        if (event.kind === "turn_completed") completed.resolve();
-      },
-    );
-    await completed.promise;
+    let serverPid = 0;
+    let before: number[] = [];
+    try {
+      await livePhase("office call turn", async () => {
+        const completed = Promise.withResolvers<void>();
+        await transport.send(
+          [{ type: "text", text: "Call the office." }],
+          (event) => {
+            events.push(event);
+            if (event.kind === "turn_completed") completed.resolve();
+          },
+        );
+        await completed.promise;
+      });
+      const lease = await supervisor.acquire();
+      serverPid = lease.pid;
+      lease.release();
+      before = processesIn(root);
+    } finally {
+      await teardown();
+    }
+
+    // No process of the server outlives its stop.
+    expect(before).toContain(serverPid);
+    expect(processIsRunning(serverPid)).toBe(false);
+    expect(processesIn(root)).toEqual([]);
 
     expect(events.at(-1)).toMatchObject({
       kind: "turn_completed",

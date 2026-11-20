@@ -6,7 +6,6 @@
 //   bun run test:opencode
 
 import { afterAll, afterEach, expect, it } from "bun:test";
-import { loadavg } from "node:os";
 import type { EventHandler } from "../internal-types.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
@@ -19,6 +18,7 @@ import { STATE_ROOT } from "../config.ts";
 import { environmentSourceKeyForUserId } from "../env-loader.ts";
 
 import {
+  livePhase,
   openCodeLiveConfig,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
@@ -69,20 +69,8 @@ function expectedLog(label: string, matches: (content: string) => boolean) {
   };
 }
 
-async function measure<T>(phase: string, action: () => Promise<T>): Promise<T> {
-  const started = performance.now();
-  try {
-    return await action();
-  } finally {
-    console.info(
-      "OpenCode manager live timing",
-      JSON.stringify({
-        phase,
-        ms: Math.round(performance.now() - started),
-        load: loadavg(),
-      }),
-    );
-  }
+function measure<T>(phase: string, action: () => Promise<T>): Promise<T> {
+  return livePhase(phase, action, "OpenCode manager live timing");
 }
 
 function rooms(...ids: string[]): RoomWire[] {

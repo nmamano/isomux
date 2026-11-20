@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadavg, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { getBackend } from "../index.ts";
 import type { CreateSessionOptions, NormalizedEvent } from "../types.ts";
 import {
@@ -29,6 +29,7 @@ import {
   type Frame,
 } from "./fake-opencode-v2.ts";
 import {
+  livePhase,
   openCodeLiveConfig,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
@@ -43,24 +44,6 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
 });
 
-async function livePhase<T>(
-  phase: string,
-  action: () => Promise<T>,
-): Promise<T> {
-  const started = performance.now();
-  try {
-    return await action();
-  } finally {
-    console.info(
-      "OpenCode live timing",
-      JSON.stringify({
-        phase,
-        ms: Math.round(performance.now() - started),
-        load: loadavg(),
-      }),
-    );
-  }
-}
 const liveCleanup: Array<() => Promise<void> | void> = [];
 const liveProviderTargets = new Map<string, string>();
 let liveServer: Promise<OpenCodeSupervisor> | undefined;

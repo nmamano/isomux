@@ -1,3 +1,4 @@
+import { loadavg } from "node:os";
 import { join } from "node:path";
 import { openCodeDefaultConfig } from "../backends/opencode/supervisor.ts";
 
@@ -44,4 +45,26 @@ export function openCodeLiveLaunchEnv(
   profileDir: string,
 ): Record<string, string> {
   return { OPENCODE_CONFIG_DIR: join(profileDir, "member-opencode") };
+}
+
+// Runs one phase of a live OpenCode test and logs its time and the box load,
+// so a slow run in the nightly log names the phase that was slow.
+export async function livePhase<T>(
+  phase: string,
+  action: () => Promise<T>,
+  label = "OpenCode live timing",
+): Promise<T> {
+  const started = performance.now();
+  try {
+    return await action();
+  } finally {
+    console.info(
+      label,
+      JSON.stringify({
+        phase,
+        ms: Math.round(performance.now() - started),
+        load: loadavg(),
+      }),
+    );
+  }
 }
