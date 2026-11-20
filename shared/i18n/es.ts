@@ -635,8 +635,6 @@ Cosas que puedes hacer por él:
   "settings.osUser.existingName": "Nombre del usuario existente",
   "settings.osUser.shared":
     "Los agentes de {members} también se ejecutan como {name}. Los miembros de un mismo usuario del sistema pueden leer los inicios de sesión, las variables y los secretos de los demás, y actuar como sus agentes.",
-  "settings.osUser.ownerNote":
-    "El usuario del sistema de un propietario no lo aparta de los archivos de la oficina: sus variables de la oficina llegan a los agentes de la oficina. Los miembros del usuario del sistema de un propietario pueden actuar como ese propietario.",
   "settings.osUser.pickShared": "{name} (también {members})",
   "settings.osUser.disableHintShared":
     "{name} se queda como está para {members}. Para volver a ejecutar sus agentes como el usuario del sistema de la oficina y devolver sus chats de agentes e inicios de sesión, ejecuta esto en la máquina de la oficina:",

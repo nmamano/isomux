@@ -199,7 +199,7 @@ export function MemberOsUserSection({
     ? pickTarget(pick, { newName: newUserName, otherName })
     : null;
   // Task 12c796b2: the other members on the member's OS user, or on the
-  // existing user the owner picks; and whether an owner is involved.
+  // existing user the owner picks.
   const pickedCandidate =
     picking && pick.startsWith(EXISTING)
       ? view.candidates?.find((c) => `${EXISTING}${c.name}` === pick)
@@ -210,8 +210,6 @@ export function MemberOsUserSection({
       : (view.sharedWith ?? []);
   const sharedName =
     view.state === "off" ? pickedCandidate?.name : view.osUser?.name;
-  const ownerInvolved =
-    view.owner === true || sharedWith.some((member) => member.owner);
   const disableHint = disableHintFor(view, i18n);
   const commands: {
     hint: ReactNode;
@@ -354,15 +352,6 @@ export function MemberOsUserSection({
             ),
             name: <Data>{sharedName}</Data>,
           })}
-        </p>
-      )}
-      {ownerInvolved && (
-        <p
-          data-testid="member-os-user-owner-note"
-          role="note"
-          style={{ fontSize: 12, margin: "4px 0", color: "var(--text-muted)" }}
-        >
-          {t("settings.osUser.ownerNote")}
         </p>
       )}
       {picking && !running && (

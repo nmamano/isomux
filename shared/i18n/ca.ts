@@ -634,8 +634,6 @@ Coses que pots fer per ell:
   "settings.osUser.existingName": "Nom de l'usuari existent",
   "settings.osUser.shared":
     "Els agents de {members} també s'executen com a {name}. Els membres d'un mateix usuari del sistema poden llegir els inicis de sessió, les variables i els secrets dels altres, i actuar com els seus agents.",
-  "settings.osUser.ownerNote":
-    "L'usuari del sistema d'un propietari no l'aparta dels fitxers de l'oficina: les seves variables de l'oficina arriben als agents de l'oficina. Els membres de l'usuari del sistema d'un propietari poden actuar com aquest propietari.",
   "settings.osUser.pickShared": "{name} (també {members})",
   "settings.osUser.disableHintShared":
     "{name} es queda tal com és per a {members}. Per tornar a executar els seus agents com l'usuari del sistema de l'oficina i tornar-hi els seus xats d'agents i inicis de sessió, executa això a la màquina de l'oficina:",

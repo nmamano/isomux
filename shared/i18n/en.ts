@@ -638,8 +638,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.existingName": "Existing user name",
   "settings.osUser.shared":
     "The agents of {members} also run as {name}. Members on one OS user can read each other's sign-ins, variables and secrets, and act as each other's agents.",
-  "settings.osUser.ownerNote":
-    "An owner's OS user does not keep them from the office's files: their office variables reach the office's agents. Members on an owner's OS user can act as that owner.",
   "settings.osUser.pickShared": "{name} (also {members})",
   "settings.osUser.disableHintShared":
     "{name} stays as it is for {members}. To run their agents as the office's OS user again and move their agent chats and sign-ins back, run this on the office's machine:",
