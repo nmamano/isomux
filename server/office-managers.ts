@@ -88,6 +88,7 @@ import {
 } from "./app-supervisor-router.ts";
 import { appRegistry, setMemberAppData } from "./app-registry.ts";
 import { hostFor, memberAppRunner } from "./member-hosts.ts";
+import { memberRuntimeBinDir } from "./member-runtime.ts";
 import {
   anyMemberOsUser,
   hasMemberOsUser,
@@ -422,6 +423,7 @@ export function createManagers(
         socketPath: runner.socketPath,
         home: runner.host.home(),
         agentRoot: runner.host.agentRoot(),
+        runtimeBinDir: memberRuntimeBinDir(runner.osUser.name),
       };
     },
     memberName: (userId) => getUserById(userId)?.name ?? userId,

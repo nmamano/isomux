@@ -40,6 +40,12 @@ export function memberSharePath(osUserName: string): string {
   return join(shareRoot, osUserName);
 }
 
+// The bin folder of the member's runtime in use: runtime/current, which
+// holds BUN_NAME. Their apps' PATH names it.
+export function memberRuntimeBinDir(osUserName: string): string {
+  return join(memberSharePath(osUserName), "runtime", "current");
+}
+
 export function setMemberShareRoot(root: string | null): void {
   shareRoot = root ?? DEFAULT_SHARE_ROOT;
 }

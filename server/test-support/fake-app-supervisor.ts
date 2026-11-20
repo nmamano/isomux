@@ -61,6 +61,10 @@ export interface FakeAppSupervisor extends AppSupervisor {
   // Apps whose installed unit references their secrets file, kept like the
   // token set: every unit write adds the app, teardown removes it.
   unitsInjectingSecrets: Set<string>;
+  // Apps whose installed unit PATH misses the runtime folder. A test adds an
+  // app to model a unit written with the wrong one; every unit write and
+  // teardown removes it.
+  unitsMissingRuntimePath: Set<string>;
   failProvisionToken: string | null;
   // What an app's state is right after a successful install. Default running;
   // set it to `failed` to model a unit that installed fine and whose process
@@ -113,6 +117,7 @@ export function createFakeAppSupervisor(
     appHostDomain,
     unitsInjectingToken: new Set(),
     unitsInjectingSecrets: new Set(),
+    unitsMissingRuntimePath: new Set(),
     failProvisionToken: null,
 
     setRuntime(name, runtime) {
@@ -139,6 +144,8 @@ export function createFakeAppSupervisor(
 
     unitInjectsToken: (name: string) => fake.unitsInjectingToken.has(name),
     unitInjectsSecrets: (name: string) => fake.unitsInjectingSecrets.has(name),
+    unitPathHasRuntime: (name: string) =>
+      !fake.unitsMissingRuntimePath.has(name),
 
     // Reads, like readToken, so they stay out of `calls`.
     readUnitFile: (name: string) => fake.unitFiles.get(name) ?? null,
@@ -165,6 +172,7 @@ export function createFakeAppSupervisor(
       fake.installed.set(app.name, app);
       fake.unitsInjectingToken.add(app.name);
       fake.unitsInjectingSecrets.add(app.name);
+      fake.unitsMissingRuntimePath.delete(app.name);
       fake.unitFiles.set(app.name, unitText(app));
     },
 
@@ -185,6 +193,7 @@ export function createFakeAppSupervisor(
       fake.installed.set(app.name, app);
       fake.unitsInjectingToken.add(app.name);
       fake.unitsInjectingSecrets.add(app.name);
+      fake.unitsMissingRuntimePath.delete(app.name);
       fake.unitFiles.set(app.name, unitText(app));
       runtimes.set(app.name, { ...fake.installedState });
     },
@@ -208,6 +217,7 @@ export function createFakeAppSupervisor(
       // it was written before tokens existed.
       fake.unitsInjectingToken.add(app.name);
       fake.unitsInjectingSecrets.add(app.name);
+      fake.unitsMissingRuntimePath.delete(app.name);
       fake.unitFiles.set(app.name, unitText(app));
       const prior = runtimes.get(app.name);
       if (!prior || prior.state === "unknown") {
@@ -241,6 +251,7 @@ export function createFakeAppSupervisor(
       fake.unitFiles.delete(name);
       fake.unitsInjectingToken.delete(name);
       fake.unitsInjectingSecrets.delete(name);
+      fake.unitsMissingRuntimePath.delete(name);
     },
 
     start(name: string) {

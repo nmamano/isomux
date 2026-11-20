@@ -85,6 +85,7 @@ function setup(start: "office" | "member") {
             socketPath: "/run/alice.sock",
             home: HOME,
             agentRoot: AGENT_ROOT,
+            runtimeBinDir: "/share/alice/runtime/current",
           },
     memberName: () => "Alice",
     memberHostCall: () => runner.call,

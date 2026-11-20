@@ -315,6 +315,63 @@ describe("sync", () => {
     ).toEqual(["regenerate:old"]);
   });
 
+  // Task a77cc175: a member's unit written with the office user's bun folder
+  // in its PATH.
+  it("at boot only, regenerates once a unit whose PATH misses the runtime, and no current unit", async () => {
+    const t = setup();
+    t.install(app("stale", 1));
+    t.install(app("both", 2));
+    t.install(app("current", 3));
+    await t.appSecrets.sync({ boot: true });
+    t.supervisor.unitsMissingRuntimePath.add("stale");
+    t.supervisor.unitsMissingRuntimePath.add("both");
+    t.supervisor.unitsInjectingSecrets.delete("both");
+    t.supervisor.calls.length = 0;
+    await t.appSecrets.sync();
+    expect(
+      t.supervisor.calls.filter((c) => c.startsWith("regenerate:")),
+    ).toEqual([]);
+    await t.appSecrets.sync({ boot: true });
+    expect(
+      t.supervisor.calls.filter((c) => c.startsWith("regenerate:")).sort(),
+    ).toEqual(["regenerate:both", "regenerate:stale"]);
+  });
+
+  // Task a77cc175: the wrong PATH makes the app exit 127, so it is failed
+  // when the fix lands; nothing else would start it again.
+  it("restarts a failed app once after its PATH rewrite at boot, and no running, stopped or other failed app", async () => {
+    const t = setup();
+    for (const [i, name] of [
+      "failed",
+      "running",
+      "stopped",
+      "failedCurrent",
+      "failedSecrets",
+    ].entries())
+      t.install(app(name, i + 1));
+    for (const name of ["failed", "failedCurrent", "failedSecrets"])
+      t.supervisor.setRuntime(name, { state: "failed", restartCount: 0 });
+    t.supervisor.setRuntime("stopped", { state: "stopped", restartCount: 0 });
+    await t.appSecrets.sync({ boot: true });
+    for (const name of ["failed", "running", "stopped"])
+      t.supervisor.unitsMissingRuntimePath.add(name);
+    // Only the secrets line missing: its rule stays (no restart).
+    t.supervisor.unitsInjectingSecrets.delete("failedSecrets");
+    t.supervisor.calls.length = 0;
+    await t.appSecrets.sync();
+    expect(t.restarts()).toEqual([]);
+    await t.appSecrets.sync({ boot: true });
+    expect(
+      t.supervisor.calls.filter((c) => c.startsWith("regenerate:")).sort(),
+    ).toEqual([
+      "regenerate:failed",
+      "regenerate:failedSecrets",
+      "regenerate:running",
+      "regenerate:stopped",
+    ]);
+    expect(t.restarts()).toEqual(["restart:failed"]);
+  });
+
   it("prunes grants of apps that are gone", async () => {
     const t = setup();
     const bot = t.install(app("bot", 1));
@@ -328,6 +385,7 @@ describe("sync", () => {
     const t = setup({
       supervisor: {
         unitInjectsSecrets: (name) => fake.unitInjectsSecrets(name),
+        unitPathHasRuntime: (name) => fake.unitPathHasRuntime(name),
         regenerate: (a) => fake.regenerate(a),
         states: (names) => fake.states(names),
         restart: (name) => {

@@ -36,6 +36,7 @@ import {
 } from "./member-app-host.ts";
 import type { LockdownApps } from "./lockdown.ts";
 import type { MemberOsUserState } from "./member-os-users.ts";
+import { memberRuntimeBinDir } from "./member-runtime.ts";
 
 export const RETRY_MS = 60_000;
 // Under RETRY_MS, so each retry pass asks a silent runner once.
@@ -116,6 +117,7 @@ export function lockedAppSupervisor(
       socketPath,
       home,
       agentRoot: join(home, MEMBER_AGENT_DIR),
+      runtimeBinDir: memberRuntimeBinDir(name),
     };
     held.set(userId, made);
     return made;

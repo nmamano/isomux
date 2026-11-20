@@ -172,6 +172,9 @@ export interface SupervisorHost {
   // teardown must be able to finish a delete that already half-happened.
   removeFile(path: string): void;
   run(argv: string[]): RunResult;
+  // Is `path` there, as the user the apps run as? For the app's PATH
+  // (computeAppPath). Absent: existsSync, as the office user.
+  exists?(path: string): boolean;
 }
 
 export function createSystemdHost(): SupervisorHost {
@@ -268,6 +271,24 @@ function unitQuoted(raw: string, what: string): string {
   return `"${escaped}"`;
 }
 
+// The PATH entries of a unit's last `Environment="PATH=..."` line (systemd
+// takes the last), in the quoted form renderUnit writes (unitQuoted, undone
+// in reverse), or [] when it has none.
+function unitPathEntries(unit: string): string[] {
+  const prefix = 'Environment="PATH=';
+  let entries: string[] = [];
+  for (const raw of unit.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith(prefix) || !line.endsWith('"')) continue;
+    const value = line
+      .slice(prefix.length, -1)
+      .replace(/\\(.)/g, "$1")
+      .replace(/%%/g, "%");
+    entries = value.split(":");
+  }
+  return entries;
+}
+
 // PATH for the app's unit. systemd hands a user unit a minimal environment, so
 // `bun run dev` - by far the likeliest command an agent registers - would not
 // even resolve `bun` without this.
@@ -275,10 +296,13 @@ function unitQuoted(raw: string, what: string): string {
 // Two sources, in the order a developer's shell would find them:
 //   - every node_modules/.bin from the app's own directory upward, nearest
 //     first, which is how `vite` or `next` resolve without a package-manager
-//     wrapper (the trick portless landed on for the same problem);
-//   - the directory of the Bun path isomux was started by (stableBunPath),
-//     which is where `bun` lives on a box that installed it the normal way
-//     (~/.bun/bin).
+//     wrapper (the trick portless landed on for the same problem); `exists`
+//     looks as the user the app runs as (a member's home is private);
+//   - the runtime's bin folder: for an office app, the directory of the Bun
+//     path isomux was started by (stableBunPath), which is where `bun` lives
+//     on a box that installed it the normal way (~/.bun/bin); for an isolated
+//     member's app, their share runtime (memberRuntimeBinDir), because their
+//     OS user cannot search the office user's home.
 //
 // Computed whenever the unit is written - at registration, and again on an
 // update that changes the command or the working directory - and baked into the
@@ -629,6 +653,10 @@ export interface AppSupervisor {
   // Does the app's installed unit read its secrets file? Boot sync
   // regenerates a unit written before app secrets existed.
   unitInjectsSecrets(appName: string): boolean;
+  // Does the app's installed unit PATH hold the runtime's bin folder as one
+  // entry? True when there is no unit. Boot sync regenerates a unit written
+  // with another runtime folder.
+  unitPathHasRuntime(appName: string): boolean;
   // The app's INSTALLED unit file, verbatim, or null when there is none. Boot
   // URL reconciliation (server/app-url-reconcile.ts) is the only caller: it
   // reads the bytes to decide whether the unit still declares the right
@@ -693,7 +721,8 @@ export interface AppSupervisor {
 interface AppSupervisorOptions {
   host?: SupervisorHost;
   unitPrefix?: string;
-  // Where the runtime running isomux lives, prepended to the app's PATH.
+  // The runtime's bin folder in the app's PATH. Default: the folder of the
+  // Bun running isomux; a member's supervisor passes their share runtime.
   runtimeBinDir?: string;
   now?: () => number;
   cacheMs?: number;
@@ -902,6 +931,10 @@ export function createAppSupervisor(
   // Shared by install and reinstall so the two can never generate differently -
   // an app updated by PATCH gets byte-identical files to one registered with
   // the same values, including a PATH recomputed from its (possibly new) cwd.
+  // As the user the apps run as: a member's app folder is private to them.
+  const binExists = host.exists
+    ? (path: string) => host.exists!(path)
+    : existsSync;
   const writeGeneratedFiles = (app: AppRecord): void => {
     const unit = unitName(app.name);
     stage("the app's launcher script could not be written", () =>
@@ -916,7 +949,7 @@ export function createAppSupervisor(
         unitPath(app.name),
         renderUnit(app, {
           launcherPath: launcherPath(app.name),
-          path: computeAppPath(app.cwd, runtimeBinDir),
+          path: computeAppPath(app.cwd, runtimeBinDir, binExists),
           unitName: unit,
           tokenEnvPath: tokenEnvPath(app.name),
           secretsEnvPath: secretsEnvPath(app.name),
@@ -1025,6 +1058,12 @@ export function createAppSupervisor(
 
     removeToken(appName) {
       host.removeFile(tokenEnvPath(appName));
+    },
+
+    unitPathHasRuntime(appName) {
+      const unit = host.readFile(unitPath(appName));
+      if (!unit) return true;
+      return unitPathEntries(unit).includes(runtimeBinDir);
     },
 
     // The exact line, as unitInjectsToken checks its own.

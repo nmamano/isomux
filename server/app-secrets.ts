@@ -61,7 +61,11 @@ export interface AppSecretsDeps {
   apps: () => AppRecord[];
   supervisor: Pick<
     AppSupervisor,
-    "unitInjectsSecrets" | "regenerate" | "states" | "restart"
+    | "unitInjectsSecrets"
+    | "unitPathHasRuntime"
+    | "regenerate"
+    | "states"
+    | "restart"
   >;
   // STATE_ROOT/secrets/apps in production.
   dir: string;
@@ -145,7 +149,9 @@ export function createAppSecrets(deps: AppSecretsDeps) {
   }
 
   // One pass. Synchronous from start to end, so two passes never overlap.
-  // `boot`: also give a unit written before app secrets existed its line.
+  // `boot`: also rewrite two kinds of old unit: one written before app
+  // secrets existed (no secrets line), and one whose PATH misses the
+  // runtime's bin folder (a member's unit that named the office user's bun).
   // Only then: in a container the unit check is a subprocess per app.
   function run(boot: boolean): void {
     let apps: AppRecord[];
@@ -167,13 +173,19 @@ export function createAppSecrets(deps: AppSecretsDeps) {
 
     const wanted = new Set<string>();
     const changed: string[] = [];
+    // Apps whose unit got the runtime folder in its PATH at this boot.
+    const pathFixed: string[] = [];
     for (const app of apps) {
       if (deps.skip?.(app)) continue;
       if (boot)
         try {
-          // A unit written before app secrets existed does not read the file.
-          if (!deps.supervisor.unitInjectsSecrets(app.name))
+          // A unit written before app secrets existed does not read the
+          // file; a unit without the runtime folder cannot find bun.
+          const pathStale = !deps.supervisor.unitPathHasRuntime(app.name);
+          if (pathStale || !deps.supervisor.unitInjectsSecrets(app.name)) {
             deps.supervisor.regenerate(app);
+            if (pathStale) pathFixed.push(app.name);
+          }
         } catch {
           log(
             `[app-secrets] the unit of the app "${app.name}" could not be updated`,
@@ -250,10 +262,11 @@ export function createAppSecrets(deps: AppSecretsDeps) {
       log("[app-secrets] an old secrets file could not be removed");
     }
 
-    if (changed.length === 0) return;
+    const asked = [...new Set([...changed, ...pathFixed])];
+    if (asked.length === 0) return;
     let states: ReturnType<AppSupervisor["states"]>;
     try {
-      states = deps.supervisor.states(changed);
+      states = deps.supervisor.states(asked);
     } catch {
       log("[app-secrets] the app states could not be read; no app restarted");
       return;
@@ -270,6 +283,19 @@ export function createAppSecrets(deps: AppSecretsDeps) {
         );
       }
     }
+    // The old PATH made the app exit at its start, so it is failed and
+    // nothing else starts it again. A running app does not need the PATH
+    // now; a stopped one was stopped by its owner.
+    for (const name of pathFixed) {
+      if (states.get(name)?.state !== "failed") continue;
+      try {
+        deps.supervisor.restart(name);
+      } catch {
+        log(
+          `[app-secrets] the app "${name}" could not be restarted with its new PATH`,
+        );
+      }
+    }
   }
 
   function syncNow(options: { boot?: boolean } = {}): void {
@@ -283,7 +309,8 @@ export function createAppSecrets(deps: AppSecretsDeps) {
   return {
     // Converge the files on the store, restart the running apps whose file
     // changed, and prune stale grants; at boot, also regenerate a unit that
-    // does not read its file. Never throws: a failure for one app is logged and the others
+    // does not read its file or whose PATH misses the runtime folder, and
+    // restart a failed app whose PATH that fixed. Never throws: a failure for one app is logged and the others
     // go on. Synchronous, so calls never overlap, and a caller that must not
     // yield (the app delete, which holds the name until it answers) can use
     // it.

@@ -14,6 +14,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -445,6 +446,73 @@ describe("app-supervisor: PATH", () => {
       "/bin",
       "/usr/local/sbin",
       "/usr/sbin",
+    ]);
+  });
+
+  // Task a77cc175: boot sync rewrites a unit written with another runtime
+  // folder (a member's unit that named the office user's bun).
+  it("says whether the installed unit PATH holds the runtime folder as one whole entry", () => {
+    const host = fakeHost();
+    const sup = supervisor(host);
+    expect(sup.unitPathHasRuntime("hello")).toBe(true); // no unit at all
+    sup.install(record());
+    expect(sup.unitPathHasRuntime("hello")).toBe(true);
+    const unitFile = "/units/isomux-app-hello.service";
+    const withPath = (line: string) =>
+      `[Service]\nEnvironment="PORT=21000"\n${line}\nExecStart=/bin/sh /launchers/hello.sh\n`;
+    for (const unit of [
+      withPath('Environment="PATH=/home/office/.bun/bin:/usr/bin:/bin"'),
+      // A folder that only starts with, or sits under, the runtime folder.
+      withPath('Environment="PATH=/rt/bin2:/usr/bin:/bin"'),
+      withPath('Environment="PATH=/rt/bin/x:/usr/bin:/bin"'),
+      withPath('Environment="PATH=/rt:/usr/bin:/bin"'),
+      // The folder in another variable, or in a comment.
+      withPath('Environment="OLDPATH=/rt/bin" "PATH=/usr/bin:/bin"'),
+      // (After the real line, so a parser that reads it as the last PATH
+      // line would say yes.)
+      withPath(
+        'Environment="PATH=/usr/bin:/bin"\n# Environment="PATH=/usr/bin:/rt/bin"',
+      ),
+      // No PATH line at all.
+      withPath(""),
+    ]) {
+      host.writeFile(unitFile, unit);
+      expect([unit, sup.unitPathHasRuntime("hello")]).toEqual([unit, false]);
+    }
+    for (const unit of [
+      withPath('Environment="PATH=/rt/bin:/usr/bin:/bin"'),
+      withPath(
+        'Environment="PATH=/srv/hello/node_modules/.bin:/rt/bin:/usr/bin"',
+      ),
+      withPath('Environment="PATH=/usr/bin:/rt/bin"'),
+      withPath('  Environment="PATH=/srv/node_modules/.bin:/rt/bin:/bin"  '),
+    ]) {
+      host.writeFile(unitFile, unit);
+      expect([unit, sup.unitPathHasRuntime("hello")]).toEqual([unit, true]);
+    }
+  });
+
+  // Task a77cc175: a member's app folder is private to them, so the office
+  // user cannot see its node_modules/.bin; the host answers as them.
+  it("puts the node_modules/.bin folders that the host sees in the unit PATH", () => {
+    const host: FakeHost = {
+      ...fakeHost(),
+      exists: (path) =>
+        path === "/srv/hello/node_modules/.bin" ||
+        path === "/srv/node_modules/.bin",
+    };
+    expect(existsSync("/srv/hello/node_modules/.bin")).toBe(false);
+    supervisor(host).install(record());
+    const unit = host.files.get("/units/isomux-app-hello.service") ?? "";
+    const line = directives(unit).find((l) =>
+      l.startsWith('Environment="PATH='),
+    );
+    expect(
+      line?.slice('Environment="PATH='.length, -1).split(":").slice(0, 3),
+    ).toEqual([
+      "/srv/hello/node_modules/.bin",
+      "/srv/node_modules/.bin",
+      "/rt/bin",
     ]);
   });
 });

@@ -43,6 +43,9 @@ export type AppOwnerTarget =
       socketPath: string;
       home: string;
       agentRoot: string;
+      // The member's runtime bin folder (memberRuntimeBinDir), for their
+      // apps' PATH.
+      runtimeBinDir: string;
     };
 
 export interface AppSupervisorRouterDeps {
@@ -131,6 +134,7 @@ function defaultMemberSupervisor(
   const supervisor = createAppSupervisor({
     host,
     secretsDir: host.secretsDir,
+    runtimeBinDir: target.runtimeBinDir,
     noBlock: true,
     ownsSecretsFile: true,
   });
@@ -243,6 +247,8 @@ export function createAppSupervisorRouter(
     unitInjectsToken: (appName) => byName(appName).unitInjectsToken(appName),
     unitInjectsSecrets: (appName) =>
       byName(appName).unitInjectsSecrets(appName),
+    unitPathHasRuntime: (appName) =>
+      byName(appName).unitPathHasRuntime(appName),
     readUnitFile: (appName) => byName(appName).readUnitFile(appName),
     restoreUnitFile: (appName, contents) =>
       byName(appName).restoreUnitFile(appName, contents),

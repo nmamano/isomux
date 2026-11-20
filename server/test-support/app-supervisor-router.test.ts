@@ -16,9 +16,10 @@
 // - a lock disables and the unlock enables only the office's apps, and only
 //   where the office's supervisor has the enabled bit (task 367596bc).
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { stableBunPath } from "../stable-bun-path.ts";
 import { freezeAppHostDomain } from "../app-domain.ts";
 import { AppSupervisorError } from "../app-supervisor.ts";
 import {
@@ -116,6 +117,7 @@ function setup(
     socketPath: "/run/isomux/alice.sock",
     home: HOME,
     agentRoot: AGENT_ROOT,
+    runtimeBinDir: "/share/alice/runtime/current",
   });
   let target = opts.target ?? memberTarget;
   const connect = () => {
@@ -292,6 +294,71 @@ describe("the router sends each app to its owner's host", () => {
       ["start:hello"],
       0,
     ]);
+  });
+});
+
+// Task a77cc175: her OS user cannot search the office user's home, so her
+// unit PATH names her own runtime (the bun her runner runs), and her app
+// folder's node_modules/.bin as she sees it.
+describe("her app's PATH", () => {
+  const OFFICE_BUN_DIR = dirname(stableBunPath());
+  const RUNTIME = "/share/alice/runtime/current";
+  const pathOf = (unit: string): string[] | null => {
+    const prefix = 'Environment="PATH=';
+    const line = unit
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.startsWith(prefix));
+    return line ? line.slice(prefix.length, -1).split(":") : null;
+  };
+  // The unit itself, not its enable link in a .wants folder.
+  const herUnitPath = (runner: FakeMemberRunner): string | undefined =>
+    runner
+      .appFiles("hello")
+      .find(
+        (p) =>
+          dirname(p) === join(HOME, ".config", "systemd", "user") &&
+          p.endsWith(".service"),
+      );
+  const herUnit = (runner: FakeMemberRunner): string => {
+    const path = herUnitPath(runner);
+    const node = path ? runner.fs.get(path) : undefined;
+    return node?.kind === "file" ? node.text : "";
+  };
+
+  // MUTANT: defaultMemberSupervisor without runtimeBinDir (dies on the
+  // runtime entry).
+  it("names her runtime folder and the .bin folders only her host sees, never the office's bun", () => {
+    const s = setup();
+    const runner = s.runner();
+    const bin = join(HOME, "node_modules", ".bin");
+    runner.fs.set(join(HOME, "node_modules"), { kind: "dir" });
+    runner.fs.set(bin, { kind: "dir" });
+    expect(existsSync(bin)).toBe(false);
+    s.router.install(record());
+    const path = pathOf(herUnit(runner));
+    expect(path?.slice(0, 2)).toEqual([bin, RUNTIME]);
+    expect(OFFICE_BUN_DIR).not.toBe(RUNTIME);
+    expect(path).not.toContain(OFFICE_BUN_DIR);
+  });
+
+  it("checks her installed unit against her runtime folder", () => {
+    const s = setup();
+    s.router.install(record());
+    const runner = s.runner();
+    expect(s.router.unitPathHasRuntime("hello")).toBe(true);
+    const unitPath = herUnitPath(runner)!;
+    const node = runner.fs.get(unitPath);
+    if (node?.kind !== "file") throw new Error("no unit");
+    const current = pathOf(node.text)!.join(":");
+    // The unit as the bug wrote it: the office user's bun folder.
+    const stale = node.text.replace(
+      `PATH=${current}`,
+      `PATH=${OFFICE_BUN_DIR}:/usr/bin:/bin`,
+    );
+    expect(stale).not.toBe(node.text);
+    runner.fs.set(unitPath, { ...node, text: stale });
+    expect(s.router.unitPathHasRuntime("hello")).toBe(false);
   });
 });
 

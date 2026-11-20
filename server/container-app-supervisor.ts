@@ -97,6 +97,8 @@ export function createContainerAppSupervisor(
     // The worker reads STATE_ROOT/secrets/apps/<app>.env at each launch, so
     // an app that exists reads its secrets file.
     unitInjectsSecrets: (name) => rpc("exists", { name }),
+    // The worker's PATH is computed at each launch.
+    unitPathHasRuntime: () => true,
     readUnitFile: (name) => rpc("descriptor.read", { name }),
     restoreUnitFile: (name, descriptor) =>
       rpc("descriptor.restore", { name, descriptor }),

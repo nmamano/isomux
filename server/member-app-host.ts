@@ -250,6 +250,15 @@ export function createMemberAppHost(
       manager = { ok: result.code === 0, at: now() };
       return manager.ok;
     },
+    exists(path) {
+      try {
+        fs({ op: "fs", call: "stat", path });
+        return true;
+      } catch (error) {
+        if (error instanceof AppSupervisorError) throw error;
+        return false;
+      }
+    },
     managerFolderAbsent() {
       try {
         fs({

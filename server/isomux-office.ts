@@ -911,6 +911,7 @@ const appSecrets = createAppSecrets({
   apps: () => appRegistry.list(),
   supervisor: {
     unitInjectsSecrets: (name) => appSupervisor.unitInjectsSecrets(name),
+    unitPathHasRuntime: (name) => appSupervisor.unitPathHasRuntime(name),
     regenerate: (record) => appSupervisor.regenerate(record),
     states: (names) => appSupervisor.states(names),
     restart: (name) => {
