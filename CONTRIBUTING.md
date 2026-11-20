@@ -12,6 +12,8 @@ The first command also turns on the pre-push hook in `.githooks/`. The type chec
 
 ## Before you open a pull request
 
+Open an issue for every bug, with the cause and steps to reproduce if you have them. A fix as a pull request is welcome too; we may change it or build our own from it. For a bigger change, open an issue first so we can agree on the approach.
+
 Run:
 
 ```sh
