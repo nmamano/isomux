@@ -43,6 +43,7 @@ import {
   _testResetAppLifecycles,
   retireAppRegistration,
 } from "../app-lifecycle.ts";
+import { exclusiveTestPort } from "./test-port.ts";
 
 const APP_HOST = "hello.office.example";
 
@@ -724,15 +725,10 @@ describe("relay: refusing before connecting", () => {
 
 describe("relay: failures", () => {
   it("answers 502 when the app cannot be reached or its headers do not arrive in time", async () => {
-    // A port that was bound and released: nothing is there, so the connection
-    // is refused - the shape of a running unit whose process just died.
-    const scratch = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      fetch: () => new Response("x"),
-    });
-    const closedPort = scratch.port as number;
-    void scratch.stop(true);
+    // A port nothing listens on, and no other process can take: the
+    // connection is refused - the shape of a running unit whose process just
+    // died.
+    const closedPort = exclusiveTestPort();
     const refused = await relay(get("/plain"), { app: appRecord(closedPort) });
     expect(refused.status).toBe(502);
     expect(await refused.text()).toBe(APP_UNREACHABLE_BODY);

@@ -30,6 +30,7 @@ import {
   raiseAttention,
   resolveAttentionIn,
 } from "./attention.ts";
+import { exclusiveTestPort } from "../server/test-support/test-port.ts";
 
 async function tempStore(now?: () => number): Promise<Store> {
   return await openTestStore(now);
@@ -1356,14 +1357,8 @@ describe("connection details on the error path", () => {
       port: 0,
       socket: { data() {} },
     });
-    // A port nothing listens on.
-    const gone = Bun.listen({
-      hostname: "127.0.0.1",
-      port: 0,
-      socket: { data() {} },
-    });
-    const gonePort = gone.port;
-    gone.stop(true);
+    // A port nothing listens on, and no other process can take.
+    const gonePort = exclusiveTestPort();
     const pools: pg.Pool[] = [];
     const pool = (
       connectionString: string,

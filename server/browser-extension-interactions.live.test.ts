@@ -30,6 +30,7 @@ import {
 } from "../shared/browser-extension-protocol";
 import { translatorFor } from "../shared/i18n/translate";
 import { writeFileSync } from "node:fs";
+import { exclusiveTestPort } from "./test-support/test-port.ts";
 
 type Site = (url: URL, req: Request) => Response | Promise<Response>;
 // Offers one tab of a raw extension Chrome to fixture-agent and drives it
@@ -1882,14 +1883,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "a goto on the same site reaches the site as a link click does, and one that commits no page ends as a goto to another site does",
   async () => {
     const log = hitLog();
-    // A port with nothing listening on it.
-    const dead = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(),
-    });
-    const deadPort = dead.port;
-    void dead.stop(true);
+    // A port with nothing listening on it, which no other process can take.
+    const deadPort = exclusiveTestPort();
     await withOfferedTab(
       async (url, req) => {
         log.record(url, req);
@@ -2018,14 +2013,8 @@ navigation.addEventListener("navigate", (event) => {
 test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "a goto sent at once after a goto that failed with a network error loads",
   async () => {
-    // A port with nothing listening on it.
-    const dead = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response(),
-    });
-    const deadPort = dead.port;
-    void dead.stop(true);
+    // A port with nothing listening on it, which no other process can take.
+    const deadPort = exclusiveTestPort();
     await withOfferedTab(
       (url) =>
         url.pathname === "/gone"

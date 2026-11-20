@@ -33,6 +33,7 @@ import {
   leastPrivilegedDsn,
   schemaOf,
 } from "./testing/least-privilege.ts";
+import { exclusiveTestPort } from "../server/test-support/test-port.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
 
@@ -262,19 +263,6 @@ suite("the owner's identity writer", () => {
   });
 });
 
-/** A loopback port nothing is listening on, at the moment of asking. */
-function freePort(): number {
-  const probe = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    fetch: () => new Response(),
-  });
-  const port = probe.port;
-  void probe.stop(true);
-  if (port === undefined) throw new Error("no free port");
-  return port;
-}
-
 /**
  * The provisioner's own `run`, as a child, against a runtime role: the
  * environment a deployment supplies, with loopback stand-ins for everything
@@ -355,7 +343,7 @@ suite("the provisioner's run, booted against a real runtime role", () => {
   test("boots healthy on the database it names", async () => {
     const { ownerDsn, roleDsn } = await bed(PROVISIONER_GRANTS);
     await writeDatabaseIdentity(ownerDsn, IDENTITY);
-    const port = freePort();
+    const port = exclusiveTestPort();
     const child = startRun(roleDsn, IDENTITY, port, homeWithLegacyIntent());
     let report: Record<string, unknown> | null = null;
     try {
@@ -399,7 +387,7 @@ suite("the provisioner's run, booted against a real runtime role", () => {
     const child = startRun(
       roleDsn,
       IDENTITY,
-      freePort(),
+      exclusiveTestPort(),
       homeWithLegacyIntent(),
     );
     const code = await child.exited;

@@ -22,6 +22,7 @@ import { createContainerAppSupervisor } from "./container-app-supervisor.ts";
 import { appSecretsPath, renderSecretsEnv } from "./app-secrets.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
+import { exclusiveTestPort } from "./test-support/test-port.ts";
 
 const program = fileURLToPath(
   new URL("../deploy/container/supervisor.py", import.meta.url),
@@ -176,39 +177,13 @@ function appDiagnostics() {
   }
 }
 
-// A port from the preload's block for this process (preload.ts). The block is
-// below the kernel ephemeral range, so no other process can take a port from
-// it between this probe and the app's bind. Port 0 could be lost that way: the
-// app then crashed and restarted (task 3be3b31b).
-const portMin = Number(process.env.ISOMUX_TEST_APP_PORT_MIN);
-const portMax = Number(process.env.ISOMUX_TEST_APP_PORT_MAX);
-let nextPort = portMin;
-
-function freePort() {
-  if (!Number.isInteger(portMin) || !Number.isInteger(portMax))
-    throw new Error("the test preload did not set the app port block");
-  for (let tries = portMax - portMin + 1; tries > 0; tries--) {
-    const port = nextPort;
-    nextPort = port >= portMax ? portMin : port + 1;
-    try {
-      Bun.listen({ hostname: "127.0.0.1", port, socket: { data() {} } }).stop(
-        true,
-      );
-      return port;
-    } catch (error) {
-      if ((error as { code?: string }).code !== "EADDRINUSE") throw error;
-    }
-  }
-  throw new Error(`no free port in ${portMin}-${portMax}`);
-}
-
 beforeEach(async () => {
   lastResponseError = undefined;
   detachedPid = undefined;
   detachedStart = undefined;
   root = mkdtempSync(join(tmpdir(), "container-app-test-"));
   mkdirSync(join(root, "data"));
-  const port = freePort();
+  const port = exclusiveTestPort();
   writeFileSync(
     join(root, "app.ts"),
     `
@@ -638,7 +613,7 @@ test("a monitor that is slow to start stalls neither supervision nor other apps"
     ...app,
     name: "other",
     hostLabel: "other",
-    port: freePort(),
+    port: exclusiveTestPort(),
     dataDir: join(root, "other-data"),
   };
   supervisor.install(other);

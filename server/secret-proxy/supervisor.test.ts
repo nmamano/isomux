@@ -25,6 +25,7 @@ import {
   type ProxySupervisorOptions,
 } from "./supervisor.ts";
 import { createCertificateAuthority } from "./x509.ts";
+import { exclusiveTestPort } from "../test-support/test-port.ts";
 
 const TEST_CHILD = join(
   import.meta.dir,
@@ -152,36 +153,6 @@ function alive(pid: number): boolean {
   }
 }
 
-// A free port below the kernel's ephemeral range. A port-0 listener of any
-// other process on the host never gets it, so it stays free while a child is
-// down (task e341af70: a restart test lost its port that way).
-async function quietPort(): Promise<number> {
-  let first = 49152;
-  try {
-    first = Number(
-      readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").split(
-        /\s+/,
-      )[0],
-    );
-  } catch {
-    // Not Linux: the IANA range, which macOS uses.
-  }
-  const low = Math.max(1024, first - 8000);
-  for (let tries = 0; tries < 50 && low < first; tries++) {
-    const port = low + Math.floor(Math.random() * (first - low));
-    const probe: Server = createServer(() => {});
-    const bound = await new Promise<boolean>((resolve) => {
-      probe.once("error", () => resolve(false));
-      probe.listen(port, "127.0.0.1", () => resolve(true));
-    });
-    if (bound) {
-      await new Promise<void>((resolve) => probe.close(() => resolve()));
-      return port;
-    }
-  }
-  throw new Error(`no free port below the ephemeral range (${first})`);
-}
-
 // The /proc/net/tcp rows: a socket inode names one socket, so a later
 // listener on the same port has another inode. Linux only.
 function tcpRows(): { port: number; state: string; inode: string }[] {
@@ -230,7 +201,7 @@ describe("the supervisor", () => {
   test(
     "a killed child comes back on the same port",
     async () => {
-      const saved = await quietPort();
+      const saved = exclusiveTestPort();
       const { supervisor, ports, listens } = supervise({ savedPort: saved });
       try {
         const port = await supervisor.start();
@@ -282,7 +253,7 @@ describe("the supervisor", () => {
   });
 
   test("a saved port that is free is kept, with no port change", async () => {
-    const free = await quietPort();
+    const free = exclusiveTestPort();
     const { supervisor, ports } = supervise({ savedPort: free });
     try {
       expect(await supervisor.start()).toBe(free);
@@ -521,7 +492,7 @@ test(
     const ROTATED = "ghp_FAKEwhiledownFAKEwhiledownFAKEwhi01";
     let current = snapshot();
     const { supervisor, listens, logged } = supervise({
-      savedPort: await quietPort(),
+      savedPort: exclusiveTestPort(),
       snapshot: () => current,
       seams: {
         standIns: { "api.stub.test:443": https.port },
@@ -564,7 +535,7 @@ test(
   async () => {
     let broken = false;
     const { supervisor, listens, logged } = supervise({
-      savedPort: await quietPort(),
+      savedPort: exclusiveTestPort(),
       snapshot: () => {
         if (broken) throw new Error("the store could not be read");
         return snapshot();

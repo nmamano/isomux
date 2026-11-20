@@ -23,7 +23,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
@@ -37,6 +36,7 @@ import {
   type MoveInSwapInputs,
 } from "./office-move-swap.ts";
 import { SWAP_RETRY_PATH } from "./move-swap-failed-office.ts";
+import { exclusiveTestPort } from "./test-support/test-port.ts";
 
 const REPO = join(import.meta.dir, "..");
 const ENTRY = join(import.meta.dir, "isomux-office.ts");
@@ -56,14 +56,6 @@ afterEach(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = "";
 });
-
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
 
 function put(root: string, rel: string, data: string): void {
   mkdirSync(join(root, rel, ".."), { recursive: true });
@@ -88,7 +80,7 @@ async function bootEntry(home: string): Promise<Boot> {
   }
   const scratch = join(dir, "tmp");
   mkdirSync(scratch, { recursive: true });
-  const port = await freePort();
+  const port = exclusiveTestPort();
   office = Bun.spawn([process.execPath, ENTRY], {
     cwd: REPO,
     env: {

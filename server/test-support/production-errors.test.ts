@@ -14,7 +14,6 @@
 // The container entry's setup listener is in deploy/container/office-entry.test.ts.
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
@@ -30,6 +29,7 @@ import {
   startMintSeam,
 } from "../../control-plane/mint-seam.ts";
 import { serveWebhooks } from "../../control-plane/stripe/server.ts";
+import { exclusiveTestPort } from "./test-port.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 let child: Subprocess | null = null;
@@ -41,14 +41,6 @@ afterEach(() => {
   if (home) rmSync(home, { recursive: true, force: true });
   home = "";
 });
-
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
 
 // Start a listener with `code` in a child, which prints a line once it listens.
 async function startChild(code: string): Promise<void> {
@@ -115,7 +107,7 @@ test("the Stripe webhook server answers a malformed Host with 400", async () => 
 
 test("the office answers a throwing request without the error page", async () => {
   home = mkdtempSync(join(tmpdir(), "isomux-production-errors-"));
-  const port = await freePort();
+  const port = exclusiveTestPort();
   child = Bun.spawn(
     [
       process.execPath,
@@ -149,7 +141,7 @@ test("the office answers a throwing request without the error page", async () =>
 }, 15_000);
 
 test("the provisioner seam answers a throwing request without the error page", async () => {
-  const port = await freePort();
+  const port = exclusiveTestPort();
   await startChild(`
     const { startMintSeam } = await import("./control-plane/mint-seam.ts");
     startMintSeam({ store: {}, hold: {}, token: "t".repeat(40), port: ${port} });
@@ -159,7 +151,7 @@ test("the provisioner seam answers a throwing request without the error page", a
 });
 
 test("the Stripe webhook server answers a throwing request without the error page", async () => {
-  const port = await freePort();
+  const port = exclusiveTestPort();
   await startChild(`
     const { serveWebhooks } = await import("./control-plane/stripe/server.ts");
     serveWebhooks({ processor: {}, port: ${port} });

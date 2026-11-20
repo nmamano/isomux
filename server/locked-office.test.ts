@@ -16,7 +16,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createConnection, createServer } from "node:net";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
@@ -28,6 +28,7 @@ import {
   QUARANTINED_FILES,
 } from "./lockdown.ts";
 import { EXPORTS_SUBDIR } from "./office-export-jobs.ts";
+import { exclusiveTestPort } from "./test-support/test-port.ts";
 
 const REPO = join(import.meta.dir, "..");
 const ENTRY = join(import.meta.dir, "isomux-office.ts");
@@ -45,14 +46,6 @@ afterEach(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = "";
 });
-
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
 
 // One raw HTTP/1.1 request, so the Host and Upgrade headers go out as written.
 async function rawRequest(
@@ -109,7 +102,7 @@ test("a state root with the lock marker boots the locked office: /readyz says lo
   const strayExport = join(dir, "backups", EXPORTS_SUBDIR, "office.tar.gz");
   mkdirSync(join(dir, "backups", EXPORTS_SUBDIR), { recursive: true });
   writeFileSync(strayExport, "the office, packed");
-  const port = await freePort();
+  const port = exclusiveTestPort();
   office = Bun.spawn([process.execPath, ENTRY], {
     cwd: REPO,
     env: {

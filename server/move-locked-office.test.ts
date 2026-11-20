@@ -16,7 +16,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
@@ -60,6 +59,7 @@ import type { HomeFilesInput } from "./member-home-send.ts";
 import type { MemberHomeSource, MoveMember } from "./office-move-members.ts";
 import { createMoveScope } from "./office-move-scope.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
+import { exclusiveTestPort } from "./test-support/test-port.ts";
 
 const REPO = join(import.meta.dir, "..");
 const ENTRY = join(import.meta.dir, "isomux-office.ts");
@@ -284,14 +284,6 @@ describe("the MOVE-locked server's answers", () => {
   });
 });
 
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
-
 describe("the MOVE-locked server's boot", () => {
   it("stops the apps and the recorded units again before it answers", async () => {
     const root = stateRoot();
@@ -316,7 +308,7 @@ describe("the MOVE-locked server's boot", () => {
       start: () => {},
     };
     const calls: string[][] = [];
-    const port = await freePort();
+    const port = exclusiveTestPort();
     handle = await startMoveLockedOffice({
       stateRoot: root,
       port,
@@ -364,7 +356,7 @@ async function bootEntry(root: string): Promise<{
   }
   const scratch = join(dir, "tmp");
   mkdirSync(scratch);
-  const port = await freePort();
+  const port = exclusiveTestPort();
   office = Bun.spawn([process.execPath, ENTRY], {
     cwd: REPO,
     env: {
@@ -1229,8 +1221,7 @@ describe("the pull through the real entry", () => {
     }
   }, 45_000);
 
-  // Quarantined: flaky, task 72affd86 (P1).
-  it.skip("an unreadable state file with the lock marker boots the MOVE page, where no session works", async () => {
+  it("an unreadable state file with the lock marker boots the MOVE page, where no session works", async () => {
     const root = stateRoot();
     lockedMove(root);
     expect(existsSync(join(root, MOVE_LOCK_MARKER))).toBe(true);
