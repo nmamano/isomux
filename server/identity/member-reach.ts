@@ -472,6 +472,8 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "memberProviderAccounts.callback",
       "memberProviderAccounts.cancel",
       "memberProviderAccounts.disconnect",
+      "accountUsage.list",
+      "accountUsage.read",
       "users.setAccess",
       "users.removedList",
       "users.restore",

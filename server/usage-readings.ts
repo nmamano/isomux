@@ -514,6 +514,30 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     return key;
   }
 
+  // The usage account of every Claude and Codex agent, for the owners'
+  // account usage card (task 3e70b6d4).
+  function agentUsageAccounts(): Array<{
+    provider: "claude" | "codex";
+    userId: string | null;
+    key: string | null;
+  }> {
+    const out: Array<{
+      provider: "claude" | "codex";
+      userId: string | null;
+      key: string | null;
+    }> = [];
+    for (const managed of agents.values()) {
+      const provider = managed.info.agentType;
+      if (provider !== "claude" && provider !== "codex") continue;
+      out.push({
+        provider,
+        userId: managed.info.userId ?? null,
+        key: usageKeyOf(managed),
+      });
+    }
+    return out;
+  }
+
   // Point the agent at its current usage account (`key`, default derived).
   // Another account than the one its reading belongs to orphans every read in
   // flight and shows that account's reading, or none, and refreshes the
@@ -882,5 +906,6 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     getAgentSubscriptionUsage,
     getAgentContextUsage,
     refreshSignIn,
+    agentUsageAccounts,
   };
 }

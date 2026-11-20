@@ -18,17 +18,30 @@ import {
   writeFakeCodexGroup,
 } from "./test-support/fake-codex-group.ts";
 import {
+  claudeAccountProbeResult,
   claudeOfficeProbe,
+  codexAccountProbeResult,
   codexOfficeProbe,
+  createAccountUsageReader,
   createOfficeUsageReader,
   FALLBACK_MS,
   FRESH_MS,
   parseClaudeWeekly,
   parseCodexWeekly,
+  REFRESH_FLOOR_MS,
   WEEK_MS,
+  type AccountProbeResult,
+  type AccountReading,
+  type AccountUsageProbe,
+  type AccountUsageTarget,
   type OfficeUsageProbe,
   type ProbeResult,
 } from "./office-usage.ts";
+import { normalizeClaudeSubscriptionUsage } from "./backends/claude.ts";
+import {
+  CODEX_PREFERRED_LIMIT_ID,
+  normalizeCodexSubscriptionUsage,
+} from "./backends/codex/adapter.ts";
 import type { GetAccountRateLimitsResponse } from "./backends/codex/_generated/v2/GetAccountRateLimitsResponse.ts";
 
 const NOW = Date.parse("2026-10-02T12:00:00Z");
@@ -812,6 +825,400 @@ describe("createOfficeUsageReader", () => {
       { step: "office change", created: 5, closes: [1, 1, 1, 1, 0] },
       { step: "failed read", created: 5, closes: [1, 1, 1, 1, 1] },
       { step: "close()", created: 6, closes: [1, 1, 1, 1, 1, 1] },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3e70b6d4: one reader for every provider account. The office slot of a
+// provider is the cap's slot (one warm process); a member slot is one-shot.
+
+describe("claudeAccountProbeResult", () => {
+  const raw = {
+    subscription_type: "max",
+    rate_limits_available: true,
+    rate_limits: {
+      five_hour: { utilization: 64, resets_at: "2026-10-02T14:00:00Z" },
+      seven_day: { utilization: 31, resets_at: "2026-10-05T00:00:00Z" },
+      model_scoped: [
+        {
+          display_name: "Fable",
+          utilization: 77,
+          resets_at: "2026-10-05T00:00:00Z",
+        },
+      ],
+    },
+  };
+
+  it("keeps every window of the answer, the cap's weekly projection of the same answer, and the account email", () => {
+    const result = claudeAccountProbeResult(raw, {
+      email: "owner@example.test",
+      tokenSource: "claude.ai",
+      apiProvider: "firstParty",
+    });
+    expect(result.weekly).toEqual(parseClaudeWeekly(raw));
+    const normalized = normalizeClaudeSubscriptionUsage(raw);
+    if (normalized.kind !== "usage") throw new Error("fixture is not usage");
+    expect(result.reading).toEqual({ kind: "usage", ...normalized.usage });
+    // The per-model window comes with its model family, the 5-hour one too.
+    if (result.reading.kind !== "usage") throw new Error("not usage");
+    expect(
+      result.reading.windows.map((w) => [w.usedPercent, w.modelFamily]),
+    ).toEqual([
+      [31, undefined],
+      [64, undefined],
+      [77, "fable"],
+    ]);
+    expect(result.identity).toBe("owner@example.test");
+  });
+
+  it("reads the provider's no-limit answer as no limit, an unreadable answer as failed, and no email as no identity", () => {
+    const noLimit = claudeAccountProbeResult(
+      { rate_limits_available: false },
+      { email: "api@example.test" },
+    );
+    expect([noLimit.weekly.kind, noLimit.reading.kind]).toEqual([
+      "no_limit",
+      "no_limit",
+    ]);
+    const unreadable = claudeAccountProbeResult(null, {});
+    expect([
+      unreadable.weekly.kind,
+      unreadable.reading.kind,
+      unreadable.identity,
+    ]).toEqual(["failed", "failed", null]);
+    expect(claudeAccountProbeResult(raw, null).identity).toBeNull();
+  });
+});
+
+describe("codexAccountProbeResult", () => {
+  const resetsAt = Math.floor(NOW / 1000) + 3600;
+  const account = {
+    type: "chatgpt",
+    email: "coder@example.test",
+    planType: "pro",
+    workspaceName: null,
+  } as const;
+
+  it("keeps both windows, the cap's projection and the account email", () => {
+    const limits = codexLimits([
+      { usedPercent: 40, windowDurationMins: 300, resetsAt },
+      { usedPercent: 12, windowDurationMins: 10080, resetsAt },
+    ]);
+    const result = codexAccountProbeResult(account, limits);
+    expect(result.weekly).toEqual(parseCodexWeekly(account, limits));
+    const normalized = normalizeCodexSubscriptionUsage(limits.rateLimits);
+    if (normalized.kind !== "usage") throw new Error("fixture is not usage");
+    expect(result.reading).toEqual({ kind: "usage", ...normalized.usage });
+    expect(result.identity).toBe("coder@example.test");
+  });
+
+  it("reads the same snapshot as the cap: the preferred limit id before the legacy one", () => {
+    const preferred = codexLimits([
+      { usedPercent: 55, windowDurationMins: 10080, resetsAt },
+    ]).rateLimits;
+    const limits = {
+      ...codexLimits([{ usedPercent: 5, windowDurationMins: 10080, resetsAt }]),
+      rateLimitsByLimitId: { [CODEX_PREFERRED_LIMIT_ID]: preferred },
+    };
+    const result = codexAccountProbeResult(account, limits);
+    expect(result.weekly).toMatchObject({ usedPercent: 55 });
+    if (result.reading.kind !== "usage") throw new Error("not usage");
+    expect(result.reading.windows.map((w) => w.usedPercent)).toEqual([55]);
+  });
+
+  it("reads no sign-in as signed out, API-key billing as no limit, and missing limits as failed", () => {
+    expect(codexAccountProbeResult(null, null)).toEqual({
+      weekly: { kind: "signed_out" },
+      reading: { kind: "signed_out" },
+      identity: null,
+    });
+    const apiKey = codexAccountProbeResult({ type: "apiKey" }, null);
+    expect([apiKey.weekly.kind, apiKey.reading.kind]).toEqual([
+      "no_limit",
+      "no_limit",
+    ]);
+    const noLimits = codexAccountProbeResult(account, null);
+    expect([noLimits.weekly.kind, noLimits.reading.kind]).toEqual([
+      "failed",
+      "failed",
+    ]);
+  });
+});
+
+const usageReading = (weeklyUsed: number): AccountReading => ({
+  kind: "usage",
+  plan: "max",
+  windows: [
+    {
+      label: "Weekly",
+      shortLabel: "WK",
+      usedPercent: weeklyUsed,
+      resetsAtMs: NOW + 2 * DAY_MS,
+    },
+  ],
+});
+const accountResult = (
+  weeklyUsed: number,
+  identity: string | null = "who@example.test",
+): AccountProbeResult => ({
+  weekly: weekly(weeklyUsed),
+  reading: usageReading(weeklyUsed),
+  identity,
+});
+const failedResult: AccountProbeResult = {
+  weekly: { kind: "failed" },
+  reading: { kind: "failed" },
+  identity: null,
+};
+
+// A reader whose probes each wait for the test to answer them, keyed by the
+// env's ACCOUNT variable, on a hand-driven clock and hand-fired timers.
+function accountHarness(opts: { maxMemberProbes?: number } = {}) {
+  let now = NOW;
+  const probes: {
+    account: string;
+    closes: number;
+    reads: number;
+    pending: ((r: AccountProbeResult) => void)[];
+  }[] = [];
+  const timers: { fn: () => void; ms: number; live: boolean }[] = [];
+  const officeEnv = { ACCOUNT: "office" };
+  const reader = createAccountUsageReader({
+    officeTarget: () => ({ dir: "/office/claude", env: officeEnv }),
+    keyOf: (provider, env) => `${provider}:${env.ACCOUNT}`,
+    ...(opts.maxMemberProbes === undefined
+      ? {}
+      : { maxMemberProbes: opts.maxMemberProbes }),
+    now: () => now,
+    setTimer: (fn, ms) => {
+      const timer = { fn, ms, live: true };
+      timers.push(timer);
+      return () => (timer.live = false);
+    },
+    createProbe: (_provider, env): AccountUsageProbe => {
+      const probe = {
+        account: String(env.ACCOUNT),
+        closes: 0,
+        reads: 0,
+        pending: [] as ((r: AccountProbeResult) => void)[],
+      };
+      probes.push(probe);
+      return {
+        read: () => {
+          probe.reads++;
+          return new Promise((resolve) => probe.pending.push(resolve));
+        },
+        close: () => probe.closes++,
+      };
+    },
+  });
+  const member = (account: string): AccountUsageTarget => ({
+    key: `claude:${account}`,
+    provider: "claude",
+    env: { ACCOUNT: account },
+    warm: false,
+  });
+  const office: AccountUsageTarget = {
+    key: "claude:office",
+    provider: "claude",
+    env: officeEnv,
+    warm: true,
+  };
+  // Answer the oldest pending read of `account`'s newest probe.
+  const answer = async (account: string, result: AccountProbeResult) => {
+    const probe = probes.filter((p) => p.account === account).at(-1);
+    const pending = probe?.pending.shift();
+    if (!pending) throw new Error(`no read of ${account} is pending`);
+    pending(result);
+    await settled();
+  };
+  const created = (account: string) =>
+    probes.filter((p) => p.account === account).length;
+  return {
+    reader,
+    member,
+    office,
+    answer,
+    created,
+    probes,
+    timers,
+    advance: (ms: number) => (now += ms),
+  };
+}
+
+describe("createAccountUsageReader", () => {
+  it("serves the cap and the card from the office slot's one warm process", async () => {
+    const h = accountHarness();
+    const cap = h.reader.read("claude");
+    await settled();
+    await h.answer("office", accountResult(20, "office@example.test"));
+    expect(await cap).toMatchObject({ kind: "weekly", usedPercent: 20 });
+    // The card's read of the office key takes the cap's answer: no process.
+    expect(await h.reader.readAccount(h.office)).toEqual({
+      reading: usageReading(20),
+      identity: "office@example.test",
+      observedAtMs: NOW,
+    });
+    expect([h.created("office"), h.probes[0]!.closes]).toEqual([1, 0]);
+
+    // And the other way round: the cap takes the card's fresh answer.
+    h.advance(FRESH_MS + 1);
+    const card = h.reader.readAccount(h.office);
+    await settled();
+    await h.answer("office", accountResult(25));
+    await card;
+    expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 25 });
+    expect([h.created("office"), h.probes[0]!.reads]).toEqual([1, 2]);
+  });
+
+  it("closes a member's process after its answer and reuses the answer for FRESH_MS", async () => {
+    const h = accountHarness();
+    const first = h.reader.readAccount(h.member("ana"));
+    await settled();
+    expect(h.reader.peek("claude:ana").reading).toBe(true);
+    await h.answer("ana", accountResult(10));
+    expect((await first).reading).toEqual(usageReading(10));
+    expect(h.probes.map((p) => p.closes)).toEqual([1]);
+    expect(h.reader.peek("claude:ana")).toEqual({
+      answer: {
+        reading: usageReading(10),
+        identity: "who@example.test",
+        observedAtMs: NOW,
+      },
+      reading: false,
+    });
+
+    h.advance(FRESH_MS - 1);
+    await h.reader.readAccount(h.member("ana"));
+    expect(h.created("ana")).toBe(1);
+    h.advance(1);
+    const again = h.reader.readAccount(h.member("ana"));
+    await settled();
+    await h.answer("ana", accountResult(11));
+    expect((await again).reading).toEqual(usageReading(11));
+    expect(h.probes.map((p) => p.closes)).toEqual([1, 1]);
+  });
+
+  it("shares one read between concurrent callers of a key, and a refresh reads again only after REFRESH_FLOOR_MS", async () => {
+    const h = accountHarness();
+    const a = h.reader.readAccount(h.member("ana"));
+    const b = h.reader.readAccount(h.member("ana"), { refresh: true });
+    await settled();
+    await h.answer("ana", accountResult(10));
+    expect([(await a).reading, (await b).reading]).toEqual([
+      usageReading(10),
+      usageReading(10),
+    ]);
+    expect(h.created("ana")).toBe(1);
+
+    h.advance(REFRESH_FLOOR_MS - 1);
+    await h.reader.readAccount(h.member("ana"), { refresh: true });
+    expect(h.created("ana")).toBe(1);
+    h.advance(1);
+    const refreshed = h.reader.readAccount(h.member("ana"), { refresh: true });
+    await settled();
+    await h.answer("ana", accountResult(12));
+    expect((await refreshed).reading).toEqual(usageReading(12));
+    expect(h.created("ana")).toBe(2);
+  });
+
+  it("answers a failed read with the last good reading under FALLBACK_MS, as observed, and with failed after", async () => {
+    const h = accountHarness();
+    const good = h.reader.readAccount(h.member("ana"));
+    await settled();
+    await h.answer("ana", accountResult(30, "ana@example.test"));
+    await good;
+
+    h.advance(FRESH_MS + 1);
+    const failed = h.reader.readAccount(h.member("ana"));
+    await settled();
+    await h.answer("ana", failedResult);
+    expect(await failed).toEqual({
+      reading: usageReading(30),
+      identity: "ana@example.test",
+      observedAtMs: NOW,
+    });
+
+    h.advance(FALLBACK_MS);
+    const late = h.reader.readAccount(h.member("ana"));
+    await settled();
+    await h.answer("ana", failedResult);
+    expect((await late).reading).toEqual({ kind: "failed" });
+  });
+
+  it("runs at most maxMemberProbes member reads at once, and never queues an office read behind them", async () => {
+    const h = accountHarness({ maxMemberProbes: 2 });
+    const reads = ["ana", "ben", "cy"].map((name) =>
+      h.reader.readAccount(h.member(name)),
+    );
+    await settled();
+    expect(h.probes.map((p) => p.account)).toEqual(["ana", "ben"]);
+
+    // The member lane is full; the cap's office read starts at once.
+    const cap = h.reader.read("claude");
+    await settled();
+    expect(h.created("office")).toBe(1);
+    await h.answer("office", accountResult(40));
+    expect(await cap).toMatchObject({ usedPercent: 40 });
+
+    // A member read that ends lets the queued one start.
+    await h.answer("ana", accountResult(1));
+    expect(h.created("cy")).toBe(1);
+    await h.answer("ben", accountResult(2));
+    await h.answer("cy", accountResult(3));
+    expect((await Promise.all(reads)).map((r) => r.reading)).toEqual([
+      usageReading(1),
+      usageReading(2),
+      usageReading(3),
+    ]);
+  });
+
+  it("closes a member probe that does not answer within the timeout and reads as failed", async () => {
+    const h = accountHarness();
+    const read = h.reader.readAccount(h.member("ana"));
+    await settled();
+    const timeout = h.timers
+      .filter((t) => t.live)
+      .sort((a, b) => a.ms - b.ms)[0];
+    if (!timeout) throw new Error("no probe timeout armed");
+    timeout.live = false;
+    timeout.fn();
+    expect((await read).reading).toEqual({ kind: "failed" });
+    expect(h.probes.map((p) => p.closes)).toEqual([1]);
+    // Its late answer does not land.
+    await h.answer("ana", accountResult(9));
+    expect(h.reader.peek("claude:ana").answer?.reading).toEqual({
+      kind: "failed",
+    });
+  });
+
+  it("drops the member slots retain does not keep, with a read in flight, and never the office slot", async () => {
+    const h = accountHarness();
+    for (const target of [h.member("ana"), h.member("ben"), h.office]) {
+      const read = h.reader.readAccount(target);
+      await settled();
+      await h.answer(target.env.ACCOUNT!, accountResult(10));
+      await read;
+    }
+    h.advance(FRESH_MS + 1);
+    const inFlight = h.reader.readAccount(h.member("cy"));
+    await settled();
+
+    h.reader.retain(new Set(["claude:ben"]));
+    await h.answer("cy", accountResult(50));
+    await inFlight;
+    expect(
+      ["ana", "ben", "cy", "office"].map(
+        (name) => h.reader.peek(`claude:${name}`).answer !== null,
+      ),
+    ).toEqual([false, true, false, true]);
+    // The dropped probe was closed once, like every member probe.
+    expect(h.probes.map((p) => [p.account, p.closes])).toEqual([
+      ["ana", 1],
+      ["ben", 1],
+      ["office", 0],
+      ["cy", 1],
     ]);
   });
 });

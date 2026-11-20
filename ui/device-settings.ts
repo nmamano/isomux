@@ -16,6 +16,7 @@ import type {
   SkillEngine,
   SkillSource,
 } from "../shared/contract-shapes.ts";
+import type { AccountUsageRowShape } from "../shared/account-usage.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import { isLoopbackUrl } from "./webhook-helpers.ts";
 import { isHostedOrigin } from "../shared/public-origin.ts";
@@ -610,6 +611,70 @@ export function getMemberUsageLayout(): MemberUsageLayout {
 
 export function setMemberUsageLayout(layout: MemberUsageLayout): void {
   setHeldLayout(KEY_MEMBER_USAGE_LAYOUT, layout);
+}
+
+// Integrations → Model providers: the rows the owners' account usage card
+// drew last (task 3e70b6d4). A first visit holds one office row with a
+// weekly and a 5-hour bar.
+const KEY_ACCOUNT_USAGE_LAYOUT = "isomux-account-usage-layout";
+const ACCOUNT_USAGE_STATES: readonly unknown[] = [
+  "usage",
+  "no_limit",
+  "signed_out",
+  "failed",
+];
+
+function accountUsageShape(raw: unknown): AccountUsageRowShape | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const { state, weekly, resets, others, members, age } = raw as Record<
+    string,
+    unknown
+  >;
+  return ACCOUNT_USAGE_STATES.includes(state) &&
+    typeof weekly === "boolean" &&
+    typeof resets === "boolean" &&
+    typeof others === "number" &&
+    Number.isInteger(others) &&
+    others >= 0 &&
+    others <= 8 &&
+    typeof members === "boolean" &&
+    typeof age === "boolean"
+    ? {
+        state: state as AccountUsageRowShape["state"],
+        weekly,
+        resets,
+        others,
+        members,
+        age,
+      }
+    : null;
+}
+
+export function getAccountUsageLayout(): AccountUsageRowShape[] {
+  return getHeldLayout<{ rows: AccountUsageRowShape[] }>(
+    KEY_ACCOUNT_USAGE_LAYOUT,
+    ({ rows }) => {
+      if (!Array.isArray(rows) || rows.length > 50) return null;
+      const shapes = rows.map(accountUsageShape);
+      return shapes.every((shape) => shape !== null) ? { rows: shapes } : null;
+    },
+    {
+      rows: [
+        {
+          state: "usage",
+          weekly: true,
+          resets: true,
+          others: 1,
+          members: true,
+          age: false,
+        },
+      ],
+    },
+  ).rows;
+}
+
+export function setAccountUsageLayout(rows: AccountUsageRowShape[]): void {
+  setHeldLayout(KEY_ACCOUNT_USAGE_LAYOUT, { rows });
 }
 
 // Settings → Access: a hosted office's card, or the switch and, when it is

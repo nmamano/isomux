@@ -68,8 +68,13 @@ import type {
   WebhookDryRunReq,
   WebhookUpdateReq,
   AccessSettings,
+  AccountUsageRowWire,
   EnterpriseViewRes,
 } from "../shared/contract-shapes.ts";
+import {
+  accountUsageOrder,
+  accountUsageRowShape,
+} from "../shared/account-usage.ts";
 import { DEFAULT_VOICE_NAME } from "../shared/voice.ts";
 import type {
   AgentBackendType,
@@ -134,6 +139,7 @@ import {
   drawnProviderRow,
   enterpriseLayoutOf,
   getProviderLayout,
+  setAccountUsageLayout,
   setDiscordLayout,
   setEnterpriseLayout,
   setExternalAccessLayout,
@@ -808,6 +814,16 @@ export function seedDemoHeldLayouts(): void {
       demoOfficeSwitches.memberUsageShare !== undefined,
     status: 0,
   });
+  const accountRows = demoAccountUsageRows();
+  const now = Date.now();
+  setAccountUsageLayout(
+    accountUsageOrder([], accountRows, now).map((id) =>
+      accountUsageRowShape(
+        accountRows.find((row) => row.id === id)!,
+        now,
+      )!,
+    ),
+  );
   const layout = getProviderLayout();
   for (const account of demoProviderAccounts()) {
     const row = drawnProviderRow(account);
@@ -3109,6 +3125,77 @@ const demoProviderLogins = new Map<string, ProviderLoginWire>();
 // them (task f183fac3): a sign-in in progress, or "signedOut".
 const demoMemberSignIns = new Map<string, ProviderLoginWire | "signedOut">();
 
+// The owners' account usage card (task 3e70b6d4): the office sign-ins and
+// Stephen's own Claude account, read a moment ago.
+function demoAccountUsageRows(): AccountUsageRowWire[] {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const week = (used: number, resetIn: number) => ({
+    label: "Weekly",
+    shortLabel: "WK",
+    usedPercent: used,
+    resetsAtMs: now + resetIn,
+  });
+  const fiveHour = (used: number) => ({
+    label: "5-hour",
+    shortLabel: "5h",
+    usedPercent: used,
+    resetsAtMs: now + 2 * 60 * 60 * 1000,
+  });
+  const observedAtMs = now - 20_000;
+  return [
+    {
+      id: "demo-office-claude",
+      provider: "claude",
+      owners: [{ kind: "office" }],
+      accountLabel: "office@example.com",
+      identity: "demo-office-claude",
+      members: ["Ricky"],
+      state: "usage",
+      plan: "max",
+      windows: [
+        week(41, 3 * day),
+        fiveHour(18),
+        {
+          label: "Weekly (Fable)",
+          shortLabel: "WK",
+          usedPercent: 63,
+          resetsAtMs: now + 3 * day,
+          modelFamily: "fable",
+        },
+      ],
+      weeklyIndex: 0,
+      observedAtMs,
+    },
+    {
+      id: "demo-stephen-claude",
+      provider: "claude",
+      owners: [{ kind: "member", username: "Stephen" }],
+      accountLabel: "stephen@example.com",
+      identity: "demo-stephen-claude",
+      members: ["Stephen"],
+      state: "usage",
+      plan: "pro",
+      windows: [week(12, 5 * day), fiveHour(4)],
+      weeklyIndex: 0,
+      observedAtMs,
+    },
+    {
+      id: "demo-office-codex",
+      provider: "codex",
+      owners: [{ kind: "office" }],
+      accountLabel: "office@example.com",
+      identity: "demo-office-codex",
+      members: [],
+      state: "usage",
+      plan: "Plus",
+      windows: [week(70, 2 * day), fiveHour(35)],
+      weeklyIndex: 0,
+      observedAtMs,
+    },
+  ];
+}
+
 function demoProviderAccounts(): ProviderAccountWire[] {
   const pairs = [
     ["codex", "office"],
@@ -3176,6 +3263,13 @@ export async function demoApi(
       items: items.slice(0, limit),
       nextBefore: items.length > limit ? items[limit - 1].sequence : null,
     };
+  }
+  const accountRow = pathname.match(/^\/api\/office\/account-usage\/([^/]+)$/);
+  if (method === "GET" && accountRow) {
+    const id = decodeURIComponent(accountRow[1]);
+    const row = demoAccountUsageRows().find((r) => r.id === id);
+    if (!row) throw new ApiError(404, "not_found", "");
+    return row;
   }
   const taskAuditMatch = pathname.match(
     /^\/api\/tasks\/([^/]+)\/(history|restore)$/,
@@ -3438,6 +3532,8 @@ export async function demoApi(
     // version on open (production requires it back on the PUT). The demo is
     // single-writer so conflicts can't happen: serve a fixed token and let the
     // PUT below ignore it.
+    case "GET /api/office/account-usage":
+      return { rows: demoAccountUsageRows() };
     case "GET /api/office/settings":
       return {
         name: state.office.name,

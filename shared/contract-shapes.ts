@@ -47,6 +47,7 @@ import type {
   AskOutcome,
   EnvVariableSource,
   SessionWire,
+  SubscriptionWindowWire,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
@@ -1784,6 +1785,38 @@ export interface EnterpriseEnableReq {
 export interface EnterpriseSecretReq {
   secret: string;
 }
+
+// Integrations > Model providers, owners only (task 3e70b6d4): one row per
+// provider account the office's agents can run on, read from the provider.
+// Rows of one account (same provider and identity) come merged; a row with
+// no identity yet does not merge.
+export type AccountUsageOwnerWire =
+  { kind: "office" } | { kind: "member"; username: string };
+
+export type AccountUsageRowWire = {
+  // Opaque, server-side: the account key never goes on the wire.
+  id: string;
+  provider: "claude" | "codex";
+  // Whose sign-in or credential it is.
+  owners: AccountUsageOwnerWire[];
+  // The account's email, when the provider names one.
+  accountLabel: string | null;
+  // Opaque token: two rows with the same provider and identity are one
+  // account. Null until a read names the account.
+  identity: string | null;
+  // Usernames of the members whose agents run on it now.
+  members: string[];
+  state: "loading" | "usage" | "no_limit" | "signed_out" | "failed";
+  plan: string | null;
+  windows: SubscriptionWindowWire[];
+  // Index into windows of the account-wide weekly window, or null.
+  weeklyIndex: number | null;
+  // When the reading was taken; null with no reading.
+  observedAtMs: number | null;
+};
+
+// office.accountUsage.list response.
+export type AccountUsageListRes = { rows: AccountUsageRowWire[] };
 
 // office.getMemberUsageStatus response: the member usage cap's status lines,
 // all providers or the one the query names. Empty while the cap is off.

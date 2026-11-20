@@ -804,6 +804,19 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.memberUsageFailed":
     "{provider}: weekly usage could not be read. Members are not capped.",
   "settings.office.memberUsageLoading": "{provider}: reading weekly usage…",
+  "accountUsage.title": "Account usage",
+  "accountUsage.hint":
+    "Every Claude and Codex account the office's agents run on.",
+  "accountUsage.refresh": "Refresh",
+  "accountUsage.office": "Office",
+  "accountUsage.loading": "Reading accounts…",
+  "accountUsage.noLimit": "No plan limit",
+  "accountUsage.signedOut": "Signed out",
+  "accountUsage.failed": "Usage could not be read.",
+  "accountUsage.weekPassed": "{percent}% of the week passed",
+  "accountUsage.members": "In use by agents of {names}",
+  "accountUsage.empty": "No accounts.",
+  "accountUsage.listFailed": "Accounts could not be read.",
 
   "settings.room.intro":
     "The vent on the wall, the s key and a double-click on the room tab open this page.",

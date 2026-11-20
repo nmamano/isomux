@@ -806,6 +806,19 @@ Cosas que puedes hacer por él:
   "settings.office.memberUsageFailed":
     "{provider}: no se pudo leer el uso semanal. Los miembros no tienen tope.",
   "settings.office.memberUsageLoading": "{provider}: leyendo el uso semanal…",
+  "accountUsage.title": "Uso de las cuentas",
+  "accountUsage.hint":
+    "Cada cuenta de Claude y Codex en la que trabajan los agentes de la oficina.",
+  "accountUsage.refresh": "Actualizar",
+  "accountUsage.office": "Oficina",
+  "accountUsage.loading": "Leyendo las cuentas…",
+  "accountUsage.noLimit": "Sin límite de plan",
+  "accountUsage.signedOut": "Sesión cerrada",
+  "accountUsage.failed": "No se pudo leer el uso.",
+  "accountUsage.weekPassed": "Ha pasado el {percent} % de la semana",
+  "accountUsage.members": "En uso por agentes de {names}",
+  "accountUsage.empty": "No hay cuentas.",
+  "accountUsage.listFailed": "No se pudieron leer las cuentas.",
 
   "settings.room.intro":
     "La rejilla de la pared, la tecla s y un doble clic en la pestaña de la sala abren esta página.",

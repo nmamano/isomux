@@ -273,6 +273,20 @@ export class ProviderAccountManager {
     return isClaudeCloudSelected(target.env) ? null : resolve(target.dir);
   }
 
+  // The directory of the member's personal sign-in for a provider, for the
+  // owners' account usage card. Null when it cannot be resolved (a
+  // collision).
+  personalDirectory(
+    userId: string,
+    provider: ProviderAccountProvider,
+  ): string | null {
+    try {
+      return resolve(this.target(userId, provider, "personal").dir);
+    } catch {
+      return null;
+    }
+  }
+
   // The Claude config directory of a scope's sign-in for this member, cloud
   // or not: Claude's own settings live there. Null when the scope has none.
   claudeConfigDir(userId: string, scope: ProviderAccountScope): string | null {

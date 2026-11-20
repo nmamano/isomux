@@ -803,6 +803,19 @@ Coses que pots fer per ell:
   "settings.office.memberUsageFailed":
     "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres no tenen topall.",
   "settings.office.memberUsageLoading": "{provider}: llegint l'ús setmanal…",
+  "accountUsage.title": "Ús dels comptes",
+  "accountUsage.hint":
+    "Cada compte de Claude i Codex en què treballen els agents de l'oficina.",
+  "accountUsage.refresh": "Actualitza",
+  "accountUsage.office": "Oficina",
+  "accountUsage.loading": "Llegint els comptes…",
+  "accountUsage.noLimit": "Sense límit de pla",
+  "accountUsage.signedOut": "Sessió tancada",
+  "accountUsage.failed": "No s'ha pogut llegir l'ús.",
+  "accountUsage.weekPassed": "Ha passat el {percent} % de la setmana",
+  "accountUsage.members": "En ús per agents de {names}",
+  "accountUsage.empty": "No hi ha comptes.",
+  "accountUsage.listFailed": "No s'han pogut llegir els comptes.",
 
   "settings.room.intro":
     "La reixeta de la paret, la tecla s i un doble clic a la pestanya de la sala obren aquesta pàgina.",

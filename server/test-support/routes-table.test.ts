@@ -1737,6 +1737,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   // A member's own sign-ins, for an owner (task f183fac3): the manager
   // pushes to the member, as for the /api/me routes.
   "memberProviderAccounts.list": { caps: ["integration:manage"], emits: [] },
+  // Every provider account's usage, for an owner (task 3e70b6d4): emails.
+  "accountUsage.list": { caps: ["integration:manage"], emits: [] },
+  "accountUsage.read": { caps: ["integration:manage"], emits: [] },
   "memberProviderAccounts.refresh": {
     caps: ["integration:manage"],
     emits: ["provider_accounts_updated"],

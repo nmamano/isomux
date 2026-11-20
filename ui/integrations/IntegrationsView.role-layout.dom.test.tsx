@@ -45,6 +45,7 @@ const OWNER_ONLY_PROVIDERS = [
   "[data-opencode-key-remove]",
   "[data-member-usage-card] input",
   "[data-member-usage-card] button",
+  "[data-account-usage-refresh]",
 ].join(", ");
 
 type Control = {

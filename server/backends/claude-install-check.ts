@@ -116,7 +116,8 @@ export function isClaudeCloudProvider(id: string | undefined): boolean {
 
 type CloudEnv = { [key: string]: string | undefined };
 
-function cloudFlag(value: string | undefined): boolean {
+// Whether the CLI reads a cloud switch (CLAUDE_CODE_USE_*) as on.
+export function cloudFlag(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
 }
 

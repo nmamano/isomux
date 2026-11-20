@@ -31,11 +31,13 @@ import {
 import { memberOfficeFolderOwner } from "./office-login-sync.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
-  createOfficeUsageReader,
+  createAccountUsageReader,
   FRESH_MS,
   WEEK_MS,
+  type AccountUsageReader,
   type OfficeUsageReader,
 } from "./office-usage.ts";
+import { usageAccountKey } from "./usage-account.ts";
 
 const DAY_MS = WEEK_MS / 7;
 
@@ -339,12 +341,24 @@ export function officeUsageTarget(provider: ProviderAccountProvider): {
 }
 
 let shared: MemberUsageCap | null = null;
+let sharedReader: AccountUsageReader | null = null;
+
+// The office's one account usage reader: the cap reads the office slots,
+// the owners' account usage card every account (task 3e70b6d4). Built on
+// first use; it reads nothing until asked.
+export function officeAccountUsageReader(): AccountUsageReader {
+  sharedReader ??= createAccountUsageReader({
+    officeTarget: officeUsageTarget,
+    keyOf: usageAccountKey,
+  });
+  return sharedReader;
+}
 
 // The office's cap. Built on first use so a process that never turns it on
 // never reads the office env or starts a reader.
 export function memberUsageCap(): MemberUsageCap {
   shared ??= createMemberUsageCap({
-    reader: createOfficeUsageReader({ officeTarget: officeUsageTarget }),
+    reader: officeAccountUsageReader(),
     officeDir,
     load: loadMemberUsageCap,
     save: saveMemberUsageCap,
@@ -358,6 +372,8 @@ export function memberUsageCap(): MemberUsageCap {
 export function resetMemberUsageCap(): void {
   shared?.close();
   shared = null;
+  sharedReader?.close();
+  sharedReader = null;
 }
 
 // Tests swap the office's cap and must put back exactly what they found.

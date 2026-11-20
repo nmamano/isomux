@@ -872,6 +872,10 @@ describe("privileged agents", () => {
           "memberProviderAccounts.callback",
           "memberProviderAccounts.cancel",
           "memberProviderAccounts.disconnect",
+          // Every provider account's usage, emails included: an owner's
+          // session only (task 3e70b6d4).
+          "accountUsage.list",
+          "accountUsage.read",
           "pagerSettings.get",
           "pagerSettings.update",
           "pagerSettings.test",

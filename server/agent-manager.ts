@@ -971,6 +971,7 @@ export function createAgentManager(deps: ManagerDeps) {
     getAgentSubscriptionUsage,
     getAgentContextUsage,
     refreshSignIn,
+    agentUsageAccounts,
   } = createUsageReadings({
     agents,
     officeState,
@@ -10598,6 +10599,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
     stop,
+    agentUsageAccounts,
     officeClaudeMembers,
     holdMember,
     releaseMember,

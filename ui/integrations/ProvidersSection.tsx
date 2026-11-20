@@ -22,6 +22,7 @@ import {
   type MemberSignIns,
 } from "../components/ProviderSignInCard.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
+import { AccountUsageCard } from "../components/AccountUsageCard.tsx";
 import { OpenCodeSection } from "./OpenCodeSection.tsx";
 import { errorText, flatCard } from "./kit.tsx";
 import { useMyConnections } from "./my-connections.tsx";
@@ -161,6 +162,9 @@ export function ProvidersSection({
           pageLook
         />
       ))}
+      {target.kind === "office" && (
+        <AccountUsageCard style={flatCard} readOnly={role !== "owner"} />
+      )}
       <OpenCodeSection
         target={target}
         role={role}

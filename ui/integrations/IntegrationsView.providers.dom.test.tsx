@@ -12,7 +12,8 @@ const { act, fireEvent } = await import("@testing-library/react");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { notifyConnectionsChanged, notifyManagedEnvSaved } =
   await import("../connections-events.ts");
-const { open } = await import("../test-support/integrations-page-fixture.ts");
+const { open, MEMBER, OWNER } =
+  await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
 let accounts: () => Promise<unknown>;
@@ -31,6 +32,7 @@ beforeEach(() => {
     sent.push(`${method} ${path}`);
     if (path.startsWith("/api/me/provider-accounts")) return accounts();
     if (path === "/api/me/connections") return connections();
+    if (path.startsWith("/api/office/account-usage")) return { rows: [] };
     if (path.endsWith("/mcp-servers")) return { servers: [] };
     if (path.endsWith("/secrets")) return { secrets: [] };
     if (path.endsWith("/env")) return { mode: "managed", values: {} };
@@ -133,4 +135,39 @@ it("reads the accounts again after a variable or secret save", async () => {
     notifyConnectionsChanged();
   });
   expect(reads()).toBe(first + 2);
+});
+
+// Task 3e70b6d4: the account usage card is the owners'. A member's office
+// card keeps it in place (nothing moves for another role) with Refresh
+// disabled, and does not ask the route: it carries every member's email.
+it("reads the account usage card for an owner only, and keeps its place on a member's page", async () => {
+  const usageCard = (view: Awaited<ReturnType<typeof open>>) => {
+    const office = view.container.querySelector(
+      '[data-integrations-card="office"]',
+    )!;
+    const card = office.querySelector("[data-account-usage]");
+    const refresh = card?.querySelector<HTMLButtonElement>(
+      "[data-account-usage-refresh]",
+    );
+    return { card: card !== null, refreshDisabled: refresh?.disabled ?? null };
+  };
+  const asked = () =>
+    sent.some((line) => line.includes("/api/office/account-usage"));
+
+  const owner = await open(OWNER, { request: { tab: "providers" } });
+  expect({ ...usageCard(owner), asked: asked() }).toEqual({
+    card: true,
+    refreshDisabled: false,
+    asked: true,
+  });
+  owner.unmount();
+
+  sent.length = 0;
+  const member = await open(MEMBER, { request: { tab: "providers" } });
+  expect({ ...usageCard(member), asked: asked() }).toEqual({
+    card: true,
+    refreshDisabled: true,
+    asked: false,
+  });
+  member.unmount();
 });

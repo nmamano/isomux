@@ -64,3 +64,8 @@ export function usageKeyOnDirectory(
 ): boolean {
   return key.startsWith(`${provider}\0${resolve(dir)}\0`);
 }
+
+// The account directory a key names (usageAccountKey).
+export function usageKeyDirectory(key: string): string | null {
+  return key.split("\0")[1] ?? null;
+}

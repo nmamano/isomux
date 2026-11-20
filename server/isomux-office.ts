@@ -250,6 +250,7 @@ import {
 } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import {
+  officeAgentHost,
   setOfficeAgentHost,
   setIsolationSetupFailureListener,
 } from "./agent-host.ts";
@@ -424,6 +425,7 @@ import {
 } from "./connection-tests.ts";
 import { connectionTestsHandlers } from "./routes/handlers/connection-tests.ts";
 import {
+  buildEnvForUserId,
   claudeFamilyModelsForUserId,
   envSourceForUserId,
   limitedClaudeFamiliesForUserId,
@@ -531,6 +533,12 @@ import {
   type ProviderAccountsDeps,
 } from "./routes/handlers/provider-accounts.ts";
 import { openCodeHandlers } from "./routes/handlers/opencode.ts";
+import { accountUsageHandlers } from "./routes/handlers/account-usage.ts";
+import {
+  collectAccountUsageSources,
+  createAccountUsageService,
+} from "./account-usage.ts";
+import { usageAccountKey, usageKeyDirectory } from "./usage-account.ts";
 import { buildConnectionsList } from "./connections-list.ts";
 import { buildAgentConnections } from "./agent-connections.ts";
 import { connectionsHandlers } from "./routes/handlers/connections.ts";
@@ -555,6 +563,7 @@ import {
   officeCodexSourceRoot,
 } from "./provider-skill-links.ts";
 import {
+  isPersonalProviderActive,
   officePersonalProviderHome,
   removePersonalProviderHomes,
   sweepPersonalProviderHomes,
@@ -605,6 +614,8 @@ import { collectMoveOutsideFolders } from "./office-move-outside.ts";
 import type { MoveOutsideFolders } from "../shared/office-move.ts";
 import {
   memberUsageCap,
+  officeAccountUsageReader,
+  officeUsageTarget,
   resetMemberUsageCap,
   usageCapText,
 } from "./member-usage-cap.ts";
@@ -6261,6 +6272,50 @@ function buildExecutorDeps(
       userIdForUsername: (username) => getUserByName(username)?.id ?? null,
     }),
   );
+  // The owners' account usage card (task 3e70b6d4): its accounts, read by
+  // the reader the member usage cap shares.
+  const accountUsageAgentEnv = (
+    userId: string | null,
+    provider: "claude" | "codex",
+    dir: string | null,
+  ): Record<string, string | undefined> => {
+    const env = buildEnvForUserId(userId) ?? officeAgentHost().baseEnv();
+    if (!dir) return env;
+    return provider === "claude"
+      ? { ...env, CLAUDE_CONFIG_DIR: dir }
+      : { ...env, CODEX_HOME: dir };
+  };
+  const accountUsage = createAccountUsageService({
+    reader: {
+      peek: (key) => officeAccountUsageReader().peek(key),
+      readAccount: (target, opts) =>
+        officeAccountUsageReader().readAccount(target, opts),
+      retain: (keys) => officeAccountUsageReader().retain(keys),
+    },
+    sources: () =>
+      collectAccountUsageSources({
+        officeEnv: (provider) => officeUsageTarget(provider).env,
+        memberIds: () => listUsers().map((user) => user.id),
+        personalEnv: (userId, provider) => {
+          if (!isPersonalProviderActive(userId, provider)) return null;
+          const dir = providerAccountManager.personalDirectory(
+            userId,
+            provider,
+          );
+          return dir ? accountUsageAgentEnv(userId, provider, dir) : null;
+        },
+        agentEnv: accountUsageAgentEnv,
+        liveAgents: () =>
+          agentManager.agentUsageAccounts().map((agent) => ({
+            ...agent,
+            dir: agent.key === null ? null : usageKeyDirectory(agent.key),
+          })),
+        keyOf: usageAccountKey,
+      }),
+    liveAgents: () => agentManager.agentUsageAccounts(),
+    username: (userId) => getUserById(userId)?.name ?? null,
+  });
+  register(accountUsageHandlers({ service: () => accountUsage }));
   register(
     openCodeHandlers({
       status: (userId) => ({
