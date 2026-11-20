@@ -121,45 +121,33 @@ function failureReport(s: FailedScreen): string {
   ].join("\n");
 }
 
-// The updater's step and own message, so an owner can report a failed
-// update without a shell.
+// The updater's own message, so an owner can report a failed update
+// without a shell. The step is in the copied report.
 function FailureDetails({ screen }: { screen: FailedScreen }) {
-  const { t } = useI18n();
+  if (!screen.message) return null;
   return (
     <div style={{ marginTop: 12, width: "100%" }}>
-      <p
+      <pre
         style={{
-          fontSize: 12,
-          color: "var(--text-dim)",
-          lineHeight: 1.6,
           margin: 0,
+          padding: "8px 10px",
+          maxHeight: 160,
+          overflow: "auto",
+          textAlign: "left",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: "var(--text-primary)",
+          background: "var(--bg-code)",
+          border: "1px solid var(--border-light)",
+          borderRadius: 8,
+          userSelect: "text",
         }}
       >
-        {t("update.screen.failedStep", { step: screen.phase ?? "" })}
-      </p>
-      {screen.message && (
-        <pre
-          style={{
-            margin: "8px 0 0",
-            padding: "8px 10px",
-            maxHeight: 160,
-            overflow: "auto",
-            textAlign: "left",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 12,
-            lineHeight: 1.5,
-            color: "var(--text-primary)",
-            background: "var(--bg-code)",
-            border: "1px solid var(--border-light)",
-            borderRadius: 8,
-            userSelect: "text",
-          }}
-        >
-          {screen.message}
-        </pre>
-      )}
+        {screen.message}
+      </pre>
     </div>
   );
 }

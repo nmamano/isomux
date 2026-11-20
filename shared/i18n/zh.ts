@@ -848,7 +848,6 @@ export const zh: Catalog = {
   "update.screen.hint": "更新通常需要几分钟。",
   "update.screen.done": "此办公室现在运行 {version}。",
   "update.screen.failed": "更新未完成。此办公室运行 {version}。",
-  "update.screen.failedStep": "在 {step} 步骤停止。",
   "update.screen.reload": "重新加载",
   "update.screen.hide": "隐藏",
   "update.outcome.title": "更新说明",

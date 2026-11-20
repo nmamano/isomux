@@ -202,15 +202,18 @@ describe("failed update details", () => {
   const copyButton = (view: ReturnType<typeof show>) =>
     view.queryByRole("button", { name: t("common.copy") });
 
-  it("an owner reads the step and the message, and copies a report", async () => {
+  it("an owner reads the message, and copies a report with the step", async () => {
     const view = show(watching(false), status(OLD, failedP()));
     expect(
       view.queryByText(t("update.screen.failed", { version: OLD })),
     ).not.toBeNull();
     // The message whole, in an element of its own.
     expect(view.queryByText(MESSAGE)).not.toBeNull();
-    // The step by the updater's phase id.
-    expect(view.getByRole("dialog").textContent).toContain("validate");
+    // The screen does not name the step (the message says why); the copied
+    // report does.
+    expect(
+      /\bvalidate\b/.test(view.getByRole("dialog").textContent ?? ""),
+    ).toBe(false);
     const lines = (await copyReport(view)).split("\n");
     // One fact per line: the version it runs, the target, the step, the
     // message.
@@ -233,12 +236,15 @@ describe("failed update details", () => {
     expect(copyButton(view)).toBeNull();
   });
 
-  it("with no message, the step and the report still show", async () => {
+  it("with no message, the screen shows no step but the report keeps it", async () => {
     const view = show(
       watching(false),
       status(OLD, failedP({ message: undefined })),
     );
-    expect(view.getByRole("dialog").textContent).toContain("validate");
+    expect(
+      /\bvalidate\b/.test(view.getByRole("dialog").textContent ?? ""),
+    ).toBe(false);
+    expect(copyButton(view)).not.toBeNull();
     const copied = await copyReport(view);
     expect(copied).toMatch(/\bvalidate\b/);
     expect(copied).toContain(NEW);
