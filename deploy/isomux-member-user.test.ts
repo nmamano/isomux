@@ -190,7 +190,7 @@ ${body}
     userId: USER_ID,
     name: "Alice",
     role: "member",
-    slug: "alice",
+    userName: OS_USER,
     osUser: null,
     state: "none",
   });
@@ -315,6 +315,32 @@ describe("enable", () => {
     expect(statSync(join(root, "home", OS_USER)).mode & 0o777).toBe(0o700);
   });
 
+  // Task 3b5234dc: with no --user, the new user's name is the one the office
+  // gives (info's userName: the member's own name, or the next free one),
+  // with nothing added.
+  it("makes the user that the office names when no --user is given", () => {
+    shimOsUser = "alice2";
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      name: "Alice",
+      role: "member",
+      userName: "alice2",
+      osUser: null,
+      state: "none",
+    });
+    const result = run("enable", "Alice");
+    expect([result.code, result.stderr]).toEqual([0, ""]);
+    expect(log()).toContain(
+      "useradd --create-home --user-group --shell /bin/bash alice2",
+    );
+    expect(sent("prepare")).toEqual({
+      member: USER_ID,
+      osUser: "alice2",
+      uid: 2001,
+    });
+  });
+
   it("takes --user, and refuses a name that is not a user name", () => {
     expect(run("enable", "Alice", "--user", "isomux-x/../y").code).toBe(1);
     expect(called("useradd")).toBe(false);
@@ -328,7 +354,7 @@ describe("enable", () => {
           ok: true,
           userId: USER_ID,
           role: "owner",
-          slug: "alice",
+          userName: OS_USER,
           osUser: null,
         }),
     ],
@@ -339,7 +365,7 @@ describe("enable", () => {
           ok: true,
           userId: USER_ID,
           role: "member",
-          slug: "alice",
+          userName: OS_USER,
           osUser: { name: "isomux-old", uid: 2999 },
         }),
     ],
@@ -500,12 +526,12 @@ describe("enable", () => {
 // nothing to undo (design 2.2).
 describe("an enable that go-on did not finish", () => {
   // The office's record of the member, as info answers it after the cut.
-  function recorded(over: { uid?: number; slug?: string } = {}) {
+  function recorded(over: { uid?: number; userName?: string } = {}) {
     answer("info", 200, {
       ok: true,
       userId: USER_ID,
       role: "member",
-      slug: over.slug ?? "alice",
+      userName: over.userName ?? OS_USER,
       osUser: { name: OS_USER, uid: over.uid ?? 2001 },
       state: "isolated",
     });
@@ -537,7 +563,7 @@ describe("an enable that go-on did not finish", () => {
   // have a new name since: the record wins). Not recorded: the cut came
   // first.
   for (const [name, record] of [
-    ["the office recorded the user", () => recorded({ slug: "renamed" })],
+    ["the office recorded the user", () => recorded({ userName: "renamed" })],
     ["the office did not record the user", () => {}],
   ] as const)
     it(`keeps the user when the office does not answer, and a rerun finishes when ${name}`, () => {
@@ -678,7 +704,7 @@ describe("a member who came with an office move", () => {
       userId: USER_ID,
       name: "Alice",
       role: "member",
-      slug: "alice",
+      userName: OS_USER,
       osUser: { name: OS_USER, uid: 1501 },
       state: "isolated",
       movedIn: true,
@@ -769,7 +795,7 @@ describe("disable", () => {
       ok: true,
       userId: USER_ID,
       role: "member",
-      slug: "alice",
+      userName: OS_USER,
       osUser: { name: OS_USER, uid: 2001 },
     });
     mkdirSync(join(root, "users"), { recursive: true });
@@ -1042,7 +1068,7 @@ describe("in the container", () => {
       ok: true,
       userId: USER_ID,
       role: "member",
-      slug: "alice",
+      userName: OS_USER,
       osUser: { name: OS_USER, uid: 2001 },
     });
     rmSync(join(root, "log"));
@@ -1077,7 +1103,7 @@ describe("in the container", () => {
       ok: true,
       userId: USER_ID,
       role: "member",
-      slug: "alice",
+      userName: OS_USER,
       osUser: { name: OS_USER, uid: 2001 },
     });
     fail("python3", "check-made");
@@ -1094,7 +1120,7 @@ describe("in the container", () => {
       ok: true,
       userId: USER_ID,
       role: "member",
-      slug: "alice",
+      userName: OS_USER,
       osUser: { name: OS_USER, uid: 1007 },
     });
   }
@@ -1275,7 +1301,7 @@ describe("an existing OS user", () => {
       ok: true,
       userId: USER_ID,
       role: "member",
-      slug: "alice",
+      userName: OS_USER,
       osUser,
       ...(osUser ? { state: "isolated" } : { state: "none" }),
     });
@@ -1497,7 +1523,7 @@ describe("an existing OS user", () => {
           ok: true,
           userId: USER_ID,
           role: "owner",
-          slug: "alice",
+          userName: OS_USER,
           osUser: null,
         }),
     ],

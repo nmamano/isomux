@@ -16,6 +16,10 @@
 //   enable that prepared and never went on), and an owner gets no command;
 // - the office's OS user (task 83ebaa3c) comes with every state and every
 //   support, is the server's own by default, and is left out when unknown.
+// - the new user's default name (task 3b5234dc) is the member's own name
+//   fitted to the user-name pattern, with no prefix; when another user or
+//   group holds it, the first free of <name>2, <name>3, ... (at most 32
+//   characters); with no names read, the plain name.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
@@ -23,21 +27,25 @@ import { userInfo } from "node:os";
 import {
   clearMemberUserAttempt,
   CONTAINER_PLACEHOLDER,
+  freeOsUserName,
   MEMBER_USER_COMMAND_PATH,
   memberUserSupport,
   type MemberUserSupportInput,
   MEMBER_USER_CANDIDATES_MAX,
+  memberOsUserName,
   memberOsUserView,
   memberUserCandidates,
   type MemberUserCandidatesInput,
   memberUserCommands,
   type MemberUserSupport,
   noteMemberUserAttempt,
+  osUserNamesTaken,
   PREPARED_STALE_MS,
   resetMemberUserAttempts,
 } from "./member-os-user-view.ts";
 import {
   memberOsUsersPath,
+  OS_USER_NAME_PATTERN,
   recordMemberOsUser,
   reloadMemberOsUsers,
 } from "./member-os-users.ts";
@@ -51,7 +59,6 @@ import {
   resetMemberHosts,
 } from "./member-hosts.ts";
 import { createMember, deleteUserById } from "./users.ts";
-import { memberSlug } from "./member-user-admin.ts";
 import type { UpdateConfRead } from "./update-conf.ts";
 import {
   isolateMember,
@@ -684,7 +691,7 @@ describe("the view's fields for an existing OS user", () => {
     expect(viewOf(INSTALLER)).toMatchObject({
       state: "off",
       candidates: CANDIDATES,
-      newUserName: `isomux-${memberSlug("Mia Lopez")}`,
+      newUserName: "mia-lopez",
     });
     // An empty list is a list (an LDAP box lists no directory users).
     expect(viewOf(INSTALLER, []).candidates).toEqual([]);
@@ -698,7 +705,7 @@ describe("the view's fields for an existing OS user", () => {
       expect([support, v.candidates, v.newUserName]).toEqual([
         support,
         undefined,
-        `isomux-${memberSlug("Mia Lopez")}`,
+        "mia-lopez",
       ]);
     }
     const unsupported = viewOf(UNSUPPORTED);
@@ -747,5 +754,192 @@ describe("the view's fields for an existing OS user", () => {
     // The enabling condition: the entry was read (as a user, or as broken).
     expect(v.state).not.toBe("off");
     expect(v.rootCapable).toBeUndefined();
+  });
+});
+
+// Task 3b5234dc: the default OS user name is the member's name, not
+// isomux-<name>.
+describe("the default OS user name", () => {
+  it("is the member's name in lowercase, with marks dropped and other runs as one dash", () => {
+    const cases: [string, string][] = [
+      ["Manel", "manel"],
+      ["Manél", "manel"],
+      ["ÉMILE", "emile"],
+      ["Ödön Smith", "odon-smith"],
+      ["Mia Lopez", "mia-lopez"],
+      ["Boss Big O Speedrun", "boss-big-o-speedrun"],
+      ["Ma.nel", "ma-nel"],
+      ["  --Bob--  ", "bob"],
+      // "_" is in the pattern: it stays.
+      ["mia_lopez", "mia_lopez"],
+      ["café_bar 2", "cafe_bar-2"],
+    ];
+    expect(cases.map(([name]) => [name, memberOsUserName(name)])).toEqual(
+      cases,
+    );
+  });
+
+  it("puts member- before a digit, and is member when nothing of the name is left", () => {
+    expect(memberOsUserName("42")).toBe("member-42");
+    expect(memberOsUserName("7 Up")).toBe("member-7-up");
+    for (const name of ["", "李雷", "!!!", "---"])
+      expect([name, memberOsUserName(name)]).toEqual([name, "member"]);
+  });
+
+  it("is cut to 32 characters with no dash at the end", () => {
+    expect(memberOsUserName("a".repeat(80))).toBe("a".repeat(32));
+    // The cut ends on the dash: the dash goes.
+    expect(memberOsUserName(`${"a".repeat(31)} b`)).toBe("a".repeat(31));
+    const digits = memberOsUserName("9".repeat(40));
+    expect(digits).toBe(`member-${"9".repeat(25)}`);
+  });
+
+  it("always matches the root command's pattern", () => {
+    for (const name of [
+      "Alice",
+      "Ödön Smith",
+      "  --Bob--  ",
+      "李雷",
+      "a".repeat(80),
+      "x-".repeat(30),
+      "9".repeat(40),
+      `${"9".repeat(30)}-x`,
+      "_x",
+      "-_-",
+      "Ⅻ ﬁve",
+    ]) {
+      const got = memberOsUserName(name);
+      expect([name, got, OS_USER_NAME_PATTERN.test(got)]).toEqual([
+        name,
+        got,
+        true,
+      ]);
+      expect([name, got.endsWith("-")]).toEqual([name, false]);
+    }
+  });
+});
+
+describe("the first free OS user name", () => {
+  const taken = (...names: string[]) => new Set(names);
+
+  it("is the name when it is free, and when no names were read", () => {
+    expect(freeOsUserName("manel", taken())).toBe("manel");
+    expect(freeOsUserName("manel", taken("manel2", "bob"))).toBe("manel");
+    expect(freeOsUserName("manel", null)).toBe("manel");
+  });
+
+  it("is the first free of <name>2, <name>3, ... when the name is taken", () => {
+    expect(freeOsUserName("manel", taken("manel"))).toBe("manel2");
+    expect(freeOsUserName("manel", taken("manel", "manel2"))).toBe("manel3");
+    // A gap is used.
+    expect(freeOsUserName("manel", taken("manel", "manel3"))).toBe("manel2");
+    const nine = ["manel", ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `manel${n}`)];
+    expect(freeOsUserName("manel", taken(...nine))).toBe("manel10");
+  });
+
+  it("cuts the name so that the name and its number fit 32 characters", () => {
+    const long = "a".repeat(32);
+    expect(freeOsUserName(long, taken(long))).toBe(`${"a".repeat(31)}2`);
+    const nine = [
+      long,
+      ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${"a".repeat(31)}${n}`),
+    ];
+    expect(freeOsUserName(long, taken(...nine))).toBe(`${"a".repeat(30)}10`);
+    for (const got of [
+      freeOsUserName(long, taken(long)),
+      freeOsUserName(long, taken(...nine)),
+    ])
+      expect([got, OS_USER_NAME_PATTERN.test(got)]).toEqual([got, true]);
+  });
+});
+
+describe("the new user's default name in the view", () => {
+  const viewOf = (
+    support: MemberUserSupport,
+    osUserNames: string[] | null | undefined,
+  ) => {
+    const user = { id: ID, role: "member" as const, name: "Mia Lopez" };
+    const opts = {
+      support,
+      now: NOW,
+      candidates: [{ name: "mia-lopez", uid: 1001 }],
+      ...(osUserNames === undefined ? {} : { osUserNames }),
+    };
+    return memberOsUserView(user, opts);
+  };
+
+  it("is the member's name while no user or group holds it, or no names were read", () => {
+    for (const names of [undefined, null, [], ["bob", "mia-lopez2"]])
+      expect([names, viewOf(INSTALLER, names).newUserName]).toEqual([
+        names,
+        "mia-lopez",
+      ]);
+  });
+
+  it("is the next free name while the name is taken, on every shape", () => {
+    for (const support of [
+      INSTALLER,
+      CONTAINER,
+      { ok: true, shape: "docker" } as MemberUserSupport,
+    ]) {
+      expect([
+        support,
+        viewOf(support, ["mia-lopez"]).newUserName,
+        viewOf(support, ["mia-lopez", "mia-lopez2"]).newUserName,
+      ]).toEqual([support, "mia-lopez2", "mia-lopez3"]);
+    }
+    // A person's login user of that name stays a candidate to pick.
+    expect(viewOf(INSTALLER, ["mia-lopez"]).candidates).toEqual([
+      { name: "mia-lopez", uid: 1001 },
+    ]);
+  });
+});
+
+describe("the names a new user cannot take", () => {
+  const PASSWD = [
+    "root:x:0:0:root:/root:/bin/bash",
+    "manel:x:1001:1001::/home/manel:/bin/bash",
+    "isomux-old:x:1002:1002::/home/isomux-old:/bin/bash",
+    "",
+  ].join("\n");
+  const GROUP = ["root:x:0:", "manel:x:1001:", "admin:x:110:", ""].join("\n");
+  const taken = (over: Partial<Parameters<typeof osUserNamesTaken>[0]> = {}) =>
+    [
+      ...osUserNamesTaken({
+        passwd: PASSWD,
+        group: GROUP,
+        recorded: [],
+        made: [],
+        ...over,
+      }),
+    ].sort();
+
+  it("are every passwd name and every group name, also a group with no user of that name", () => {
+    expect(taken()).toEqual(["admin", "isomux-old", "manel", "root"]);
+    // The enabling condition of the group case: no passwd line names admin.
+    expect(PASSWD.includes("admin")).toBe(false);
+  });
+
+  it("hold the names members run as, also one with no passwd line here", () => {
+    expect(taken({ recorded: ["mia"] })).toContain("mia");
+  });
+
+  it("leave out a user the root command made, unless a member runs as it", () => {
+    // A user that a plain disable kept (locked, its mark kept): the root
+    // command resumes it for the same member, so it is offered.
+    expect(taken({ made: ["isomux-old"] })).not.toContain("isomux-old");
+    // A member runs as it: taken, mark or not.
+    expect(taken({ recorded: ["isomux-old"], made: ["isomux-old"] })).toContain(
+      "isomux-old",
+    );
+  });
+
+  it("skip a line with no name or no field separator", () => {
+    expect(
+      taken({
+        passwd: `${PASSWD}garbage\n:x:5:5::/:/bin/sh\n`,
+        group: `${GROUP}\nalso-garbage`,
+      }),
+    ).toEqual(["admin", "isomux-old", "manel", "root"]);
   });
 });

@@ -21,7 +21,6 @@ import {
   claimMemberMoves,
   handleMemberUserAdmin,
   memberPlaceRunning,
-  memberSlug,
   releaseMemberMoves,
   memberUsersSupport,
   setMemberUserAdminDeps,
@@ -118,6 +117,8 @@ function deps(
     },
     connectWaitMs: 300,
     connectPollMs: 10,
+    // No names taken: a test reads no passwd of this box.
+    takenOsUserNames: async () => [],
     ...over,
   });
 }
@@ -219,7 +220,7 @@ describe("the gate", () => {
 });
 
 describe("info", () => {
-  it("names the member by id or name, with the default user name's slug and the OS user", async () => {
+  it("names the member by id or name, with the OS user", async () => {
     const alice = member("Alice Ödön-Smith");
     deps();
     const byName = await call("info", { member: "Alice Ödön-Smith" });
@@ -240,21 +241,21 @@ describe("info", () => {
     expect(isolated.body.state).toBe("isolated");
   });
 
-  it("makes a slug that fits a user name: lowercase, dashes, at most 25 characters, never empty", () => {
-    for (const name of [
-      "Alice",
-      "Ödön Smith",
-      "  --Bob--  ",
-      "李雷",
-      "a".repeat(80),
-      "x-".repeat(30),
-    ]) {
-      const slug = memberSlug(name);
-      expect(`isomux-${slug}`).toMatch(/^[a-z_][a-z0-9_-]{0,31}$/);
-      expect(slug.length).toBeGreaterThan(0);
-      expect(slug.endsWith("-")).toBe(false);
-    }
-    expect(memberSlug("Alice Smith")).toBe("alice-smith");
+  // Task 3b5234dc: userName is the default name of a new user for the
+  // command line with no --user, the same name the page shows: the member's
+  // own name, or the next free one.
+  it("gives the member's name as the new user's name while it is free, and the next free name while it is taken", async () => {
+    member("Alice Ödön-Smith");
+    const userName = async (taken: string[] | null) => {
+      deps({ takenOsUserNames: async () => taken });
+      return (await call("info", { member: "Alice Ödön-Smith" })).body.userName;
+    };
+    expect(await userName([])).toBe("alice-odon-smith");
+    expect(await userName(null)).toBe("alice-odon-smith");
+    expect(await userName(["alice-odon-smith"])).toBe("alice-odon-smith2");
+    expect(
+      await userName(["alice-odon-smith", "alice-odon-smith2", "bob"]),
+    ).toBe("alice-odon-smith3");
   });
 });
 

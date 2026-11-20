@@ -9,7 +9,7 @@ import {
   readMemberUserCandidates,
 } from "./member-os-user-view.ts";
 import type { MemberOsUserRun } from "./member-os-user-run.ts";
-import { memberUsersSupport } from "./member-user-admin.ts";
+import { memberUsersSupport, takenOsUserNames } from "./member-user-admin.ts";
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
 import type { AgentInfo, UserRecord, WebhookRecord } from "../shared/types.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
@@ -405,16 +405,21 @@ export function createUsersRoutes(
       const support = memberUsersSupport();
       // Task e15a82e7: the existing users to pick, only where the page shows
       // them (memberOsUserView).
-      const candidates =
+      const off =
         user.role !== "owner" &&
         support.ok &&
-        support.shape === "installer" &&
-        memberOsUserState(user.id).kind === "none"
+        memberOsUserState(user.id).kind === "none";
+      const candidates =
+        off && support.shape === "installer"
           ? await readMemberUserCandidates()
           : null;
+      // Task 3b5234dc: the names a new user cannot take, for its default.
+      const osUserNames = off ? await takenOsUserNames() : null;
       // The member may be gone during the probe.
       const now = getUserById(user.id);
-      return now ? memberOsUserView(now, { support, run, candidates }) : null;
+      return now
+        ? memberOsUserView(now, { support, run, candidates, osUserNames })
+        : null;
     },
     runMemberOsUser: async (username, body) => {
       const user = getUser(username);

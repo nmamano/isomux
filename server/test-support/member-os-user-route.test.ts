@@ -20,7 +20,11 @@ import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { MEMBER_USER_COMMAND_PATH } from "../member-os-user-view.ts";
-import { memberSlug, setMemberUserAdminDeps } from "../member-user-admin.ts";
+import {
+  handleMemberUserAdmin,
+  type MemberUserAdminDeps,
+  setMemberUserAdminDeps,
+} from "../member-user-admin.ts";
 import type { MemberOsUserWire } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
@@ -29,8 +33,13 @@ afterEach(async () => {
   server = null;
 });
 
+// No OS user names taken: a test reads no passwd of this box.
+const CONTAINER_DEPS: Partial<MemberUserAdminDeps> = {
+  support: { ok: true, shape: "container" },
+  takenOsUserNames: async () => [],
+};
 beforeAll(() => {
-  setMemberUserAdminDeps({ support: { ok: true, shape: "container" } });
+  setMemberUserAdminDeps(CONTAINER_DEPS);
 });
 afterAll(() => {
   setMemberUserAdminDeps(null);
@@ -133,8 +142,8 @@ describe("GET /api/users/:username/os-user", () => {
     expect(view.state).toBe("off");
     expect(view.run).toBeNull();
     // officeOsUser is the office's OS user, not the member's (task 83ebaa3c).
-    // newUserName is the default new user's name, from the member's slug
-    // (task e15a82e7): letters, digits and dashes only.
+    // newUserName is the default new user's name (task e15a82e7): the
+    // member's own name while it is free (task 3b5234dc).
     expect(Object.keys(view).sort()).toEqual(
       [
         "commands",
@@ -145,7 +154,7 @@ describe("GET /api/users/:username/os-user", () => {
         "newUserName",
       ].sort(),
     );
-    expect(view.newUserName).toBe(`isomux-${memberSlug("Mia")}`);
+    expect(view.newUserName).toBe("mia");
     expect(view.officeOsUser).toBe(userInfo().username);
     expect(view.commands?.enable.endsWith(`enable ${o.ids.mia}`)).toBe(true);
     // An owner never gets an OS user: no command.
@@ -159,7 +168,35 @@ describe("GET /api/users/:username/os-user", () => {
       expect(refused.support).toEqual({ ok: false, reason: "kubernetes" });
       expect(refused.commands).toBeNull();
     } finally {
-      setMemberUserAdminDeps({ support: { ok: true, shape: "container" } });
+      setMemberUserAdminDeps(CONTAINER_DEPS);
+    }
+  });
+
+  // Task 3b5234dc: a taken name gives the next free one, and the page and
+  // the root command's default (info's userName, for a command line with no
+  // --user) give the same name from the same names.
+  it("gives the next free name while the member's name is taken, the same name the root command's default takes", async () => {
+    const o = await office();
+    const both = async (taken: string[] | null) => {
+      setMemberUserAdminDeps({
+        ...CONTAINER_DEPS,
+        takenOsUserNames: async () => taken,
+      });
+      const view = (await get(o.srv, "Mia", o.callers.ownerSession))
+        .body as MemberOsUserWire;
+      const info = await handleMemberUserAdmin("/admin/member-user/info", {
+        member: o.ids.mia,
+      });
+      const body = (await info.json()) as { userName?: unknown };
+      return [view.newUserName, body.userName];
+    };
+    try {
+      expect(await both(["mia"])).toEqual(["mia2", "mia2"]);
+      expect(await both(["mia", "mia2"])).toEqual(["mia3", "mia3"]);
+      expect(await both(["bob"])).toEqual(["mia", "mia"]);
+      expect(await both(null)).toEqual(["mia", "mia"]);
+    } finally {
+      setMemberUserAdminDeps(CONTAINER_DEPS);
     }
   });
 

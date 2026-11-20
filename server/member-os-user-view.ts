@@ -177,22 +177,28 @@ export function memberUserCandidates(
 // Where the root command keeps its marks (deploy/isomux-member-user.sh
 // ETC_DIR): <user>.made names a user it made.
 const MEMBER_RUNNER_ETC = "/etc/isomux/member-runner";
+// The container's marks (deploy/container/member-users.py ROOT/etc).
+const CONTAINER_MEMBER_ETC = "/var/data/members/etc";
 // getent passwd also lists directory users (LDAP, SSSD), which can be slow.
 const PASSWD_READ_MS = 5000;
 const PASSWD_READ_MAX_BYTES = 32 * 1024 * 1024;
 
-// The page reads the state every 3 s while it waits: one passwd read serves
+// The page reads the state every 3 s while it waits: one getent read serves
 // the reads of this long. The marks and the records are read each time.
 const PASSWD_KEEP_MS = 30_000;
-let passwdRead: { at: number; text: Promise<string | null> } | null = null;
+const getentReads = new Map<
+  "passwd" | "group",
+  { at: number; text: Promise<string | null> }
+>();
 
-// getent passwd's output, or null when it fails or times out (not kept).
-function readPasswd(): Promise<string | null> {
+// getent passwd's or group's output, or null when it fails or times out
+// (not kept).
+function readGetent(db: "passwd" | "group"): Promise<string | null> {
   const now = Date.now();
-  if (passwdRead && now - passwdRead.at < PASSWD_KEEP_MS)
-    return passwdRead.text;
+  const kept = getentReads.get(db);
+  if (kept && now - kept.at < PASSWD_KEEP_MS) return kept.text;
   const read = { at: now, text: Promise.resolve<string | null>(null) };
-  read.text = promisify(execFile)("getent", ["passwd"], {
+  read.text = promisify(execFile)("getent", [db], {
     encoding: "utf8",
     timeout: PASSWD_READ_MS,
     maxBuffer: PASSWD_READ_MAX_BYTES,
@@ -200,14 +206,37 @@ function readPasswd(): Promise<string | null> {
     ({ stdout }) => stdout,
     (error: unknown) => {
       console.error(
-        `[member-os-user] cannot list the OS users: ${(error as Error).message}`,
+        `[member-os-user] cannot list the OS ${db === "passwd" ? "users" : "groups"}: ${(error as Error).message}`,
       );
-      if (passwdRead === read) passwdRead = null;
+      if (getentReads.get(db) === read) getentReads.delete(db);
       return null;
     },
   );
-  passwdRead = read;
+  getentReads.set(db, read);
   return read.text;
+}
+
+// The users with a .made mark of the root command: in ETC_DIR on the
+// installer's install, in the helper's etc folder in the container.
+function readMadeNames(): string[] {
+  return [MEMBER_RUNNER_ETC, CONTAINER_MEMBER_ETC].flatMap((dir) => {
+    try {
+      return readdirSync(dir)
+        .filter((file) => file.endsWith(".made"))
+        .map((file) => file.slice(0, -".made".length));
+    } catch {
+      // No marks yet, or not this shape.
+      return [];
+    }
+  });
+}
+
+// The names that members run as (member-os-users.json).
+function recordedOsUserNames(): string[] {
+  return memberOsUserIds().flatMap((id) => {
+    const state = memberOsUserState(id);
+    return state.kind === "isolated" ? [state.osUser.name] : [];
+  });
 }
 
 // The candidates of this box, for a member whose OS user is off on the
@@ -216,7 +245,7 @@ function readPasswd(): Promise<string | null> {
 export async function readMemberUserCandidates(): Promise<
   { name: string; uid: number }[]
 > {
-  const passwd = await readPasswd();
+  const passwd = await readGetent("passwd");
   if (passwd === null) return [];
   let loginDefs = "";
   try {
@@ -224,18 +253,8 @@ export async function readMemberUserCandidates(): Promise<
   } catch {
     // The defaults.
   }
-  let made: string[] = [];
-  try {
-    made = readdirSync(MEMBER_RUNNER_ETC)
-      .filter((file) => file.endsWith(".made"))
-      .map((file) => file.slice(0, -".made".length));
-  } catch {
-    // No marks yet.
-  }
-  const taken = memberOsUserIds().flatMap((id) => {
-    const state = memberOsUserState(id);
-    return state.kind === "isolated" ? [state.osUser.name] : [];
-  });
+  const made = readMadeNames();
+  const taken = recordedOsUserNames();
   return memberUserCandidates({
     passwd,
     loginDefs,
@@ -245,16 +264,77 @@ export async function readMemberUserCandidates(): Promise<
   });
 }
 
-// The default OS user name's suffix: the name in lowercase letters, digits
-// and dashes, so that isomux-<slug> fits the 32 characters of a user name.
-export function memberSlug(name: string): string {
-  const slug = name
+// Task 3b5234dc: the default OS user name of a member: the name in
+// lowercase with its marks dropped (Manél: manel), each other run of
+// characters as one dash, cut to the 32 characters of a user name. A name
+// that starts with a digit gets "member-" before it; nothing left: "member".
+const OS_USER_NAME_MAX = 32;
+export function memberOsUserName(name: string): string {
+  let base = name
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 25)
-    .replace(/-+$/, "");
-  return slug || "member";
+    .replace(/[^a-z0-9_]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (/^[0-9]/.test(base)) base = `member-${base}`;
+  return base.slice(0, OS_USER_NAME_MAX).replace(/-+$/, "") || "member";
+}
+
+// The default name, or, when taken, the first free of <name>2, <name>3, ...
+// (the name cut so that both fit 32 characters). taken null (not read): the
+// default name, and the root command refuses a user that exists.
+export function freeOsUserName(
+  name: string,
+  taken: ReadonlySet<string> | null,
+): string {
+  if (!taken || !taken.has(name)) return name;
+  for (let n = 2; ; n++) {
+    const suffix = String(n);
+    const next = `${name.slice(0, OS_USER_NAME_MAX - suffix.length)}${suffix}`;
+    if (!taken.has(next)) return next;
+  }
+}
+
+// The names a new member user cannot take, from what readTakenOsUserNames
+// read: every passwd and group name (useradd --user-group and groupadd fail
+// on a group of that name), the names that members run as, without the
+// users the root command made that no member runs as (it resumes its own
+// user for the same member and refuses it for another).
+export function osUserNamesTaken(input: {
+  // getent passwd's and getent group's output.
+  passwd: string;
+  group: string;
+  // The OS users that members run as (member-os-users.json).
+  recorded: string[];
+  // The users with a .made mark of the root command.
+  made: string[];
+}): string[] {
+  const names = new Set<string>();
+  for (const text of [input.passwd, input.group])
+    for (const line of text.split("\n")) {
+      const name = line.split(":")[0];
+      if (line.includes(":") && name) names.add(name);
+    }
+  for (const name of input.made) names.delete(name);
+  // A made user that a member runs as stays taken.
+  for (const name of input.recorded) names.add(name);
+  return [...names].sort();
+}
+
+// The names a new member user cannot take (osUserNamesTaken); null when
+// passwd or group cannot be read.
+export async function readTakenOsUserNames(): Promise<string[] | null> {
+  const [passwd, group] = await Promise.all([
+    readGetent("passwd"),
+    readGetent("group"),
+  ]);
+  if (passwd === null || group === null) return null;
+  return osUserNamesTaken({
+    passwd,
+    group,
+    recorded: recordedOsUserNames(),
+    made: readMadeNames(),
+  });
 }
 
 // What the root command last did for each member, by member id. In memory:
@@ -328,6 +408,9 @@ export function memberOsUserView(
     now?: number;
     // The office's OS user; omitted: the server's own. null: unknown.
     officeOsUser?: string | null;
+    // The names a new user cannot take (readTakenOsUserNames); null or
+    // omitted: not read.
+    osUserNames?: string[] | null;
   },
 ): MemberOsUserWire {
   const now = opts.now ?? Date.now();
@@ -373,7 +456,10 @@ export function memberOsUserView(
       // install): the root command refuses --existing-user in a container.
       ...(commands && user.name !== undefined
         ? {
-            newUserName: `isomux-${memberSlug(user.name)}`,
+            newUserName: freeOsUserName(
+              memberOsUserName(user.name),
+              opts.osUserNames ? new Set(opts.osUserNames) : null,
+            ),
             ...(support.ok && support.shape === "installer" && opts.candidates
               ? { candidates: opts.candidates }
               : {}),

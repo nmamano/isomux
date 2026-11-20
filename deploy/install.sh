@@ -1282,14 +1282,14 @@ enable_existing() {
 }
 
 enable() {
-  local member=$1 os_user=$2 info role user_id slug current current_uid moved_in home
+  local member=$1 os_user=$2 info role user_id user_name current current_uid moved_in home
   [[ -n $IN_CONTAINER || -d $SYSTEMD_DIR ]] || die "this box does not run systemd."
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "$(field .message "$info")"
   role=$(field .role "$info")
   user_id=$(field .userId "$info")
-  slug=$(field .slug "$info")
+  user_name=$(field .userName "$info")
   current=$(field .osUser.name "$info")
   current_uid=$(field .osUser.uid "$info")
   # A member who came with an office move: the record names her user and
@@ -1300,7 +1300,7 @@ enable() {
     [[ -z $os_user || $os_user == "$current" ]] || die "$member already runs as $current."
     os_user=$current
   fi
-  [[ -n $os_user ]] || os_user=isomux-$slug
+  [[ -n $os_user ]] || os_user=$user_name
   [[ $os_user =~ $NAME_RE ]] || die "$os_user is not a user name."
   # The recorded user that enable --existing-user took for this member:
   # finish it, as with that flag.

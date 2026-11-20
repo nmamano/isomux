@@ -63,13 +63,13 @@ import type { MemberUserUnsupported } from "../shared/contract-shapes.ts";
 import {
   clearMemberUserAttempt,
   MEMBER_USER_COMMAND_PATH,
-  memberSlug,
+  freeOsUserName,
+  memberOsUserName,
   memberUserSupport,
   noteMemberUserAttempt,
+  readTakenOsUserNames,
   type MemberUserSupport,
 } from "./member-os-user-view.ts";
-
-export { memberSlug };
 
 type UserRecord = NonNullable<ReturnType<typeof getUserById>>;
 
@@ -86,6 +86,9 @@ export interface MemberUserAdminDeps {
   // How long go-on tries to connect (the unit may not listen yet).
   connectWaitMs: number;
   connectPollMs: number;
+  // The names a new member user cannot take (readTakenOsUserNames); the
+  // info verb's userName is the first free name.
+  takenOsUserNames: () => Promise<string[] | null>;
   // The file move (server/member-move.ts). holdMember resolves once every
   // process of the member's agents has ended; their messages queue until
   // releaseMember.
@@ -196,6 +199,7 @@ const DEFAULT_DEPS: MemberUserAdminDeps = {
   connect: connectMemberHost,
   connectWaitMs: 30_000,
   connectPollMs: 500,
+  takenOsUserNames: readTakenOsUserNames,
   holdMember: (userId) => wiring?.holdMember(userId) ?? Promise.resolve(),
   releaseMember: (userId) => wiring?.releaseMember(userId),
   memberAgents: (userId) => wiring?.memberAgents(userId) ?? [],
@@ -362,6 +366,17 @@ export function memberUsersSupport(): MemberUserSupport {
   return deps.support;
 }
 
+// The names a new member user cannot take; the page and the info verb read
+// the same ones, so the page and the command's default agree.
+export function takenOsUserNames(): Promise<string[] | null> {
+  return deps.takenOsUserNames();
+}
+
+async function defaultOsUserName(name: string): Promise<string> {
+  const taken = await takenOsUserNames();
+  return freeOsUserName(memberOsUserName(name), taken ? new Set(taken) : null);
+}
+
 // The verbs, with the owner's page told what the command does
 // (member-os-user-view.ts): prepare and go-on are an enable, disable is a
 // disable; info changes nothing. A member removed during a call is looked up
@@ -448,7 +463,12 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
       userId: user.id,
       name: user.name,
       role: user.role,
-      slug: memberSlug(user.name),
+      // The new user's name for enable with no --user: the name the
+      // owner's page shows (memberOsUserView newUserName). Only while the
+      // member runs as no user: the command reads it only then.
+      ...(state.kind === "isolated"
+        ? {}
+        : { userName: await defaultOsUserName(user.name) }),
       osUser: state.kind === "isolated" ? state.osUser : null,
       state: state.kind,
       ...(state.kind === "isolated" && state.movedIn
