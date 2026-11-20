@@ -437,7 +437,9 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
   // isomux treats its very existence as a runtime question - if a future SDK
   // renames or drops it, the typeof check below turns the pill off instead of
   // failing the build or throwing at runtime.
-  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown>;
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (opts?: {
+    skipBehaviors?: boolean;
+  }) => Promise<unknown>;
   // Optional so test stubs need not carry it.
   mcpServerStatus?: () => Promise<unknown>;
   setPermissionMode?: (mode: PermissionMode) => Promise<unknown>;
@@ -537,6 +539,16 @@ function claudeWindow(
   };
 }
 
+// The usage call without its scan of the account's local transcripts (the
+// answer's `behaviors`, which isomux never reads): on a sign-in shared by many
+// agents the scan took 15-24 s, where the plan limits alone take about 1 s.
+export const USAGE_LIMITS_ONLY = { skipBehaviors: true } as const;
+
+// The Claude plan slug ("max") as its name ("Max").
+function claudePlanName(slug: string): string {
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
+}
+
 // Shape the experimental /usage response into isomux's backend-agnostic form.
 // Exported for tests. Every field is validated at runtime because the source
 // API is explicitly unstable.
@@ -631,7 +643,7 @@ export function normalizeClaudeSubscriptionUsage(
     usage: {
       plan:
         typeof resp.subscription_type === "string"
-          ? resp.subscription_type
+          ? claudePlanName(resp.subscription_type)
           : null,
       windows,
     },
@@ -898,7 +910,7 @@ export function wrapV1Query(
       const call: Promise<SubscriptionUsageResult> = (async () => {
         try {
           const normalized = normalizeClaudeSubscriptionUsage(
-            await usage.call(q),
+            await usage.call(q, USAGE_LIMITS_ONLY),
           );
           const result: SubscriptionUsageResult =
             normalized.kind === "usage"

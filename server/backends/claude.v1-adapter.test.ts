@@ -70,6 +70,8 @@ class FakeQuery implements V1QueryLike {
   usageResult: unknown = null;
   usageError: Error | null = null;
   usageCalls = 0;
+  // The arguments of each usage call.
+  usageArgs: unknown[][] = [];
   holdUsage = false;
   private usageParked = false;
   private releaseHeldUsage: (() => void) | null = null;
@@ -136,19 +138,21 @@ class FakeQuery implements V1QueryLike {
   reloadPlugins?: V1QueryLike["reloadPlugins"];
   initializationResult?: V1QueryLike["initializationResult"];
 
-  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> =
-    async () => {
-      this.usageCalls++;
-      if (this.holdUsage) {
-        this.usageParked = true;
-        await new Promise<void>((resolve) => {
-          this.releaseHeldUsage = resolve;
-        });
-        this.usageParked = false;
-      }
-      if (this.usageError) throw this.usageError;
-      return this.usageResult;
-    };
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (
+    ...args: unknown[]
+  ) => Promise<unknown> = async (...args: unknown[]) => {
+    this.usageCalls++;
+    this.usageArgs.push(args);
+    if (this.holdUsage) {
+      this.usageParked = true;
+      await new Promise<void>((resolve) => {
+        this.releaseHeldUsage = resolve;
+      });
+      this.usageParked = false;
+    }
+    if (this.usageError) throw this.usageError;
+    return this.usageResult;
+  };
 }
 
 // Production always passes an AbortController (realV1SdkClient).
@@ -462,7 +466,7 @@ describe("wrapV1Query", () => {
       observedAtMs:
         first.kind === "usage" ? first.observedAtMs : expect.any(Number),
       usage: {
-        plan: "max",
+        plan: "Max",
         windows: [
           {
             label: "Weekly",
@@ -526,6 +530,27 @@ describe("wrapV1Query", () => {
     }
   });
 
+  // Task faf036ad: by default the call also scans every local transcript of
+  // the last 7 days to fill its `behaviors` section, which nothing reads. On
+  // a sign-in with 3 GB of transcripts that took 15-24 s per call.
+  it("getSubscriptionUsage asks for the plan limits only, without the transcript scan", async () => {
+    const q = new FakeQuery();
+    q.usageResult = {
+      subscription_type: "max",
+      rate_limits_available: true,
+      rate_limits: { seven_day: { utilization: 12, resets_at: null } },
+    };
+    const conv = wrap(q);
+    expect((await conv.getSubscriptionUsage()).kind).toBe("usage");
+    expect(
+      await conv.getSubscriptionUsage({ forceRefresh: true }),
+    ).toMatchObject({ kind: "usage" });
+    expect(q.usageArgs).toEqual([
+      [{ skipBehaviors: true }],
+      [{ skipBehaviors: true }],
+    ]);
+  });
+
   it("getSubscriptionUsage single-flights concurrent callers onto one RPC", async () => {
     const q = new FakeQuery();
     q.usageResult = {
@@ -557,7 +582,7 @@ describe("wrapV1Query", () => {
       kind: "usage",
       observedAtMs: expect.any(Number),
       usage: {
-        plan: "max",
+        plan: "Max",
         windows: [
           {
             label: "Weekly",
@@ -619,6 +644,19 @@ describe("normalizeClaudeSubscriptionUsage", () => {
 
   // seven_day_oauth_apps meters a different surface: the SDK's live gating
   // signal (SDKRateLimitInfo.rateLimitType) never names it.
+  // Task faf036ad: the pill and the Account usage card show the plan as a
+  // name ("Max"), like Codex's ("Plus"), not as the API's lowercase slug.
+  it("names the plan by its slug with a capital first letter", () => {
+    for (const slug of ["pro", "max", "team", "enterprise"]) {
+      const { plan } = usageOf({
+        subscription_type: slug,
+        rate_limits_available: true,
+        rate_limits: { seven_day: { utilization: 1, resets_at: null } },
+      });
+      expect(plan).toBe(slug.charAt(0).toUpperCase() + slug.slice(1));
+    }
+  });
+
   it("orders windows weekly-first, keeps the raw float and ignores the OAuth-apps meter", () => {
     const out = usageOf({
       subscription_type: "pro",
@@ -630,7 +668,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
         seven_day_oauth_apps: { utilization: 99, resets_at: null },
       },
     });
-    expect(out.plan).toBe("pro");
+    expect(out.plan).toBe("Pro");
     expect(out.windows).toEqual([
       {
         label: "Weekly",

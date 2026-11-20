@@ -20,6 +20,7 @@ import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
 import {
   CLAUDE_LAUNCH_SETTINGS,
   normalizeClaudeSubscriptionUsage,
+  USAGE_LIMITS_ONLY,
 } from "./backends/claude.ts";
 import { withAgentSpawn } from "./backends/claude/agent-spawn.ts";
 import { JsonRpcLiteClient } from "./backends/codex/client.ts";
@@ -170,7 +171,9 @@ export function parseCodexWeekly(
 }
 
 type UsageQuery = {
-  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown>;
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (opts?: {
+    skipBehaviors?: boolean;
+  }) => Promise<unknown>;
   accountInfo?: () => Promise<unknown>;
   close?: () => void;
 };
@@ -314,7 +317,7 @@ export function claudeAccountProbe(
       const info = q.accountInfo;
       // The email only names the row: a failed accountInfo leaves it out.
       const [raw, account] = await Promise.all([
-        usage.call(q),
+        usage.call(q, USAGE_LIMITS_ONLY),
         typeof info === "function"
           ? info.call(q).catch(() => null)
           : Promise.resolve(null),
@@ -775,6 +778,9 @@ function createReader(deps: {
     let probe: AccountUsageProbe | null = null;
     let cancelTimeout: (() => void) | null = null;
     let result: AccountProbeResult;
+    // Why a read failed, for its log line.
+    let cause = "failed reading";
+    const startedAt = now();
     try {
       // A slot dropped while it waited for its place reads nothing.
       if (slot.generation !== generation) return;
@@ -784,13 +790,14 @@ function createReader(deps: {
       result = await Promise.race([
         probe.read(),
         new Promise<AccountProbeResult>((resolve) => {
-          cancelTimeout = setTimer(
-            () => resolve(FAILED_RESULT),
-            PROBE_TIMEOUT_MS,
-          );
+          cancelTimeout = setTimer(() => {
+            cause = "timeout";
+            resolve(FAILED_RESULT);
+          }, PROBE_TIMEOUT_MS);
         }),
       ]);
-    } catch {
+    } catch (error) {
+      cause = `threw: ${oneLine(error)}`;
       result = FAILED_RESULT;
     } finally {
       (cancelTimeout as (() => void) | null)?.();
@@ -807,6 +814,11 @@ function createReader(deps: {
       }
     }
     const at = now();
+    // No key, directory or email: the key names the sign-in's directory.
+    if (result.reading.kind === "failed")
+      console.warn(
+        `[account-usage] ${slot.provider} ${warm ? "office" : "member"} account: usage read failed (${cause}) after ${at - startedAt} ms`,
+      );
     if (slots.get(slot.key) !== slot || slot.generation !== generation) return;
     const outcome = settle(result.weekly, at);
     const failed = result.reading.kind === "failed";
@@ -923,6 +935,14 @@ function createReader(deps: {
 }
 
 const PROVIDERS: readonly ProviderAccountProvider[] = ["claude", "codex"];
+
+// An error's message on one line, capped, for a log line.
+function oneLine(error: unknown): string {
+  const text = (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
 
 const FAILED_RESULT: AccountProbeResult = {
   weekly: { kind: "failed" },

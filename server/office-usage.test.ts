@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -18,6 +18,7 @@ import {
   writeFakeCodexGroup,
 } from "./test-support/fake-codex-group.ts";
 import {
+  claudeAccountProbe,
   claudeAccountProbeResult,
   claudeOfficeProbe,
   codexAccountProbeResult,
@@ -370,6 +371,42 @@ describe("claudeOfficeProbe", () => {
       },
     });
     probe.close();
+  });
+});
+
+// Task faf036ad: by default the SDK usage call also scans every local
+// transcript of the last 7 days to fill its `behaviors` section, which
+// nothing reads. On a sign-in with 3 GB of transcripts the call took 15-24 s
+// and ran into the reader's timeout: the row read "Usage could not be read."
+describe("claudeAccountProbe", () => {
+  it("asks for the plan limits only, without the transcript scan, on every read of a warm probe", async () => {
+    const usageArgs: unknown[][] = [];
+    const probe = claudeAccountProbe({}, () => ({
+      async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(
+        ...args: unknown[]
+      ) {
+        usageArgs.push(args);
+        return claudeRaw({
+          utilization: 31,
+          resets_at: "2026-10-05T00:00:00Z",
+        });
+      },
+      async accountInfo() {
+        return { email: "owner@example.test" };
+      },
+      close() {},
+    }));
+    const first = await probe.read();
+    const second = await probe.read();
+    probe.close();
+    expect([first.reading.kind, second.reading.kind]).toEqual([
+      "usage",
+      "usage",
+    ]);
+    expect(usageArgs).toEqual([
+      [{ skipBehaviors: true }],
+      [{ skipBehaviors: true }],
+    ]);
   });
 });
 
@@ -1220,5 +1257,165 @@ describe("createAccountUsageReader", () => {
       ["office", 0],
       ["cy", 1],
     ]);
+  });
+});
+
+// Task faf036ad: a failed read logged nothing, so a row that said "Usage
+// could not be read." left no trace of why. Each failed read logs one line:
+// the provider, the office or a member's account, the cause and how long the
+// read took. Never the usage key or the sign-in directory.
+describe("createAccountUsageReader: the failed-read log", () => {
+  const OFFICE_DIR = "/office-dir-q9x/claude";
+  const MEMBER = "acct-zq7w";
+
+  function logHarness(
+    read: (
+      account: string,
+      advance: (ms: number) => void,
+    ) => Promise<AccountProbeResult>,
+  ) {
+    let now = NOW;
+    const timers: { fn: () => void; live: boolean }[] = [];
+    const officeEnv = { ACCOUNT: "office" };
+    const reader = createAccountUsageReader({
+      officeTarget: () => ({ dir: OFFICE_DIR, env: officeEnv }),
+      keyOf: (provider, env) => `${provider}:${OFFICE_DIR}:${env.ACCOUNT}`,
+      now: () => now,
+      setTimer: (fn) => {
+        const timer = { fn, live: true };
+        timers.push(timer);
+        return () => (timer.live = false);
+      },
+      createProbe: (_provider, env) => ({
+        read: () => read(String(env.ACCOUNT), (ms) => (now += ms)),
+        close() {},
+      }),
+    });
+    const target = (
+      provider: "claude" | "codex",
+      account: string,
+    ): AccountUsageTarget => ({
+      key: `${provider}:${OFFICE_DIR}:${account}`,
+      provider,
+      env: account === "office" ? officeEnv : { ACCOUNT: account },
+      warm: account === "office",
+    });
+    return {
+      reader,
+      target,
+      timers,
+      advance: (ms: number) => (now += ms),
+    };
+  }
+
+  // The lines console.warn got while `run` ran, each as one string.
+  async function warnLines(run: () => Promise<unknown>): Promise<string[]> {
+    const lines: string[] = [];
+    const spy = spyOn(console, "warn").mockImplementation((...args) => {
+      lines.push(args.map(String).join(" "));
+    });
+    try {
+      await run();
+    } finally {
+      spy.mockRestore();
+    }
+    return lines;
+  }
+
+  const noSecrets = (line: string) => {
+    expect(line).not.toContain(OFFICE_DIR);
+    expect(line).not.toContain("q9x");
+    expect(line).not.toContain(MEMBER);
+    expect(line).not.toContain("@example.test");
+  };
+
+  it("logs nothing for a good read", async () => {
+    const h = logHarness(async () => accountResult(30));
+    let answer: unknown;
+    const lines = await warnLines(async () => {
+      answer = await h.reader.readAccount(h.target("claude", MEMBER));
+    });
+    expect(answer).toMatchObject({ reading: { kind: "usage" } });
+    expect(lines).toEqual([]);
+  });
+
+  it("logs one line for a read that times out, with its provider and how long it ran", async () => {
+    const h = logHarness(() => new Promise<AccountProbeResult>(() => {}));
+    let answer: unknown;
+    const lines = await warnLines(async () => {
+      const read = h.reader.readAccount(h.target("claude", MEMBER));
+      await settled();
+      const live = h.timers.filter((t) => t.live);
+      expect(live).toHaveLength(1);
+      h.advance(20_000);
+      live[0]!.live = false;
+      live[0]!.fn();
+      answer = await read;
+    });
+    expect(answer).toMatchObject({ reading: { kind: "failed" } });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.toLowerCase()).toContain("claude");
+    expect(lines[0]).toContain("20000");
+    noSecrets(lines[0]!);
+  });
+
+  it("logs one line for a read that throws, with the error on one short line and how long it ran", async () => {
+    const marker = "probe-boom-k3";
+    const h = logHarness(async (_account, advance) => {
+      advance(1234);
+      throw new Error(`${marker}\n${"x".repeat(2000)}`);
+    });
+    let answer: unknown;
+    const lines = await warnLines(async () => {
+      answer = await h.reader.readAccount(h.target("codex", MEMBER));
+    });
+    expect(answer).toMatchObject({ reading: { kind: "failed" } });
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line.toLowerCase()).toContain("codex");
+    expect(line.toLowerCase()).not.toContain("claude");
+    expect(line).toContain(marker);
+    expect(line).toContain("1234");
+    expect(line).not.toContain("\n");
+    expect(line.length).toBeLessThan(400);
+    noSecrets(line);
+  });
+
+  it("logs one line for an answer it could not read, and tells the office's account from a member's and each cause from the others", async () => {
+    const h = logHarness(async (account) => {
+      if (account === "throws") throw new Error("rpc died");
+      if (account === "slow") return new Promise<AccountProbeResult>(() => {});
+      return failedResult;
+    });
+    const lines = await warnLines(async () => {
+      const office = await h.reader.readAccount(h.target("claude", "office"));
+      const member = await h.reader.readAccount(h.target("claude", MEMBER));
+      const thrown = await h.reader.readAccount(h.target("claude", "throws"));
+      const slow = h.reader.readAccount(h.target("claude", "slow"));
+      await settled();
+      // The slow read's timeout: a failed read leaves no idle timer.
+      const live = h.timers.filter((t) => t.live);
+      expect(live).toHaveLength(1);
+      live[0]!.live = false;
+      live[0]!.fn();
+      const timedOut = await slow;
+      expect(
+        [office, member, thrown, timedOut].map((a) => a.reading.kind),
+      ).toEqual(["failed", "failed", "failed", "failed"]);
+    });
+    expect(lines).toHaveLength(4);
+    const [office, member, thrown, timedOut] = lines as [
+      string,
+      string,
+      string,
+      string,
+    ];
+    // Same provider, same cause, no time passed: only the slot tells them
+    // apart.
+    expect(office).not.toBe(member);
+    // A member's account read three ways, no time passed: only the cause
+    // tells them apart.
+    expect(new Set([member, thrown, timedOut]).size).toBe(3);
+    for (const line of lines) noSecrets(line);
   });
 });

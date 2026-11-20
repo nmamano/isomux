@@ -423,7 +423,7 @@ describe("createAccountUsageService", () => {
       id: first.ana!.id,
       state: "usage",
       accountLabel: "ana@example.test",
-      plan: "max",
+      plan: "Max",
       observedAtMs: NOW - 5000,
     });
     // Claude's account-wide weekly window, not the per-model one.
