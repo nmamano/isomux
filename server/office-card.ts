@@ -4,14 +4,16 @@
 // The card is answered before the auth wall: it reads and sets no cookie, and
 // its body is the office name the sign-in page title already shows. The probe
 // sends no credentials, follows no redirect and reads a few KB at most. It
-// tells three answers apart at one fixed path: a card, the auth wall of an
-// office from before the card ("outdated"), and anything else (null).
+// tells four answers apart at one fixed path: a card, the auth wall of an
+// office from before the card ("outdated"), a locked office ("locked"), and
+// anything else (null).
 
 import {
   MAX_FLOOR_NAME_CHARS,
   OFFICE_CARD_PATH,
   type OfficeCard,
 } from "../shared/floors.ts";
+import { LOCKED_HEADER } from "../shared/errors.ts";
 
 export const OFFICE_PROBE_TIMEOUT_MS = 8_000;
 export const OFFICE_CARD_MAX_BYTES = 4096;
@@ -32,14 +34,15 @@ export interface OfficeProbeOptions {
 }
 
 // The office card at `origin`; "outdated" when the address answers as an
-// Isomux office from before the card; null when it does not answer as an
+// Isomux office from before the card; "locked" when it answers as a locked
+// office (server/locked-office.ts); null when it does not answer as an
 // Isomux office. The timeout covers the whole read, body included. The name
 // is trimmed, a blank one is null, and a long one is cut to
 // MAX_FLOOR_NAME_CHARS.
 export async function probeOffice(
   origin: string,
   opts: OfficeProbeOptions = {},
-): Promise<OfficeCard | "outdated" | null> {
+): Promise<OfficeCard | "outdated" | "locked" | null> {
   const doFetch = opts.fetch ?? fetch;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -49,7 +52,7 @@ export async function probeOffice(
       resolve(null);
     }, opts.timeoutMs ?? OFFICE_PROBE_TIMEOUT_MS);
   });
-  const read = async (): Promise<OfficeCard | "outdated" | null> => {
+  const read = async (): Promise<OfficeCard | "outdated" | "locked" | null> => {
     const res = await doFetch(origin + OFFICE_CARD_PATH, {
       method: "GET",
       redirect: "manual",
@@ -57,6 +60,10 @@ export async function probeOffice(
       headers: { Accept: "application/json" },
       signal: controller.signal,
     });
+    if (res.status === 503 && res.headers.get(LOCKED_HEADER) === "1") {
+      void res.body?.cancel().catch(() => {});
+      return "locked";
+    }
     if (res.status === 401 && res.body && isJson(res)) {
       const text = await readCapped(res.body, OFFICE_CARD_MAX_BYTES);
       return text !== null && isWallRefusal(text) ? "outdated" : null;

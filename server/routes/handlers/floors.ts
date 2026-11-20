@@ -9,8 +9,10 @@
 // Error codes: 400 invalid_request (bad url), 422 office_outdated (an Isomux
 // office from before the card), 422 office_unreachable (any other probe
 // failure, no detail), 409 floor_exists, 409 too_many_floors,
-// 404 floor_not_found. floors.name: 400 invalid_request, 422
-// office_unreachable (any probe failure, outdated included, no detail), 429
+// 404 floor_not_found; a locked office is office_unreachable too.
+// floors.name: 400 invalid_request, 422 office_locked (the office answers as
+// locked), 422 office_unreachable (any other probe failure, outdated
+// included, no detail), 429
 // too_many_requests (the caller's name probes in flight are at the limit).
 //
 // LEAF over the executor + shared types: the store, the probe and the emit
@@ -39,7 +41,7 @@ export interface FloorsDeps {
   list: FloorsStore["list"];
   add: FloorsStore["add"];
   remove: FloorsStore["remove"];
-  probe(origin: string): Promise<OfficeCard | "outdated" | null>;
+  probe(origin: string): Promise<OfficeCard | "outdated" | "locked" | null>;
   lookupName: OfficeNameCache["lookup"];
   emitFloors(floors: Floor[]): void;
 }
@@ -61,7 +63,7 @@ export function floorsHandlers(deps: FloorsDeps): Record<string, RouteHandler> {
           "office_outdated",
           "the address answers as an Isomux office that must update first",
         );
-      if (!card)
+      if (!card || card === "locked")
         return fail(
           422,
           "office_unreachable",
@@ -92,6 +94,8 @@ export function floorsHandlers(deps: FloorsDeps): Record<string, RouteHandler> {
       const found = await deps.lookupName(url, caller);
       if (found.kind === "busy")
         return fail(429, "too_many_requests", "too many name lookups at once");
+      if (found.kind === "locked")
+        return fail(422, "office_locked", "the office is locked");
       if (found.kind === "failed")
         return fail(
           422,

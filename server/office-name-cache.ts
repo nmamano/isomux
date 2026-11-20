@@ -5,10 +5,13 @@
 import type { OfficeCard } from "../shared/floors.ts";
 
 export type OfficeNameLookup =
-  { kind: "card"; name: string | null } | { kind: "failed" } | { kind: "busy" };
+  | { kind: "card"; name: string | null }
+  | { kind: "locked" }
+  | { kind: "failed" }
+  | { kind: "busy" };
 
 export interface OfficeNameCacheOptions {
-  probe(origin: string): Promise<OfficeCard | "outdated" | null>;
+  probe(origin: string): Promise<OfficeCard | "outdated" | "locked" | null>;
   now?: () => number;
   ttlMs?: number;
   maxOrigins?: number;
@@ -42,7 +45,8 @@ export function createOfficeNameCache(
       let answer: OfficeNameLookup = { kind: "failed" };
       try {
         const card = await opts.probe(origin);
-        if (card && card !== "outdated")
+        if (card === "locked") answer = { kind: "locked" };
+        else if (card && card !== "outdated")
           answer = { kind: "card", name: card.name };
       } catch {
         // A probe that throws is a failed probe; it must never reject.

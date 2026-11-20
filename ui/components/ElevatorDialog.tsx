@@ -16,8 +16,9 @@ import {
   type PanelButton,
 } from "../../shared/elevator-panel.ts";
 import {
-  PANEL_NAME_TTL_MS,
+  PANEL_RECHECK_MS,
   commitPanel,
+  hideLocked,
   readFloorBrowser,
   readNames,
   readPanel,
@@ -49,7 +50,8 @@ import { PHONE_TOP } from "../safe-area.ts";
 // this office's own floors (the store, which floors_updated keeps live) - a
 // way to open one, remove one, and add another office by its address. The
 // server checks the address and takes the office name from it
-// (POST /api/floors). A ride carries the panel to the next office.
+// (POST /api/floors). A ride carries the panel to the next office. An office
+// that answers as locked is not on the panel: nobody can enter it.
 
 // `ownOrigin`, `openFloor` and `env` default to this page's origin, a
 // same-tab navigation and this browser; tests pass their own.
@@ -98,7 +100,8 @@ export function ElevatorDialog({
   const [names, setNames] = useState<Record<string, PanelName>>(() =>
     readNames(),
   );
-  const buttons = panelButtons(panel, here, floors);
+  const allButtons = panelButtons(panel, here, floors);
+  const buttons = hideLocked(allButtons, names);
   // From the iOS Home Screen app a ride leaves for the member's browser,
   // which holds their sign-in to the other office.
   const choosesBrowser = floorBrowserApplies(env);
@@ -134,21 +137,21 @@ export function ElevatorDialog({
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose]);
 
-  // Each personal entry without a fresh name: ask this office's server, at
-  // most MAX_NAME_ASKS at a time. A failed lookup is kept as no name until it
-  // is stale; a busy one is asked again at the next open.
-  const personal = buttons
-    .filter((b) => b.kind === "visited" || b.kind === "snapshot")
-    .map((b) => b.url);
-  const personalKey = personal.join(" ");
+  // Each other office without a fresh answer, this office's floors
+  // included: ask this office's server, at most MAX_NAME_ASKS at a time. A
+  // failed lookup is kept as no name until it is stale; a busy one is asked
+  // again at the next open. A locked office's row stays hidden until a new
+  // answer says otherwise. A floor shows only the lock, never this name.
+  const others = allButtons.filter((b) => b.kind !== "here").map((b) => b.url);
+  const othersKey = others.join(" ");
   useEffect(() => {
     let cancelled = false;
     const kept = readNames();
     const now = Date.now();
-    const queue = personal.filter(
-      (url) => !kept[url] || now - kept[url].at >= PANEL_NAME_TTL_MS,
+    const queue = others.filter(
+      (url) => !kept[url] || now - kept[url].at >= PANEL_RECHECK_MS,
     );
-    const keep = buttons.map((b) => b.url);
+    const keep = allButtons.map((b) => b.url);
     const next = async (): Promise<void> => {
       const url = queue.shift();
       if (url === undefined || cancelled) return;
@@ -159,7 +162,9 @@ export function ElevatorDialog({
         );
         rememberName(url, res.name, keep);
       } catch (e) {
-        if (e instanceof ApiError && e.code === "office_unreachable")
+        if (e instanceof ApiError && e.code === "office_locked")
+          rememberName(url, null, keep, Date.now(), true);
+        else if (e instanceof ApiError && e.code === "office_unreachable")
           rememberName(url, null, keep);
       }
       if (!cancelled) setNames(readNames());
@@ -169,9 +174,9 @@ export function ElevatorDialog({
     return () => {
       cancelled = true;
     };
-    // The list of personal entries is the only input that matters.
+    // The list of other offices is the only input that matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personalKey]);
+  }, [othersKey]);
 
   function ride(url: string) {
     openFloor(floorHref(`${url}/#${rideFragment(here, floors)}`, env, browser));

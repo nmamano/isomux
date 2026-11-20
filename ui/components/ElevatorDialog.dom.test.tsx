@@ -8,6 +8,12 @@
 // up (never more than four at a time; a failed one is kept, a busy one is
 // asked again).
 //
+// Locked offices (task ad60eb81): each button but this office is looked up,
+// this office's floors too; an office answered as locked is not shown, and
+// the numbers close up. A floor keeps its own name; its lookup only sets the
+// lock. Every entry is asked again after an hour; until then, and through a
+// refused or busy lookup, a lock stays.
+//
 // Markers the dialog carries: each panel button is an element with
 // data-panel-url and data-panel-kind ("here", "floor", "visited",
 // "snapshot"); an office floor also has data-floor-id; the open and remove
@@ -28,7 +34,7 @@ const {
   commitPanel,
   readPanel,
   rememberName,
-  PANEL_NAME_TTL_MS,
+  PANEL_RECHECK_MS,
   FLOOR_BROWSER_STORAGE_KEY,
 } = await import("../elevator-panel-store.ts");
 const { mergePanels, panelButtons, readPanelFragment, sanitisePanel } =
@@ -143,12 +149,12 @@ describe("ElevatorDialog", () => {
     await act(async () => {
       fireEvent.click(remove);
     });
-    expect(d.calls).toEqual([]);
+    expect(notNameAsks(d.calls)).toEqual([]);
     expect(remove.hasAttribute("data-confirm-armed")).toBe(true);
     await act(async () => {
       fireEvent.click(remove);
     });
-    expect(d.calls).toEqual([
+    expect(notNameAsks(d.calls)).toEqual([
       { method: "DELETE", path: "/api/floors/f1", body: undefined },
     ]);
     expect(d.opened.map((u) => new URL(u).origin)).toEqual([unnamed.url]);
@@ -175,7 +181,7 @@ describe("ElevatorDialog", () => {
       fireEvent.keyDown(remove, { key: "Escape" });
     });
     expect(d.closes()).toBe(1);
-    expect(d.calls).toEqual([]);
+    expect(notNameAsks(d.calls)).toEqual([]);
     d.view.unmount();
   });
 
@@ -350,6 +356,14 @@ const shape = (view: ReturnType<typeof render>) =>
     r.getAttribute("data-panel-url"),
     r.getAttribute("data-panel-kind"),
   ]);
+// The number each row shows, in order (the row's first aria-hidden span).
+const numbers = (view: ReturnType<typeof render>) =>
+  panelRows(view).map(
+    (r) => r.querySelector('[aria-hidden="true"]')?.textContent ?? "",
+  );
+const HOUR_MS = 60 * 60 * 1000;
+const lockedRefusal = () =>
+  new ApiError(422, "office_locked", "the office is locked");
 
 describe("ElevatorDialog panel", () => {
   it("lists the offices this browser rode through and their floors by address, with this office lit and not a ride", async () => {
@@ -430,7 +444,7 @@ describe("ElevatorDialog panel", () => {
     d.view.unmount();
   });
 
-  it("asks this office's server for each personal entry's name, and shows the host until it answers", async () => {
+  it("asks this office's server for each entry's name, its own floors too, and shows the host until it answers", async () => {
     seed(trip);
     const answers = new Map<string, (v: unknown) => void>();
     const d = open([named], (c) =>
@@ -438,9 +452,9 @@ describe("ElevatorDialog panel", () => {
         ? new Promise((resolve) => answers.set(urlOfAsk(c), resolve))
         : Promise.resolve({}),
     );
-    await waitFor(() => expect(answers.size).toBe(2));
-    // Never for this office or its own floors.
-    expect(namesAsked(d.calls).sort()).toEqual([ATLAS, COVE].sort());
+    await waitFor(() => expect(answers.size).toBe(3));
+    // Never for this office.
+    expect(namesAsked(d.calls).sort()).toEqual([ATLAS, COVE, named.url].sort());
     expect(rowFor(d.view, ATLAS).textContent).toContain("atlas.example.com");
     await act(async () => {
       answers.get(ATLAS)!({ name: "Atlas Works" });
@@ -456,7 +470,7 @@ describe("ElevatorDialog panel", () => {
     );
     expect(rowFor(again.view, ATLAS).textContent).toContain("Atlas Works");
     await act(async () => {});
-    expect(namesAsked(again.calls)).toEqual([COVE]);
+    expect(namesAsked(again.calls).sort()).toEqual([COVE, named.url].sort());
     again.view.unmount();
   });
 
@@ -468,7 +482,7 @@ describe("ElevatorDialog panel", () => {
         throw new ApiError(422, "office_unreachable", "unreachable");
       throw new ApiError(429, "too_many_requests", "busy");
     };
-    const first = open([named], answer);
+    const first = open([], answer);
     await waitFor(() => expect(namesAsked(first.calls).length).toBe(2));
     await act(async () => {});
     expect(rowFor(first.view, ATLAS).textContent).toContain(
@@ -476,7 +490,7 @@ describe("ElevatorDialog panel", () => {
     );
     first.view.unmount();
 
-    const second = open([named], answer);
+    const second = open([], answer);
     await waitFor(() => expect(namesAsked(second.calls)).toEqual([COVE]));
     await act(async () => {});
     second.view.unmount();
@@ -485,14 +499,150 @@ describe("ElevatorDialog panel", () => {
       ATLAS,
       null,
       [ATLAS, COVE, OWN],
-      Date.now() - PANEL_NAME_TTL_MS - 1000,
+      Date.now() - PANEL_RECHECK_MS - 1000,
     );
-    const third = open([named], answer);
+    const third = open([], answer);
     await waitFor(() =>
       expect(namesAsked(third.calls).sort()).toEqual([ATLAS, COVE].sort()),
     );
     await act(async () => {});
     third.view.unmount();
+  });
+
+  it("hides a floor and a personal entry answered as locked, closes up the numbers, and hides them at once at the next open", async () => {
+    seed(trip);
+    const d = open([named, unnamed], async (c) => {
+      if (!isNameAsk(c)) return {};
+      const url = urlOfAsk(c);
+      if (url === ATLAS || url === named.url) throw lockedRefusal();
+      return { name: url === COVE ? "Cove" : null };
+    });
+    // Shown until the answers arrive.
+    expect(shape(d.view)).toEqual([
+      [ATLAS, "visited"],
+      [COVE, "snapshot"],
+      [named.url, "floor"],
+      [OWN, "here"],
+      [unnamed.url, "floor"],
+    ]);
+    await waitFor(() =>
+      expect(shape(d.view)).toEqual([
+        [COVE, "snapshot"],
+        [OWN, "here"],
+        [unnamed.url, "floor"],
+      ]),
+    );
+    expect(numbers(d.view)).toEqual(["1", "2", "3"]);
+    d.view.unmount();
+
+    // A fresh lock hides the row before any answer, and is not asked again.
+    const again = open([named, unnamed], (c) =>
+      isNameAsk(c) ? new Promise(() => {}) : Promise.resolve({}),
+    );
+    expect(shape(again.view)).toEqual([
+      [COVE, "snapshot"],
+      [OWN, "here"],
+      [unnamed.url, "floor"],
+    ]);
+    await act(async () => {});
+    expect(namesAsked(again.calls)).toEqual([]);
+    again.view.unmount();
+  });
+
+  it("labels a floor with its own name, never the name its lookup answers", async () => {
+    seed(
+      panelOf({
+        visited: [
+          { url: ATLAS, addedAt: 1 },
+          { url: OWN, addedAt: 2 },
+        ],
+      }),
+    );
+    const d = open([named, unnamed], async (c) =>
+      isNameAsk(c) ? { name: "Card Name" } : {},
+    );
+    // The answers arrived: the personal entry shows the card's name.
+    await waitFor(() =>
+      expect(rowFor(d.view, ATLAS).textContent).toContain("Card Name"),
+    );
+    expect(namesAsked(d.calls).sort()).toEqual(
+      [ATLAS, named.url, unnamed.url].sort(),
+    );
+    await act(async () => {});
+    const harbor = rowFor(d.view, named.url).textContent ?? "";
+    const lab = rowFor(d.view, unnamed.url).textContent ?? "";
+    expect(harbor).toContain("Harbor");
+    expect(harbor).not.toContain("Card Name");
+    expect(lab).toContain("lab.example.org:4000");
+    expect(lab).not.toContain("Card Name");
+    d.view.unmount();
+  });
+
+  it("asks every entry again after an hour, keeps a locked one hidden until the answer, and shows it once the office opens", async () => {
+    seed(trip);
+    const keep = [ATLAS, COVE, OWN, named.url];
+    const old = Date.now() - HOUR_MS - 1000;
+    rememberName(ATLAS, null, keep, old, true);
+    rememberName(COVE, "Cove", keep, old);
+    // A lock from a minute ago: fresh.
+    rememberName(named.url, null, keep, Date.now() - 60_000, true);
+    const answers = new Map<string, (v: unknown) => void>();
+    const d = open([named], (c) =>
+      isNameAsk(c)
+        ? new Promise((resolve) => answers.set(urlOfAsk(c), resolve))
+        : Promise.resolve({}),
+    );
+    expect(shape(d.view)).toEqual([
+      [COVE, "snapshot"],
+      [OWN, "here"],
+    ]);
+    await waitFor(() => expect(answers.size).toBe(2));
+    expect(namesAsked(d.calls).sort()).toEqual([ATLAS, COVE].sort());
+    await act(async () => {
+      answers.get(ATLAS)!({ name: "Atlas Works" });
+      answers.get(COVE)!({ name: "Cove" });
+    });
+    await waitFor(() =>
+      expect(shape(d.view)).toEqual([
+        [ATLAS, "visited"],
+        [COVE, "snapshot"],
+        [OWN, "here"],
+      ]),
+    );
+    expect(rowFor(d.view, ATLAS).textContent).toContain("Atlas Works");
+    expect(numbers(d.view)).toEqual(["1", "2", "3"]);
+    d.view.unmount();
+  });
+
+  it("keeps a lock through a busy, refused or failed lookup, and drops it when the office does not answer", async () => {
+    seed(trip);
+    const keep = [ATLAS, COVE, OWN, named.url, unnamed.url];
+    const old = Date.now() - HOUR_MS - 1000;
+    for (const url of [ATLAS, COVE, named.url, unnamed.url])
+      rememberName(url, null, keep, old, true);
+    const d = open([named, unnamed], async (c) => {
+      if (!isNameAsk(c)) return {};
+      const url = urlOfAsk(c);
+      if (url === ATLAS) throw new ApiError(429, "too_many_requests", "busy");
+      if (url === named.url) throw new ApiError(403, "forbidden", "no");
+      if (url === unnamed.url) throw new TypeError("network down");
+      throw new ApiError(422, "office_unreachable", "unreachable");
+    });
+    expect(shape(d.view)).toEqual([[OWN, "here"]]);
+    await waitFor(() => expect(namesAsked(d.calls).length).toBe(4));
+    // A down office cannot be told from a short outage: it shows again.
+    await waitFor(() =>
+      expect(shape(d.view)).toEqual([
+        [COVE, "snapshot"],
+        [OWN, "here"],
+      ]),
+    );
+    await act(async () => {});
+    expect(shape(d.view)).toEqual([
+      [COVE, "snapshot"],
+      [OWN, "here"],
+    ]);
+    d.view.unmount();
   });
 
   it("asks at most four names at a time", async () => {

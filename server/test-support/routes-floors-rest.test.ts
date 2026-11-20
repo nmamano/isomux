@@ -22,6 +22,8 @@
 //     answer is shared: a second ask, by any member, sends no probe, failures
 //     included. Every failure is one 422 office_unreachable without detail.
 //     Past four probes in flight for one member: 429, with no probe.
+//   - A locked office (task ad60eb81): floors.name answers 422 office_locked,
+//     kept like the other answers; floors.add refuses it as unreachable.
 //   - A ride to an office where the member is signed out: the login page keeps
 //     the isomux-panel part of the address in sessionStorage, for the office
 //     after sign-in.
@@ -51,6 +53,8 @@ import {
   PANEL_SESSION_KEY,
 } from "../../shared/elevator-panel.ts";
 import { OFFICE_NAME_MAX_IN_FLIGHT } from "../office-name-cache.ts";
+import { lockedResponse } from "../locked-office.ts";
+import { LOCKED_HEADER } from "../../shared/errors.ts";
 
 const PROBE_TIMEOUT_MS = 300;
 
@@ -344,6 +348,8 @@ describe("floors.add", () => {
         ),
       ],
       ["a closed port", CLOSED_ORIGIN],
+      // The real locked page (task ad60eb81): no new add answer for it.
+      ["a locked office", listen(lockedResponse)],
     ];
     for (const [label, l] of failures) {
       const origin = typeof l === "string" ? l : l.origin;
@@ -700,6 +706,84 @@ describe("floors.name", () => {
     expect(outdated.hits).toHaveLength(1);
     expect((await ask(outdated.origin)).status).toBe(422);
     expect(outdated.hits).toHaveLength(1);
+  });
+
+  // Task ad60eb81: the elevator hides an office nobody can enter. The only
+  // such answer one office can read from another without credentials is the
+  // lock: every path of a locked office, the card included, answers 503 with
+  // LOCKED_HEADER "1" (server/locked-office.ts).
+  it("answers 422 office_locked for a locked office, keeps that answer, and needs both the 503 and the lock header", async () => {
+    const { srv, member } = await office();
+    const ask = (url: string) =>
+      api(srv, "GET", namePathOf(url), { rawSessionId: member.rawSessionId });
+    const locked = listen(lockedResponse);
+    // The fixture is the lock answer this test means.
+    const direct = await fetch(locked.origin + OFFICE_CARD_PATH);
+    await direct.body?.cancel();
+    expect({
+      status: direct.status,
+      header: direct.headers.get(LOCKED_HEADER),
+    }).toEqual({ status: 503, header: "1" });
+    const first = await ask(locked.origin);
+    expect({ status: first.status, code: errCode(first.body) }).toEqual({
+      status: 422,
+      code: "office_locked",
+    });
+    // The fixture's own request plus one probe; the second ask is cached.
+    const second = await ask(locked.origin);
+    expect({ status: second.status, code: errCode(second.body) }).toEqual({
+      status: 422,
+      code: "office_locked",
+    });
+    expect(locked.hits).toHaveLength(2);
+
+    // Each near miss changes one property of the lock answer.
+    const lockHeaders = (value: string) => ({ [LOCKED_HEADER]: value });
+    const unreachable = { status: 422, code: "office_unreachable" };
+    const nearMisses: [string, Listener, Record<string, unknown>][] = [
+      [
+        "a 503 without the lock header",
+        listen(() => new Response("down", { status: 503 })),
+        unreachable,
+      ],
+      [
+        "the lock header with another value",
+        listen(
+          () =>
+            new Response("down", { status: 503, headers: lockHeaders("0") }),
+        ),
+        unreachable,
+      ],
+      [
+        "the lock header on another error status",
+        listen(
+          () =>
+            new Response("down", { status: 500, headers: lockHeaders("1") }),
+        ),
+        unreachable,
+      ],
+      [
+        "the lock header on a card",
+        listen(
+          () =>
+            new Response(JSON.stringify({ isomux: 1, name: "Open" }), {
+              headers: {
+                "Content-Type": "application/json",
+                ...lockHeaders("1"),
+              },
+            }),
+        ),
+        { status: 200, body: { name: "Open" } },
+      ],
+    ];
+    for (const [label, l, want] of nearMisses) {
+      const res = await ask(l.origin);
+      const got: Record<string, unknown> =
+        res.status === 200
+          ? { status: 200, body: res.body }
+          : { status: res.status, code: errCode(res.body) };
+      expect({ label, ...got }).toEqual({ label, ...want });
+    }
   });
 
   it("answers 429 too_many_requests past the probes one member may have in flight, without a probe", async () => {

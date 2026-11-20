@@ -10,6 +10,7 @@ import {
   readPanelFragment,
   sanitisePanel,
   type Panel,
+  type PanelButton,
 } from "../shared/elevator-panel.ts";
 import {
   MAX_FLOOR_NAME_CHARS,
@@ -21,7 +22,9 @@ import type { FloorBrowser } from "./safari-link.ts";
 
 export const PANEL_STORAGE_KEY = "isomux-elevator-panel";
 export const PANEL_NAMES_STORAGE_KEY = "isomux-elevator-names";
-export const PANEL_NAME_TTL_MS = 24 * 60 * 60 * 1000;
+// How long an answer about a panel office (its name, or that it is locked)
+// is kept before the dialog asks again.
+export const PANEL_RECHECK_MS = 60 * 60 * 1000;
 export const FLOOR_BROWSER_STORAGE_KEY = "isomux-elevator-browser";
 
 function storageGet(storage: Storage, key: string): string | null {
@@ -167,6 +170,8 @@ export function commitPanel(
 export interface PanelName {
   name: string | null;
   at: number;
+  // The office answered as locked (nobody can enter it): its row is hidden.
+  locked?: true;
 }
 
 // The names this browser's office server gave for panel origins. A damaged
@@ -178,10 +183,14 @@ export function readNames(): Record<string, PanelName> {
   for (const [origin, entry] of Object.entries(raw)) {
     if (normaliseFloorUrl(origin) !== origin) continue;
     if (!entry || typeof entry !== "object") continue;
-    const { name, at } = entry as Record<string, unknown>;
+    const { name, at, locked } = entry as Record<string, unknown>;
     if (typeof at !== "number" || !Number.isFinite(at)) continue;
     if (name !== null && typeof name !== "string") continue;
-    out[origin] = { name: name === null ? null : cutName(name), at };
+    out[origin] = {
+      name: name === null ? null : cutName(name),
+      at,
+      ...(locked === true ? { locked: true as const } : {}),
+    };
   }
   return out;
 }
@@ -194,19 +203,30 @@ function cutName(name: string): string | null {
 }
 
 // `keep` lists the origins still on the panel; the others are pruned.
+// `locked`: the office answered as locked, so its row is hidden.
 export function rememberName(
   origin: string,
   name: string | null,
   keep: readonly string[],
   now: number = Date.now(),
+  locked: boolean = false,
 ): void {
   const names = readNames();
-  names[origin] = { name, at: now };
+  names[origin] = locked ? { name, at: now, locked: true } : { name, at: now };
   const kept = new Set(keep);
   const next: Record<string, PanelName> = {};
   for (const [o, entry] of Object.entries(names))
     if (kept.has(o)) next[o] = entry;
   storageSet(localStorage, PANEL_NAMES_STORAGE_KEY, JSON.stringify(next));
+}
+
+// The panel buttons without the offices whose kept entry says locked, at any
+// age: a stale lock stays hidden until a new answer replaces it.
+export function hideLocked(
+  buttons: PanelButton[],
+  names: Record<string, PanelName>,
+): PanelButton[] {
+  return buttons.filter((b) => b.kind === "here" || !names[b.url]?.locked);
 }
 
 // The browser the elevator's rides open in from the iOS Home Screen app

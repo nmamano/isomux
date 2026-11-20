@@ -1939,7 +1939,8 @@ export interface FloorAddRes {
   floor: Floor;
 }
 // GET /api/floors/name?url=<origin>: the name on that office's card, for the
-// elevator panel. The browser never reads another office's card itself.
+// elevator panel. The browser never reads another office's card itself. A
+// locked office answers 422 office_locked.
 export interface FloorNameRes {
   name: string | null;
 }

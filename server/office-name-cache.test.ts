@@ -13,7 +13,7 @@ import {
 } from "./office-name-cache.ts";
 import type { OfficeCard } from "../shared/floors.ts";
 
-type Answer = OfficeCard | "outdated" | null;
+type Answer = OfficeCard | "outdated" | "locked" | null;
 
 const origin = (i: number) => `https://o${i}.example.com`;
 // Lets a lookup reach its probe, whether or not it awaits on the way.
@@ -51,22 +51,24 @@ function tableProbe(table: Record<string, Answer>) {
 }
 
 describe("createOfficeNameCache", () => {
-  it("answers a card with its name, and a failed or outdated probe as failed", async () => {
+  it("answers a card with its name, a locked office as locked, and a failed or outdated probe as failed", async () => {
     const p = tableProbe({
       [origin(1)]: { isomux: 1, name: "Harbor" },
       [origin(2)]: { isomux: 1, name: null },
       [origin(3)]: "outdated",
       [origin(4)]: null,
+      [origin(5)]: "locked",
     });
     const cache = createOfficeNameCache({ probe: p.probe });
     const answers: OfficeNameLookup[] = [];
-    for (const i of [1, 2, 3, 4])
+    for (const i of [1, 2, 3, 4, 5])
       answers.push(await cache.lookup(origin(i), "m"));
     expect(answers).toEqual([
       { kind: "card", name: "Harbor" },
       { kind: "card", name: null },
       { kind: "failed" },
       { kind: "failed" },
+      { kind: "locked" },
     ]);
   });
 

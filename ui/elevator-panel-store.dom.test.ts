@@ -11,7 +11,9 @@
 //     not an origin is dropped, a damaged copy reads as an empty panel.
 //   - commitPanel writes what its function returns, from the stored panel.
 //   - The name cache keeps only the origins still on the panel, and drops a
-//     damaged entry.
+//     damaged entry. It keeps a lock (task ad60eb81), and hideLocked drops
+//     the locked offices' buttons at any age, in order, so the numbers close
+//     up.
 //   - The glue: holdArrivingPanel keeps the arriving panel until syncPanel
 //     (full_state, floors_updated) merges it once and writes this office's
 //     snapshot; rideFragment carries this office and its live floors even
@@ -25,6 +27,7 @@ const {
   PANEL_NAMES_STORAGE_KEY,
   PANEL_STORAGE_KEY,
   commitPanel,
+  hideLocked,
   holdArrivingPanel,
   readNames,
   readPanel,
@@ -227,6 +230,60 @@ describe("the name cache", () => {
     expect(names["https://d.example.com"]).toBeUndefined();
     localStorage.setItem(PANEL_NAMES_STORAGE_KEY, "[1,2");
     expect(readNames()).toEqual({});
+  });
+});
+
+describe("locked offices", () => {
+  it("keeps a lock with the entry until a later answer without one replaces it", () => {
+    rememberName(A, null, [A, B], NOW, true);
+    rememberName(B, "Bay", [A, B], NOW);
+    expect(readNames()[A]?.locked).toBe(true);
+    expect(readNames()[B]?.locked).toBeUndefined();
+    rememberName(A, "Atlas", [A, B], NOW + 1);
+    expect(readNames()[A]).toEqual({ name: "Atlas", at: NOW + 1 });
+    expect(readNames()[A]?.locked).toBeUndefined();
+  });
+
+  it("hides every button whose entry is locked, of any kind and any age, and keeps the rest in order", () => {
+    const D = "https://d.example.com";
+    const here = "https://here.example.com";
+    const floorA = { id: "fa", url: A, name: "Atlas", addedAt: 1 };
+    const floorB = { id: "fb", url: B, name: null, addedAt: 2 };
+    const buttons = panelButtons(
+      panel({
+        visited: [
+          { url: C, addedAt: 1 },
+          { url: here, addedAt: 2 },
+        ],
+        snapshots: [{ origin: C, rev: 1, floors: [D] }],
+      }),
+      here,
+      [floorA, floorB],
+    );
+    // The fixture holds one button of each kind, in address order.
+    expect(buttons.map((b) => [b.url, b.kind])).toEqual([
+      [A, "floor"],
+      [B, "floor"],
+      [C, "visited"],
+      [D, "snapshot"],
+      [here, "here"],
+    ]);
+    const names = {
+      // Locked a long time ago: still hidden until an answer replaces it.
+      [C]: { name: null, at: 0, locked: true as const },
+      [D]: { name: "Dock", at: NOW },
+      [A]: { name: null, at: NOW, locked: true as const },
+    };
+    expect(hideLocked(buttons, names).map((b) => b.url)).toEqual([B, D, here]);
+    expect(hideLocked(buttons, {}).map((b) => b.url)).toEqual(
+      buttons.map((b) => b.url),
+    );
+    // This office is never hidden: the member is in it.
+    expect(
+      hideLocked(buttons, {
+        [here]: { name: null, at: NOW, locked: true },
+      }).map((b) => b.url),
+    ).toEqual(buttons.map((b) => b.url));
   });
 });
 
