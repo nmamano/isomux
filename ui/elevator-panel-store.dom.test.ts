@@ -14,6 +14,11 @@
 //     damaged entry. It keeps a lock (task ad60eb81), and hideLocked drops
 //     the locked offices' buttons at any age, in order, so the numbers close
 //     up.
+//   - hideUnanswered (task d2b62f44) keeps, after hideLocked, only the
+//     buttons with an answer to show - a kept entry of any age, or a lookup
+//     of this open that ended without one - and this office; it counts the
+//     rest as waiting, so the dialog never shows a row that a lock then
+//     hides.
 //   - The glue: holdArrivingPanel keeps the arriving panel until syncPanel
 //     (full_state, floors_updated) merges it once and writes this office's
 //     snapshot; rideFragment carries this office and its live floors even
@@ -28,6 +33,7 @@ const {
   PANEL_STORAGE_KEY,
   commitPanel,
   hideLocked,
+  hideUnanswered,
   holdArrivingPanel,
   readNames,
   readPanel,
@@ -284,6 +290,82 @@ describe("locked offices", () => {
         [here]: { name: null, at: NOW, locked: true },
       }).map((b) => b.url),
     ).toEqual(buttons.map((b) => b.url));
+  });
+});
+
+describe("first answers", () => {
+  const D = "https://d.example.com";
+  const here = "https://here.example.com";
+  // One button of each kind, in address order: floors A and B, visited C
+  // with its floor D, and this office.
+  const buttons = () => {
+    const out = panelButtons(
+      panel({
+        visited: [
+          { url: C, addedAt: 1 },
+          { url: here, addedAt: 2 },
+        ],
+        snapshots: [{ origin: C, rev: 1, floors: [D] }],
+      }),
+      here,
+      [
+        { id: "fa", url: A, name: "Atlas", addedAt: 1 },
+        { id: "fb", url: B, name: null, addedAt: 2 },
+      ],
+    );
+    expect(out.map((b) => [b.url, b.kind])).toEqual([
+      [A, "floor"],
+      [B, "floor"],
+      [C, "visited"],
+      [D, "snapshot"],
+      [here, "here"],
+    ]);
+    return out;
+  };
+  const urls = (r: { shown: { url: string }[] }) => r.shown.map((b) => b.url);
+
+  it("shows only this office before any answer, and counts every other button as waiting", () => {
+    const r = hideUnanswered(buttons(), {}, new Set());
+    expect(urls(r)).toEqual([here]);
+    expect(r.waiting).toBe(4);
+  });
+
+  it("shows a button with a kept entry of any age or with no name, and one whose lookup ended without an answer, in order", () => {
+    const names = {
+      // An hour and more ago: shown while it is asked again.
+      [A]: { name: "Atlas", at: 0 },
+      // An office that did not answer is kept with no name.
+      [D]: { name: null, at: NOW },
+    };
+    const r = hideUnanswered(buttons(), names, new Set([C]));
+    expect(urls(r)).toEqual([A, C, D, here]);
+    expect(r.waiting).toBe(1);
+    // Every button answered: nothing waits.
+    const all = hideUnanswered(buttons(), names, new Set([B, C]));
+    expect(urls(all)).toEqual([A, B, C, D, here]);
+    expect(all.waiting).toBe(0);
+  });
+
+  it("shows this office with no entry and with an ended lookup alike, and never counts it", () => {
+    const r = hideUnanswered(buttons(), {}, new Set([here]));
+    expect(urls(r)).toEqual([here]);
+    expect(r.waiting).toBe(4);
+  });
+
+  // Applied after hideLocked: a lock whose new lookup was busy stays hidden
+  // and does not keep the dialog waiting.
+  it("after hideLocked, keeps a locked button hidden through an ended lookup and does not count it as waiting", () => {
+    const names = {
+      [A]: { name: null, at: 0, locked: true as const },
+      [B]: { name: null, at: NOW },
+    };
+    const unlocked = hideLocked(buttons(), names);
+    const r = hideUnanswered(unlocked, names, new Set([A, C, D]));
+    expect(urls(r)).toEqual([B, C, D, here]);
+    expect(r.waiting).toBe(0);
+    const pending = hideUnanswered(unlocked, names, new Set());
+    expect(urls(pending)).toEqual([B, here]);
+    expect(pending.waiting).toBe(2);
   });
 });
 

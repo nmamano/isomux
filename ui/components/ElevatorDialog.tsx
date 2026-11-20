@@ -19,6 +19,7 @@ import {
   PANEL_RECHECK_MS,
   commitPanel,
   hideLocked,
+  hideUnanswered,
   readFloorBrowser,
   readNames,
   readPanel,
@@ -100,8 +101,15 @@ export function ElevatorDialog({
   const [names, setNames] = useState<Record<string, PanelName>>(() =>
     readNames(),
   );
+  // Lookups of this open that ended with no answer (busy, a network error,
+  // any other refusal): their rows show without one.
+  const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   const allButtons = panelButtons(panel, here, floors);
-  const buttons = hideLocked(allButtons, names);
+  const { shown: buttons, waiting } = hideUnanswered(
+    hideLocked(allButtons, names),
+    names,
+    settled,
+  );
   // From the iOS Home Screen app a ride leaves for the member's browser,
   // which holds their sign-in to the other office.
   const choosesBrowser = floorBrowserApplies(env);
@@ -142,11 +150,13 @@ export function ElevatorDialog({
   // failed lookup is kept as no name until it is stale; a busy one is asked
   // again at the next open. A locked office's row stays hidden until a new
   // answer says otherwise. A floor shows only the lock, never this name.
+  // Each answer goes into `names` too, so a row shows even when storage
+  // keeps nothing.
   const others = allButtons.filter((b) => b.kind !== "here").map((b) => b.url);
   const othersKey = others.join(" ");
   useEffect(() => {
     let cancelled = false;
-    const kept = readNames();
+    const kept = { ...names, ...readNames() };
     const now = Date.now();
     const queue = others.filter(
       (url) => !kept[url] || now - kept[url].at >= PANEL_RECHECK_MS,
@@ -155,19 +165,28 @@ export function ElevatorDialog({
     const next = async (): Promise<void> => {
       const url = queue.shift();
       if (url === undefined || cancelled) return;
+      let entry: PanelName | null = null;
       try {
         const res = await apiFetch<FloorNameRes>(
           "GET",
           `/api/floors/name?url=${encodeURIComponent(url)}`,
         );
-        rememberName(url, res.name, keep);
+        entry = rememberName(url, res.name, keep);
       } catch (e) {
         if (e instanceof ApiError && e.code === "office_locked")
-          rememberName(url, null, keep, Date.now(), true);
+          entry = rememberName(url, null, keep, Date.now(), true);
         else if (e instanceof ApiError && e.code === "office_unreachable")
-          rememberName(url, null, keep);
+          entry = rememberName(url, null, keep);
       }
-      if (!cancelled) setNames(readNames());
+      if (!cancelled) {
+        const answer = entry;
+        if (answer)
+          setNames((prev) => ({ ...prev, ...readNames(), [url]: answer }));
+        else {
+          setNames((prev) => ({ ...prev, ...readNames() }));
+          setSettled((prev) => new Set(prev).add(url));
+        }
+      }
       return next();
     };
     for (let i = 0; i < MAX_NAME_ASKS; i++) void next();
@@ -318,6 +337,10 @@ export function ElevatorDialog({
           {t("lobby.elevator.hint")}
         </p>
 
+        {/* A row comes only with its office's first answer, so a locked
+            office never shows and then vanishes: the list grows as answers
+            land (an unreachable office can take 8 s), the one exception to
+            a panel that keeps its size. */}
         <div
           style={{
             display: "flex",
@@ -340,6 +363,19 @@ export function ElevatorDialog({
               }
             />
           ))}
+          {waiting > 0 && (
+            <p
+              role="status"
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                margin: 0,
+                padding: "4px 10px",
+              }}
+            >
+              {t("common.loading")}
+            </p>
+          )}
         </div>
 
         {choosesBrowser && (

@@ -203,21 +203,26 @@ function cutName(name: string): string | null {
 }
 
 // `keep` lists the origins still on the panel; the others are pruned.
-// `locked`: the office answered as locked, so its row is hidden.
+// `locked`: the office answered as locked, so its row is hidden. Returns the
+// entry as readNames gives it back, also when storage keeps nothing.
 export function rememberName(
   origin: string,
   name: string | null,
   keep: readonly string[],
   now: number = Date.now(),
   locked: boolean = false,
-): void {
+): PanelName {
   const names = readNames();
-  names[origin] = locked ? { name, at: now, locked: true } : { name, at: now };
+  const shown = name === null ? null : cutName(name);
+  names[origin] = locked
+    ? { name: shown, at: now, locked: true }
+    : { name: shown, at: now };
   const kept = new Set(keep);
   const next: Record<string, PanelName> = {};
   for (const [o, entry] of Object.entries(names))
     if (kept.has(o)) next[o] = entry;
   storageSet(localStorage, PANEL_NAMES_STORAGE_KEY, JSON.stringify(next));
+  return names[origin];
 }
 
 // The panel buttons without the offices whose kept entry says locked, at any
@@ -227,6 +232,21 @@ export function hideLocked(
   names: Record<string, PanelName>,
 ): PanelButton[] {
   return buttons.filter((b) => b.kind === "here" || !names[b.url]?.locked);
+}
+
+// The panel buttons that have an answer to show: a kept entry (any age), or
+// a lookup in this open that ended without one (`settled`). This office
+// always shows. `waiting` counts the rows still hidden for want of one.
+export function hideUnanswered(
+  buttons: PanelButton[],
+  names: Record<string, PanelName>,
+  settled: ReadonlySet<string>,
+): { shown: PanelButton[]; waiting: number } {
+  const shown = buttons.filter(
+    (b) =>
+      b.kind === "here" || names[b.url] !== undefined || settled.has(b.url),
+  );
+  return { shown, waiting: buttons.length - shown.length };
 }
 
 // The browser the elevator's rides open in from the iOS Home Screen app

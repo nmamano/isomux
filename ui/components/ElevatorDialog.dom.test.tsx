@@ -14,6 +14,13 @@
 // lock. Every entry is asked again after an hour; until then, and through a
 // refused or busy lookup, a lock stays.
 //
+// First open (task d2b62f44, Nil at sign-off: "a locked row must not show
+// and then vanish"): an office shows only once this browser holds an answer
+// for it (a kept entry, any age) or its lookup in this open ended without
+// one (busy, refused, failed). Until then its row is absent and a loading
+// status (role="status") shows; this office always shows, and the numbers
+// count the shown rows only.
+//
 // Markers the dialog carries: each panel button is an element with
 // data-panel-url and data-panel-kind ("here", "floor", "visited",
 // "snapshot"); an office floor also has data-floor-id; the open and remove
@@ -35,6 +42,7 @@ const {
   readPanel,
   rememberName,
   PANEL_RECHECK_MS,
+  PANEL_NAMES_STORAGE_KEY,
   FLOOR_BROWSER_STORAGE_KEY,
 } = await import("../elevator-panel-store.ts");
 const { mergePanels, panelButtons, readPanelFragment, sanitisePanel } =
@@ -62,9 +70,13 @@ const unnamed: Floor = {
 
 type Call = { method: string; path: string; body: unknown };
 
+// A name lookup answers as the server does for an office with no name.
+const plainAnswer = async (call: Call): Promise<unknown> =>
+  isNameAsk(call) ? { name: null } : {};
+
 function open(
   floors: Floor[],
-  answer: (call: Call) => Promise<unknown> = async () => ({}),
+  answer: (call: Call) => Promise<unknown> = plainAnswer,
   env?: SafariEnv,
 ) {
   const calls: Call[] = [];
@@ -75,20 +87,17 @@ function open(
   });
   const opened: string[] = [];
   let closes = 0;
-  const view = render(
-    onLanguage(
-      null,
-      createElement(ElevatorDialog, {
-        onClose: () => {
-          closes++;
-        },
-        ownOrigin: OWN,
-        openFloor: (url: string) => opened.push(url),
-        ...(env ? { env } : {}),
-      }),
-      { floors },
-    ),
-  );
+  const props = {
+    onClose: () => {
+      closes++;
+    },
+    ownOrigin: OWN,
+    openFloor: (url: string) => opened.push(url),
+    ...(env ? { env } : {}),
+  };
+  const withFloors = (list: Floor[]) =>
+    onLanguage(null, createElement(ElevatorDialog, props), { floors: list });
+  const view = render(withFloors(floors));
   const rows = () =>
     [...view.container.querySelectorAll("[data-floor-id]")] as HTMLElement[];
   const action = (el: ParentNode, name: string) =>
@@ -96,6 +105,16 @@ function open(
   const field = () => view.getByRole("textbox") as HTMLInputElement;
   const alertText = () =>
     view.queryByRole("alert")?.textContent?.trim() ?? null;
+  const loading = () => view.queryByRole("status");
+  // Every lookup this open started has ended: the loading status is gone.
+  async function answered() {
+    await waitFor(() => expect(loading()).toBeNull());
+    await act(async () => {});
+  }
+  // floors_updated: the same open, with this office's new floors.
+  function setFloors(list: Floor[]) {
+    view.rerender(withFloors(list));
+  }
   async function submit(text: string) {
     await act(async () => {
       fireEvent.change(field(), { target: { value: text } });
@@ -113,13 +132,17 @@ function open(
     field,
     alertText,
     submit,
+    loading,
+    answered,
+    setFloors,
     closes: () => closes,
   };
 }
 
 describe("ElevatorDialog", () => {
-  it("lists the floors in order, with the host when a floor has no name", () => {
+  it("lists the floors in order, with the host when a floor has no name", async () => {
     const d = open([named, unnamed]);
+    await d.answered();
     const rows = d.rows();
     expect(rows.map((r) => r.getAttribute("data-floor-id"))).toEqual([
       "f1",
@@ -133,6 +156,7 @@ describe("ElevatorDialog", () => {
 
   it("opens a floor on a click, and a remove sends DELETE and opens nothing", async () => {
     const d = open([named, unnamed]);
+    await d.answered();
     expect(d.rows().length).toBe(2);
     await act(async () => {
       fireEvent.click(d.action(d.rows()[1], "open"));
@@ -165,6 +189,7 @@ describe("ElevatorDialog", () => {
   // an armed remove, Escape ends the confirm and the dialog stays.
   it("Escape on an armed remove ends the confirm and keeps the dialog; the next Escape closes it", async () => {
     const d = open([named]);
+    await d.answered();
     const remove = d.action(d.rows()[0], "remove");
     await act(async () => {
       fireEvent.click(remove);
@@ -362,13 +387,36 @@ const numbers = (view: ReturnType<typeof render>) =>
     (r) => r.querySelector('[aria-hidden="true"]')?.textContent ?? "",
   );
 const HOUR_MS = 60 * 60 * 1000;
+
+// Storage that throws on one key only. happy-dom's Storage copies a bound
+// method onto the instance at its first use, so a patch on the prototype is
+// not seen after that: patch the instance.
+function blockStorage(blockedKey: string, method: "getItem" | "setItem") {
+  const original = localStorage[method] as (...a: string[]) => unknown;
+  const calls: string[] = [];
+  const define = (value: unknown) =>
+    Object.defineProperty(localStorage, method, {
+      configurable: true,
+      writable: true,
+      value,
+    });
+  define((key: string, ...rest: string[]) => {
+    if (key === blockedKey) {
+      calls.push(key);
+      throw new DOMException("blocked", "SecurityError");
+    }
+    return original(key, ...rest);
+  });
+  return { calls, restore: () => define(original) };
+}
 const lockedRefusal = () =>
   new ApiError(422, "office_locked", "the office is locked");
 
 describe("ElevatorDialog panel", () => {
   it("lists the offices this browser rode through and their floors by address, with this office lit and not a ride", async () => {
     seed(trip);
-    const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    const d = open([named]);
+    await d.answered();
     expect(shape(d.view)).toEqual([
       [ATLAS, "visited"],
       [COVE, "snapshot"],
@@ -385,7 +433,8 @@ describe("ElevatorDialog panel", () => {
 
   it("removes a personal entry in this browser only, with its office's floors, and sends no call", async () => {
     seed(trip);
-    const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    const d = open([named]);
+    await d.answered();
     // A personal remove asks first too (task c6589760).
     await act(async () => {
       fireEvent.click(d.action(rowFor(d.view, ATLAS), "remove"));
@@ -414,7 +463,8 @@ describe("ElevatorDialog panel", () => {
 
   it("opens a ride that carries the panel as it is at the click, from this office", async () => {
     seed(trip);
-    const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    const d = open([named]);
+    await d.answered();
     // Another tab rode to Dock after this dialog opened.
     commitPanel((p) =>
       mergePanels(
@@ -444,7 +494,7 @@ describe("ElevatorDialog panel", () => {
     d.view.unmount();
   });
 
-  it("asks this office's server for each entry's name, its own floors too, and shows the host until it answers", async () => {
+  it("asks this office's server for each entry's name, its own floors too, and shows the entry once it answers", async () => {
     seed(trip);
     const answers = new Map<string, (v: unknown) => void>();
     const d = open([named], (c) =>
@@ -455,7 +505,7 @@ describe("ElevatorDialog panel", () => {
     await waitFor(() => expect(answers.size).toBe(3));
     // Never for this office.
     expect(namesAsked(d.calls).sort()).toEqual([ATLAS, COVE, named.url].sort());
-    expect(rowFor(d.view, ATLAS).textContent).toContain("atlas.example.com");
+    expect(rowFor(d.view, ATLAS)).toBeUndefined();
     await act(async () => {
       answers.get(ATLAS)!({ name: "Atlas Works" });
     });
@@ -517,14 +567,8 @@ describe("ElevatorDialog panel", () => {
       if (url === ATLAS || url === named.url) throw lockedRefusal();
       return { name: url === COVE ? "Cove" : null };
     });
-    // Shown until the answers arrive.
-    expect(shape(d.view)).toEqual([
-      [ATLAS, "visited"],
-      [COVE, "snapshot"],
-      [named.url, "floor"],
-      [OWN, "here"],
-      [unnamed.url, "floor"],
-    ]);
+    // Not shown before the answers arrive.
+    expect(shape(d.view)).toEqual([[OWN, "here"]]);
     await waitFor(() =>
       expect(shape(d.view)).toEqual([
         [COVE, "snapshot"],
@@ -642,6 +686,8 @@ describe("ElevatorDialog panel", () => {
       [COVE, "snapshot"],
       [OWN, "here"],
     ]);
+    // A lock kept through an ended lookup does not keep the dialog loading.
+    expect(d.loading()).toBeNull();
     d.view.unmount();
   });
 
@@ -681,6 +727,201 @@ describe("ElevatorDialog panel", () => {
       answers[5]({ name: null });
     });
     d.view.unmount();
+  });
+});
+
+describe("ElevatorDialog first open", () => {
+  type Pending = {
+    resolve: (v: unknown) => void;
+    reject: (e: unknown) => void;
+  };
+  // Name lookups that wait for the test; other calls answer at once.
+  function heldAnswers() {
+    const held = new Map<string, Pending>();
+    const answer = (c: Call) =>
+      isNameAsk(c)
+        ? new Promise((resolve, reject) =>
+            held.set(urlOfAsk(c), { resolve, reject }),
+          )
+        : Promise.resolve({});
+    return { held, answer };
+  }
+  // Every panel url the dialog ever put in the DOM, between two looks too.
+  function watchRows(view: ReturnType<typeof render>) {
+    const seen = new Set<string>();
+    const note = (records: MutationRecord[]) => {
+      for (const r of records)
+        for (const node of r.addedNodes) {
+          if (!(node instanceof Element)) continue;
+          for (const el of [node, ...node.querySelectorAll("[data-panel-url]")])
+            if (el.hasAttribute("data-panel-url"))
+              seen.add(el.getAttribute("data-panel-url")!);
+        }
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(view.container, { childList: true, subtree: true });
+    return {
+      seen: () => {
+        note(observer.takeRecords());
+        return seen;
+      },
+      stop: () => observer.disconnect(),
+    };
+  }
+
+  it("shows an office only once its first answer arrives, this office at once, and a loading status while any waits", async () => {
+    seed(trip);
+    const { held, answer } = heldAnswers();
+    const d = open([named], answer);
+    const watch = watchRows(d.view);
+    expect(shape(d.view)).toEqual([[OWN, "here"]]);
+    expect(numbers(d.view)).toEqual(["1"]);
+    expect((d.loading()?.textContent ?? "").trim().length).toBeGreaterThan(0);
+    await waitFor(() => expect(held.size).toBe(3));
+
+    await act(async () => {
+      held.get(named.url)!.resolve({ name: null });
+    });
+    await waitFor(() =>
+      expect(shape(d.view)).toEqual([
+        [named.url, "floor"],
+        [OWN, "here"],
+      ]),
+    );
+    expect(numbers(d.view)).toEqual(["1", "2"]);
+    expect(d.loading()).not.toBeNull();
+
+    await act(async () => {
+      held.get(ATLAS)!.reject(lockedRefusal());
+    });
+    await act(async () => {});
+    expect(shape(d.view)).toEqual([
+      [named.url, "floor"],
+      [OWN, "here"],
+    ]);
+    // Cove still waits.
+    expect(d.loading()).not.toBeNull();
+
+    await act(async () => {
+      held.get(COVE)!.resolve({ name: "Cove" });
+    });
+    await waitFor(() => expect(d.loading()).toBeNull());
+    expect(shape(d.view)).toEqual([
+      [COVE, "snapshot"],
+      [named.url, "floor"],
+      [OWN, "here"],
+    ]);
+    expect(numbers(d.view)).toEqual(["1", "2", "3"]);
+    // The watch saw the rows that came; the locked office never came.
+    const seen = watch.seen();
+    expect(seen.has(COVE) && seen.has(named.url)).toBe(true);
+    expect(seen.has(ATLAS)).toBe(false);
+    watch.stop();
+    d.view.unmount();
+  });
+
+  it("shows an office whose lookup is busy, refused or fails, asks it once, and ends the loading status", async () => {
+    seed(trip);
+    const d = open([named, unnamed], async (c) => {
+      if (!isNameAsk(c)) return {};
+      const url = urlOfAsk(c);
+      if (url === ATLAS) throw new ApiError(429, "too_many_requests", "busy");
+      if (url === COVE) throw new TypeError("network down");
+      if (url === named.url) throw new ApiError(403, "forbidden", "no");
+      throw new ApiError(422, "office_unreachable", "unreachable");
+    });
+    expect(d.loading()).not.toBeNull();
+    await d.answered();
+    expect(shape(d.view)).toEqual([
+      [ATLAS, "visited"],
+      [COVE, "snapshot"],
+      [named.url, "floor"],
+      [OWN, "here"],
+      [unnamed.url, "floor"],
+    ]);
+    expect(numbers(d.view)).toEqual(["1", "2", "3", "4", "5"]);
+    expect(namesAsked(d.calls).sort()).toEqual(
+      [ATLAS, COVE, named.url, unnamed.url].sort(),
+    );
+    d.view.unmount();
+  });
+
+  it("keeps showing an office whose lookup ended without an answer when the floors change in the same open", async () => {
+    seed(trip);
+    let atlasAsks = 0;
+    const d = open([named], (c) => {
+      if (!isNameAsk(c)) return Promise.resolve({});
+      if (urlOfAsk(c) !== ATLAS) return Promise.resolve({ name: null });
+      // Busy the first time; the second lookup never answers.
+      if (++atlasAsks === 1)
+        return Promise.reject(new ApiError(429, "too_many_requests", "busy"));
+      return new Promise(() => {});
+    });
+    await d.answered();
+    expect(rowFor(d.view, ATLAS)).toBeDefined();
+
+    // Another member adds a floor: the dialog asks again for each office
+    // without a kept answer, Atlas included.
+    await act(async () => {
+      d.setFloors([named, unnamed]);
+    });
+    await waitFor(() => expect(atlasAsks).toBe(2));
+    expect(rowFor(d.view, ATLAS)).toBeDefined();
+    await d.answered();
+    expect(shape(d.view)).toEqual([
+      [ATLAS, "visited"],
+      [COVE, "snapshot"],
+      [named.url, "floor"],
+      [OWN, "here"],
+      [unnamed.url, "floor"],
+    ]);
+    d.view.unmount();
+  });
+
+  it("shows a kept answer at once, of any age, with no loading status while it is asked again", async () => {
+    seed(trip);
+    const keep = [ATLAS, COVE, OWN, named.url];
+    rememberName(ATLAS, "Atlas Works", keep);
+    rememberName(COVE, "Cove", keep, Date.now() - HOUR_MS - 1000);
+    rememberName(named.url, null, keep);
+    const { held, answer } = heldAnswers();
+    const d = open([named], answer);
+    const expected = [
+      [ATLAS, "visited"],
+      [COVE, "snapshot"],
+      [named.url, "floor"],
+      [OWN, "here"],
+    ];
+    expect(shape(d.view)).toEqual(expected);
+    expect(d.loading()).toBeNull();
+    // The stale one is asked again, and shows while it is.
+    await waitFor(() => expect([...held.keys()]).toEqual([COVE]));
+    expect(shape(d.view)).toEqual(expected);
+    expect(d.loading()).toBeNull();
+    d.view.unmount();
+  });
+
+  it("with storage that keeps no answer, shows an answered office and keeps a locked one hidden", async () => {
+    seed(trip);
+    const blocked = blockStorage(PANEL_NAMES_STORAGE_KEY, "setItem");
+    try {
+      const d = open([], async (c) => {
+        if (!isNameAsk(c)) return {};
+        if (urlOfAsk(c) === ATLAS) throw lockedRefusal();
+        return { name: "Cove" };
+      });
+      await d.answered();
+      expect(blocked.calls.length).toBeGreaterThan(0);
+      expect(shape(d.view)).toEqual([
+        [COVE, "snapshot"],
+        [OWN, "here"],
+      ]);
+      expect(rowFor(d.view, COVE).textContent).toContain("Cove");
+      d.view.unmount();
+    } finally {
+      blocked.restore();
+    }
+    expect(localStorage.getItem(PANEL_NAMES_STORAGE_KEY)).toBeNull();
   });
 });
 
@@ -893,6 +1134,7 @@ describe("ElevatorDialog floor browser", () => {
     ) as HTMLElement;
 
   async function rideTo(d: ReturnType<typeof open>, url: string) {
+    await d.answered();
     const row = d
       .rows()
       .find((r) => r.textContent?.includes(new URL(url).host)) as HTMLElement;
@@ -912,7 +1154,7 @@ describe("ElevatorDialog floor browser", () => {
   }
 
   it("opens a floor in Safari from the Home Screen app by default", async () => {
-    const d = open([named], async () => ({}), HOME_SCREEN);
+    const d = open([named], undefined, HOME_SCREEN);
     expect(group(d.view)).not.toBeNull();
     expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe("true");
     expect(option(d.view, "chrome").getAttribute("aria-pressed")).toBe("false");
@@ -921,7 +1163,7 @@ describe("ElevatorDialog floor browser", () => {
   });
 
   it("opens floors in Chrome after a click on Chrome, keeps the choice for the next open, and the click itself opens nothing", async () => {
-    const d = open([named, unnamed], async () => ({}), HOME_SCREEN);
+    const d = open([named, unnamed], undefined, HOME_SCREEN);
     await act(async () => {
       fireEvent.click(option(d.view, "chrome"));
     });
@@ -932,7 +1174,7 @@ describe("ElevatorDialog floor browser", () => {
     expectRide(await rideTo(d, unnamed.url), "googlechrome://", unnamed.url);
     d.view.unmount();
 
-    const again = open([named], async () => ({}), HOME_SCREEN);
+    const again = open([named], undefined, HOME_SCREEN);
     expect(option(again.view, "chrome").getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -946,7 +1188,7 @@ describe("ElevatorDialog floor browser", () => {
   });
 
   it("names the choice for a screen reader", () => {
-    const d = open([named], async () => ({}), HOME_SCREEN);
+    const d = open([named], undefined, HOME_SCREEN);
     const g = group(d.view)!;
     expect(g.getAttribute("role")).toBe("group");
     const labelId = g.getAttribute("aria-labelledby") ?? "";
@@ -957,40 +1199,22 @@ describe("ElevatorDialog floor browser", () => {
 
   it("reads an unknown stored value as Safari", async () => {
     localStorage.setItem(FLOOR_BROWSER_STORAGE_KEY, "firefox");
-    const d = open([named], async () => ({}), HOME_SCREEN);
+    const d = open([named], undefined, HOME_SCREEN);
     expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe("true");
     expectRide(await rideTo(d, named.url), "x-safari-https://", named.url);
     d.view.unmount();
   });
 
   // Blocked storage throws on the choice's key only, so the panel keeps
-  // working and the test pins the choice's own fallback. happy-dom's Storage
-  // copies a bound method onto the instance at its first use, so a patch on
-  // the prototype is not seen after that: patch the instance.
-  function blockChoiceStorage(method: "getItem" | "setItem") {
-    const original = localStorage[method] as (...a: string[]) => unknown;
-    const calls: string[] = [];
-    const define = (value: unknown) =>
-      Object.defineProperty(localStorage, method, {
-        configurable: true,
-        writable: true,
-        value,
-      });
-    define((key: string, ...rest: string[]) => {
-      if (key === FLOOR_BROWSER_STORAGE_KEY) {
-        calls.push(key);
-        throw new DOMException("blocked", "SecurityError");
-      }
-      return original(key, ...rest);
-    });
-    return { calls, restore: () => define(original) };
-  }
+  // working and the test pins the choice's own fallback.
+  const blockChoiceStorage = (method: "getItem" | "setItem") =>
+    blockStorage(FLOOR_BROWSER_STORAGE_KEY, method);
 
   it("reads as Safari when storage throws on the read", async () => {
     localStorage.setItem(FLOOR_BROWSER_STORAGE_KEY, "chrome");
     const blocked = blockChoiceStorage("getItem");
     try {
-      const d = open([named], async () => ({}), HOME_SCREEN);
+      const d = open([named], undefined, HOME_SCREEN);
       expect(blocked.calls.length).toBeGreaterThan(0);
       expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe(
         "true",
@@ -1005,7 +1229,7 @@ describe("ElevatorDialog floor browser", () => {
   it("keeps a choice it cannot save for this open", async () => {
     const blocked = blockChoiceStorage("setItem");
     try {
-      const d = open([named], async () => ({}), HOME_SCREEN);
+      const d = open([named], undefined, HOME_SCREEN);
       await act(async () => {
         fireEvent.click(option(d.view, "chrome"));
       });
@@ -1026,7 +1250,7 @@ describe("ElevatorDialog floor browser", () => {
       { ios: false, standalone: true, iosMajor: null },
       { ios: false, standalone: false, iosMajor: null },
     ]) {
-      const d = open([named], async () => ({}), env);
+      const d = open([named], undefined, env);
       expect(group(d.view)).toBeNull();
       expect(option(d.view, "chrome")).toBeNull();
       expectRide(await rideTo(d, named.url), "https://", named.url);
