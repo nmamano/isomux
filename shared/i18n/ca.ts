@@ -4260,8 +4260,7 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.whatsappRouted":
     "El xat de WhatsApp {chat} ara va a {agent}.",
   "systemEntries.stepAsk.messagingRouteSet": "Ruta {route} canviada.",
-  "systemEntries.stepAsk.storageRetentionSet":
-    "Configuració de la neteja automàtica canviada.",
+  "systemEntries.stepAsk.storageRetentionSet": "Neteja automàtica canviada.",
   "systemEntries.stepAsk.discordRouted":
     "El lloc de Discord {place} ara va a {agent}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",

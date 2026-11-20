@@ -4261,8 +4261,7 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.whatsappRouted":
     "El chat de WhatsApp {chat} ahora va a {agent}.",
   "systemEntries.stepAsk.messagingRouteSet": "Ruta {route} cambiada.",
-  "systemEntries.stepAsk.storageRetentionSet":
-    "Ajustes de la limpieza automática cambiados.",
+  "systemEntries.stepAsk.storageRetentionSet": "Limpieza automática cambiada.",
   "systemEntries.stepAsk.discordRouted":
     "El lugar de Discord {place} ahora va a {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",

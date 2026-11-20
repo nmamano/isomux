@@ -4165,8 +4165,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.whatsappRouted":
     "WhatsApp chat {chat} now goes to {agent}.",
   "systemEntries.stepAsk.messagingRouteSet": "Route {route} changed.",
-  "systemEntries.stepAsk.storageRetentionSet":
-    "Automatic cleanup settings set.",
+  "systemEntries.stepAsk.storageRetentionSet": "Automatic cleanup changed.",
   "systemEntries.stepAsk.discordRouted":
     "Discord place {place} now goes to {agent}.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",

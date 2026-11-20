@@ -3793,7 +3793,7 @@ export const zh: Catalog = {
   "systemEntries.stepAsk.whatsappRouted":
     "已将 WhatsApp 聊天 {chat} 转给 {agent}。",
   "systemEntries.stepAsk.messagingRouteSet": "已更改路由 {route}。",
-  "systemEntries.stepAsk.storageRetentionSet": "已设置自动清理设置。",
+  "systemEntries.stepAsk.storageRetentionSet": "已更改自动清理。",
   "systemEntries.stepAsk.discordRouted":
     "已将 Discord 位置 {place} 转给 {agent}。",
   "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",
