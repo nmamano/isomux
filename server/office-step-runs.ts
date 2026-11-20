@@ -41,6 +41,7 @@ import { matchRoute } from "./routes/match.ts";
 import { API_ROUTES } from "./routes/table.ts";
 import type { StepRunDeps } from "./step-asks.ts";
 import { loadBackupSettings } from "./backup.ts";
+import { loadLogRetentionSettings } from "./storage-retention.ts";
 import { getUser, getUserById, wouldDeleteLeaveNoOwner } from "./users.ts";
 import { getRemovedMember, listRemovedMembers } from "./removed-members.ts";
 import { getUpdateStatus } from "./update-checker.ts";
@@ -164,6 +165,7 @@ export function officeStepRuns(deps: {
     },
     backupSettings: loadBackupSettings,
     backupDirFromEnv: () => !!process.env.ISOMUX_BACKUP_DIR,
+    logRetention: loadLogRetentionSettings,
     roomName: (roomId) =>
       agentManager.getRooms().find((room) => room.id === roomId)?.name ?? null,
     memberIdByName: (username) => getUser(username)?.id ?? null,

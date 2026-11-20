@@ -791,7 +791,8 @@ export function createManagers(
         .map((d) => d.userId),
     onChange: (userId) => {
       whatsappSupervisor.setRoutes(userId);
-      // A row made or changed may do a whatsapp-route step.
+      // A row made or changed may do a whatsapp-route or messaging-route
+      // step.
       stepsChanged();
     },
   });
@@ -894,7 +895,8 @@ export function createManagers(
       listDiscordMembers(STATE_ROOT).filter(
         (userId) => readBots(STATE_ROOT, userId).length > 0,
       ),
-    // A route made or changed may do a discord-route step.
+    // A route made or changed may do a discord-route or messaging-route
+    // step.
     onChange: () => stepsChanged(),
   });
   const discordInbound = createDiscordInbound({

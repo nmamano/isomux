@@ -2337,6 +2337,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "{member} manages this agent. Members who can open it can read the messages from this place.",
   "asks.action.discordOtherMember":
     "Only {member} can choose the place and apply.",
+  "asks.action.routeName": "{app}: {name}",
+  "asks.action.routeGone": "This route no longer exists.",
+  "asks.action.routeOtherMember": "Only {member} can apply.",
   "asks.action.memberGone": "This member is no longer in the office.",
   "asks.action.roomGranted": "Access",
   "asks.action.roomRemoved": "No access",
@@ -4161,6 +4164,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.storageCompressed": "Old conversations compressed.",
   "systemEntries.stepAsk.whatsappRouted":
     "WhatsApp chat {chat} now goes to {agent}.",
+  "systemEntries.stepAsk.messagingRouteSet": "Route {route} changed.",
+  "systemEntries.stepAsk.storageRetentionSet":
+    "Automatic cleanup settings set.",
   "systemEntries.stepAsk.discordRouted":
     "Discord place {place} now goes to {agent}.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",

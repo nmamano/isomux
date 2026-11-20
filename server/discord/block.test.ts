@@ -222,4 +222,25 @@ describe("buildDiscordBlock: the head", () => {
       head({ replyMode: "read" }),
     );
   });
+
+  // Task 2ff2729f: a read-only route cannot answer, but the agent can ask the
+  // member to change it. The line that says so names the step kind and this
+  // route's id: what the agent sends back (protocol values). A route that
+  // can answer does not point at the step.
+  it("on a read-only route, points at the messaging-route step with this route's id", () => {
+    const lines = (replyMode: "bot" | "read" | "ask") =>
+      head({ replyMode, routeId: "d_7c2e9a10" }).split("\n");
+    const pointers = lines("read").filter((line) =>
+      line.includes("messaging-route"),
+    );
+    expect(pointers.length).toBe(1);
+    expect(pointers[0].includes("d_7c2e9a10")).toBe(true);
+    for (const replyMode of ["bot", "ask"] as const)
+      expect({
+        replyMode,
+        pointers: lines(replyMode).filter((line) =>
+          line.includes("messaging-route"),
+        ).length,
+      }).toEqual({ replyMode, pointers: 0 });
+  });
 });

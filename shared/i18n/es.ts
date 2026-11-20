@@ -2393,6 +2393,9 @@ Cosas que puedes hacer por él:
     "{member} gestiona este agente. Los miembros que pueden abrirlo pueden leer los mensajes de este lugar.",
   "asks.action.discordOtherMember":
     "Solo {member} puede elegir el lugar y aplicar.",
+  "asks.action.routeName": "{app}: {name}",
+  "asks.action.routeGone": "Esta ruta ya no existe.",
+  "asks.action.routeOtherMember": "Solo {member} puede aplicar.",
   "asks.action.memberGone": "Este miembro ya no está en la oficina.",
   "asks.action.roomGranted": "Acceso",
   "asks.action.roomRemoved": "Sin acceso",
@@ -4257,6 +4260,9 @@ Cosas que puedes hacer por él:
     "Conversaciones antiguas comprimidas.",
   "systemEntries.stepAsk.whatsappRouted":
     "El chat de WhatsApp {chat} ahora va a {agent}.",
+  "systemEntries.stepAsk.messagingRouteSet": "Ruta {route} cambiada.",
+  "systemEntries.stepAsk.storageRetentionSet":
+    "Ajustes de la limpieza automática cambiados.",
   "systemEntries.stepAsk.discordRouted":
     "El lugar de Discord {place} ahora va a {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",

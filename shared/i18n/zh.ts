@@ -2115,6 +2115,9 @@ export const zh: Catalog = {
   "asks.action.discordManager":
     "{member} 管理着此智能体。能打开它的成员可以读取来自此位置的消息。",
   "asks.action.discordOtherMember": "只有 {member} 可以选择位置并应用。",
+  "asks.action.routeName": "{app}：{name}",
+  "asks.action.routeGone": "这条路由已不存在。",
+  "asks.action.routeOtherMember": "只有 {member} 可以应用。",
   "asks.action.memberGone": "这位成员已不在办公室中。",
   "asks.action.roomGranted": "可访问",
   "asks.action.roomRemoved": "不可访问",
@@ -3789,6 +3792,8 @@ export const zh: Catalog = {
   "systemEntries.stepAsk.storageCompressed": "已压缩旧对话。",
   "systemEntries.stepAsk.whatsappRouted":
     "已将 WhatsApp 聊天 {chat} 转给 {agent}。",
+  "systemEntries.stepAsk.messagingRouteSet": "已更改路由 {route}。",
+  "systemEntries.stepAsk.storageRetentionSet": "已设置自动清理设置。",
   "systemEntries.stepAsk.discordRouted":
     "已将 Discord 位置 {place} 转给 {agent}。",
   "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",

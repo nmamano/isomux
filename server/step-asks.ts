@@ -72,12 +72,15 @@ import {
   WHATSAPP_PREFIX_MAX,
   WHATSAPP_ROUTE_NAME_MAX,
   chatNameMatches,
+  normaliseWhatsAppPrefix,
   normaliseWhatsAppRouteName,
   type WhatsAppChatSeen,
   type WhatsAppRoute,
   type WhatsAppRouteDead,
 } from "../shared/whatsapp.ts";
 import { replySettings } from "./whatsapp/routes.ts";
+import { discordRouteSettings } from "./discord/routes.ts";
+import { logRetentionSettingsShapeError } from "./storage-retention.ts";
 import {
   discordPlacesMatching,
   normaliseDiscordPrefix,
@@ -153,6 +156,9 @@ export interface StepRunDeps {
   };
   // Whether ISOMUX_BACKUP_DIR sets the backup folder.
   backupDirFromEnv(): boolean;
+  // The ages of the daily automatic log cleanup now (deleteAfterDays null:
+  // off).
+  logRetention(): { compressAfterDays: number; deleteAfterDays: number | null };
   // The room's name, or null when there is no such room.
   roomName(roomId: string): string | null;
   // The id of the member with this username, or null.
@@ -339,6 +345,8 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
     "prefix",
     "ownMessages",
   ],
+  "messaging-route": ["kind", "routeId", "set"],
+  "storage-retention": ["kind", "set"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -454,6 +462,14 @@ function doneLine(step: AskStep, target: string): LogMessage {
         chat: step.chatName,
         agent: target,
       });
+    // The id the agent gave, never the route's name: the agent learns no
+    // name it did not give.
+    case "messaging-route":
+      return msg("systemEntries.stepAsk.messagingRouteSet", {
+        route: step.routeId,
+      });
+    case "storage-retention":
+      return msg("systemEntries.stepAsk.storageRetentionSet");
   }
 }
 
@@ -608,7 +624,88 @@ const BACKUP_SET_KEYS: readonly string[] = [
   "retention",
   "dir",
 ];
+// The keys a messaging-route step may set: the keys of the app's PATCH.
+const ROUTE_SET_KEYS: Record<"discord" | "whatsapp", readonly string[]> = {
+  discord: [
+    "name",
+    "agentId",
+    "trigger",
+    "replyMode",
+    "prefix",
+    "includeBots",
+    "react",
+  ],
+  whatsapp: [
+    "name",
+    "agentId",
+    "trigger",
+    "sendDirect",
+    "prefix",
+    "ownMessages",
+  ],
+};
+const RETENTION_SET_KEYS: readonly string[] = [
+  "compressAfterDays",
+  "deleteAfterDays",
+];
 const VIEW_LISTS: readonly string[] = ["shown", "tucked", "notif", "push"];
+
+type MessagingRouteStep = Extract<AskStep, { kind: "messaging-route" }>;
+
+// One route of a member, of either app.
+type FoundRoute =
+  | { app: "discord"; route: DiscordRoute }
+  | { app: "whatsapp"; route: WhatsAppRoute };
+
+// The member's route with this id, in the app given, else in either: the
+// ids differ by prefix (d_ for Discord, r_ for WhatsApp), so at most one
+// matches. Null when the member has none.
+function findRoute(
+  runs: StepRunDeps,
+  memberUserId: string,
+  routeId: string,
+  app?: "discord" | "whatsapp",
+): FoundRoute | null {
+  if (app !== "whatsapp") {
+    const route = runs.discord
+      .routes(memberUserId)
+      .find((r) => r.id === routeId);
+    if (route) return { app: "discord", route };
+  }
+  if (app !== "discord") {
+    const route = runs.whatsapp
+      .rows(memberUserId)
+      .find((r) => r.id === routeId);
+    if (route) return { app: "whatsapp", route };
+  }
+  return null;
+}
+
+// The route's settings as a step compares them: a key the route does not
+// store has its default (off, no prefix, mention on a group).
+function routeValues(found: FoundRoute): Record<string, unknown> {
+  const common = {
+    name: found.route.name,
+    agentId: found.route.agentId,
+    prefix: found.route.prefix ?? "",
+  };
+  return found.app === "discord"
+    ? {
+        ...common,
+        trigger: found.route.trigger,
+        replyMode: found.route.replyMode,
+        includeBots: found.route.includeBots === true,
+        react: found.route.react === true,
+      }
+    : {
+        ...common,
+        trigger: found.route.group
+          ? (found.route.trigger ?? "mention")
+          : undefined,
+        sendDirect: found.route.sendDirect === true,
+        ownMessages: found.route.ownMessages === true,
+      };
+}
 
 // The preferences as they apply: a record with no voice value has the
 // default, and no language is null.
@@ -825,6 +922,23 @@ export function createStepAsks(deps: StepAskDeps) {
               wa.agentProblem(memberUserId, row.agentId) === null,
           );
       }
+      // The route live (its agent fit, and not marked dead: only a PATCH
+      // makes a dead route live again), and each key of `set` at its value.
+      case "messaging-route": {
+        const runs = deps.runs;
+        if (!runs) return false;
+        const found = findRoute(runs, memberUserId, step.routeId, step.app);
+        if (!found || found.route.dead) return false;
+        const problem =
+          found.app === "discord"
+            ? runs.discord.agentProblem(memberUserId, found.route.agentId)
+            : runs.whatsapp.agentProblem(memberUserId, found.route.agentId);
+        return problem === null && allSet(step.set, routeValues(found));
+      }
+      case "storage-retention": {
+        const now = deps.runs?.logRetention();
+        return !!now && allSet(step.set, now);
+      }
     }
   }
 
@@ -839,6 +953,14 @@ export function createStepAsks(deps: StepAskDeps) {
     status: 422,
     code: "unknown_session",
     message: "no live session of this member with this prefix",
+  });
+  // No route of the member with this id: the same answer for another
+  // member's.
+  const unknownRoute = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "unknown_route",
+    message: "this member has no route with this id",
   });
   const unknownRoom = (): StepFailure => ({
     ok: false,
@@ -1355,9 +1477,94 @@ export function createStepAsks(deps: StepAskDeps) {
         return discordRouteRun(step, memberUserId, pick);
       case "whatsapp-route":
         return whatsappRouteRun(step, memberUserId, pick);
+      // One PATCH of the route: the keys `set` leaves out keep their values.
+      // A route deleted since the create answers 404 on the card.
+      case "messaging-route":
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "PATCH",
+              path: `/api/${step.app}/routes/${encodeURIComponent(step.routeId)}`,
+              body: step.set,
+            },
+          ],
+        };
+      case "storage-retention":
+        return {
+          ok: true,
+          routes: [
+            { method: "PUT", path: "/api/storage/retention", body: step.set },
+          ],
+        };
       default:
         return null;
     }
+  }
+
+  // A messaging-route step as the agent sent it, with the route's app, and
+  // `set` checked by the app's own route checks and kept as the PATCH
+  // stores it (name and prefix normalised). An id the member has no route
+  // for, another member's included, is refused with one answer that names
+  // nothing of the route.
+  function completeMessagingRoute(
+    body: Record<string, unknown>,
+    memberUserId: string,
+  ): { ok: true; step: AskStep } | StepFailure {
+    const { routeId, set } = body;
+    if (typeof routeId !== "string" || routeId === "")
+      return invalid("step.routeId is the id of one of the member's routes");
+    if (!isObject(set) || Object.keys(set).length === 0)
+      return invalid("step.set is an object of the settings to change");
+    if (!deps.runs) return invalid("this office runs no action steps");
+    const found = findRoute(deps.runs, memberUserId, routeId);
+    if (!found) return unknownRoute();
+    const keys = ROUTE_SET_KEYS[found.app];
+    if (!Object.keys(set).every((key) => keys.includes(key)))
+      return invalid(`step.set takes only ${keys.join(", ")} for this route`);
+    const out: Record<string, unknown> = { ...set };
+    if (
+      set.agentId !== undefined &&
+      (typeof set.agentId !== "string" || set.agentId === "")
+    )
+      return invalid("step.set.agentId is an agent id");
+    if (set.name !== undefined) {
+      const name =
+        typeof set.name !== "string"
+          ? null
+          : found.app === "discord"
+            ? normaliseDiscordRouteName(set.name)
+            : normaliseWhatsAppRouteName(set.name);
+      if (name === null)
+        return invalid(
+          `step.set.name is 1 to ${WHATSAPP_ROUTE_NAME_MAX} characters on one line`,
+        );
+      out.name = name;
+    }
+    if (found.app === "whatsapp" && set.trigger !== undefined) {
+      if (set.trigger !== "mention" && set.trigger !== "all")
+        return invalid("step.set.trigger is mention or all");
+      // As the row's PATCH says.
+      if (!found.route.group)
+        return invalid("step.set.trigger is for a group chat only");
+    }
+    const settings =
+      found.app === "discord" ? discordRouteSettings(set) : replySettings(set);
+    if (!settings.ok) return invalid(`step.set: ${settings.error}`);
+    if (typeof set.prefix === "string")
+      out.prefix =
+        (found.app === "discord"
+          ? normaliseDiscordPrefix(set.prefix)
+          : normaliseWhatsAppPrefix(set.prefix)) ?? "";
+    return {
+      ok: true,
+      step: {
+        kind: "messaging-route",
+        app: found.app,
+        routeId,
+        set: out,
+      } as MessagingRouteStep,
+    };
   }
 
   // The step as the agent sent it, completed, or why it is refused.
@@ -1801,6 +2008,22 @@ export function createStepAsks(deps: StepAskDeps) {
           );
         return { ok: true, step: { kind, olderThanDays: days } };
       }
+      case "messaging-route":
+        return completeMessagingRoute(body, memberUserId);
+      case "storage-retention": {
+        const set = body.set;
+        if (!isObject(set) || Object.keys(set).length === 0)
+          return invalid(
+            `step.set is an object of one or more of ${RETENTION_SET_KEYS.join(", ")}`,
+          );
+        if (!Object.keys(set).every((key) => RETENTION_SET_KEYS.includes(key)))
+          return invalid(
+            `step.set takes only ${RETENTION_SET_KEYS.join(", ")}`,
+          );
+        const bad = logRetentionSettingsShapeError(set);
+        if (bad) return invalid(`step.set: ${bad}`);
+        return { ok: true, step: { kind, set } };
+      }
       case "member-room":
       case "member-role": {
         if (typeof body.username !== "string" || body.username === "")
@@ -2225,6 +2448,66 @@ export function createStepAsks(deps: StepAskDeps) {
             return null;
         }
       }
+      case "messaging-route":
+        return messagingRouteRefusal(step, askingAgentId, memberUserId);
+      case "storage-retention":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed(
+              "only an office owner can change the automatic cleanup settings",
+            )
+          : null;
+    }
+  }
+
+  // Why the member could not apply a messaging-route step, or null: the
+  // route's PATCH as the member, then the agent the route has after the
+  // change (set.agentId, else the route's own) by the routes' own rule, so
+  // Apply does not fail on it.
+  function messagingRouteRefusal(
+    step: MessagingRouteStep,
+    askingAgentId: string | undefined,
+    memberUserId: string,
+  ): StepFailure | null {
+    const runs = deps.runs;
+    if (!runs) return invalid("this office runs no action steps");
+    const unknownAgent: StepFailure = {
+      ok: false,
+      status: 422,
+      code: "unknown_agent",
+      message: "no agent with this id in a room you can reach",
+    };
+    const found = findRoute(runs, memberUserId, step.routeId, step.app);
+    if (!found) return unknownRoute();
+    if (runs.authorizeAs(memberUserId, runRoute(step, memberUserId)))
+      return notAllowed("this member cannot change this route");
+    const agentId = step.set.agentId ?? found.route.agentId;
+    if (
+      step.set.agentId !== undefined &&
+      (!askingAgentId ||
+        !runs.agent(agentId) ||
+        !runs.agentReaches(askingAgentId, agentId))
+    )
+      return unknownAgent;
+    const problem =
+      found.app === "discord"
+        ? runs.discord.agentProblem(memberUserId, agentId)
+        : runs.whatsapp.agentProblem(memberUserId, agentId);
+    switch (problem) {
+      case "agent_gone":
+        return unknownAgent;
+      case "agent_not_yours":
+        return notAllowed(
+          "this member can route only to an agent they manage; an office owner can route to any agent",
+        );
+      case "agent_chat_only":
+        return {
+          ok: false,
+          status: 422,
+          code: "agent_chat_only",
+          message: "an agent at Chat stop cannot reply",
+        };
+      default:
+        return null;
     }
   }
 

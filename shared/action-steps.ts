@@ -3,6 +3,7 @@
 
 import type {
   BackupSettingsReq,
+  LogRetentionReq,
   OfficeSettingsReq,
   PreferencesReq,
   PruneTarget,
@@ -11,9 +12,13 @@ import type { AgentAccess } from "./agent-access.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AskStep } from "./types.ts";
-import type { WhatsAppRouteTrigger } from "./whatsapp.ts";
+import type {
+  WhatsAppRouteTrigger,
+  WhatsAppRouteUpdateReq,
+} from "./whatsapp.ts";
 import type {
   DiscordReplyMode,
+  DiscordRouteUpdateReq,
   DiscordRouteScope,
   DiscordRouteTrigger,
 } from "./discord.ts";
@@ -111,7 +116,31 @@ export type ActionStepRequest =
       prefix?: string;
       includeBots?: boolean;
       react?: boolean;
+    }
+  // Some settings of one existing route of the member, in either messaging
+  // app (task 2ff2729f). The agent names the route by its id (the head line
+  // of each delivery gives it); the server finds its app at the create. Only
+  // the keys of `set` change: the rest of the route keeps its values.
+  | MessagingRouteStep
+  // The ages of the daily automatic log cleanup (task 2ff2729f), as
+  // PUT /api/storage/retention takes them: each key set to its value.
+  | { kind: "storage-retention"; set: StorageRetentionSet };
+
+export type MessagingRouteStep =
+  | {
+      kind: "messaging-route";
+      app: "discord";
+      routeId: string;
+      set: DiscordRouteUpdateReq;
+    }
+  | {
+      kind: "messaging-route";
+      app: "whatsapp";
+      routeId: string;
+      set: WhatsAppRouteUpdateReq;
     };
+
+export type StorageRetentionSet = LogRetentionReq;
 
 // The body of POST /api/asks/:askId/action for a whatsapp-route step: the
 // chat the member picked. Other kinds take no body.
@@ -163,6 +192,8 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "storage-compress",
   "whatsapp-route",
   "discord-route",
+  "messaging-route",
+  "storage-retention",
 ]);
 
 // Whether a step is one the member runs from the card.

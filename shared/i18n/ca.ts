@@ -2395,6 +2395,9 @@ Coses que pots fer per ell:
     "{member} gestiona aquest agent. Els membres que el poden obrir poden llegir els missatges d'aquest lloc.",
   "asks.action.discordOtherMember":
     "Només {member} pot triar el lloc i aplicar.",
+  "asks.action.routeName": "{app}: {name}",
+  "asks.action.routeGone": "Aquesta ruta ja no existeix.",
+  "asks.action.routeOtherMember": "Només {member} pot aplicar.",
   "asks.action.memberGone": "Aquest membre ja no és a l'oficina.",
   "asks.action.roomGranted": "Accés",
   "asks.action.roomRemoved": "Sense accés",
@@ -4256,6 +4259,9 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.storageCompressed": "Converses antigues comprimides.",
   "systemEntries.stepAsk.whatsappRouted":
     "El xat de WhatsApp {chat} ara va a {agent}.",
+  "systemEntries.stepAsk.messagingRouteSet": "Ruta {route} canviada.",
+  "systemEntries.stepAsk.storageRetentionSet":
+    "Configuració de la neteja automàtica canviada.",
   "systemEntries.stepAsk.discordRouted":
     "El lloc de Discord {place} ara va a {agent}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",

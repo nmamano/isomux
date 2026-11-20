@@ -6474,6 +6474,8 @@ function buildExecutorDeps(
       getRetention: retentionWire,
       setRetention: (input) => {
         const saved = saveLogRetentionSettings(input);
+        // A save may do a storage-retention step.
+        if (saved.ok) stepsChanged();
         return saved.ok ? { ok: true, res: retentionWire() } : saved;
       },
     }),

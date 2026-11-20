@@ -293,6 +293,75 @@ it("the boot read runs only for the viewer's own route asks, per kind, and an un
   expect([count(WA_CHATS), count(WA_ROWS)]).toEqual([1, 1]);
 });
 
+// Task 2ff2729f: a messaging-route ask names one route of one app. The boot
+// read runs for that app only, and with it landed the card draws the
+// route's values at its first render, with no loading placeholder.
+const routeAsk = (app: "discord" | "whatsapp", id: string, routeId: string) =>
+  ({
+    id,
+    agentId: "a1",
+    memberUserId: "u1",
+    prompt: "Please change this route.",
+    createdAt: NOW,
+    updatedAt: NOW,
+    step: {
+      kind: "messaging-route",
+      app,
+      routeId,
+      set: app === "discord" ? { replyMode: "bot" } : { trigger: "all" },
+    },
+  }) as AskEntry;
+
+it("an own messaging-route ask starts the boot read of its app only, and its card draws the route's values at its first render", async () => {
+  goodData();
+  const dc = render(
+    <Office
+      entries={[routeAsk("discord", "mr000001", "d_1")]}
+      showAsks={false}
+    />,
+  );
+  await settle();
+  expect([count(DC_BOTS), count(DC_ROUTES)]).toEqual([1, 1]);
+  expect(gets.filter((p) => p.startsWith("/api/whatsapp/")).length).toBe(0);
+  dc.unmount();
+
+  resetRouteAskData();
+  gets = [];
+  const wa = render(
+    <Office
+      entries={[routeAsk("whatsapp", "mr000002", "r1")]}
+      showAsks={false}
+    />,
+  );
+  await settle();
+  expect(count(WA_ROWS)).toBe(1);
+  expect(gets.filter((p) => p.startsWith(DC_BOTS)).length).toBe(0);
+  wa.unmount();
+
+  // Both, held; the cards' own refreshes stay open.
+  resetRouteAskData();
+  const entries = [
+    routeAsk("discord", "mr000001", "d_1"),
+    routeAsk("whatsapp", "mr000002", "r1"),
+  ];
+  const view = render(<Office entries={entries} showAsks={false} />);
+  await settle();
+  for (const p of [WA_CHATS, WA_ROWS, DC_BOTS, DC_ROUTES]) replies[p] = HOLD;
+  view.rerender(<Office entries={entries} showAsks />);
+  const root = view.container;
+  const current = (askId: string, key: string) =>
+    card(root, askId)
+      ?.querySelector<HTMLElement>(`[data-ask-action-key="${key}"]`)
+      ?.getAttribute("data-ask-action-current") ?? null;
+  expect([
+    current("mr000001", "replyMode"),
+    current("mr000002", "trigger"),
+  ]).toEqual(["ask", "mention"]);
+  expect([loading(root, "mr000001"), loading(root, "mr000002")]).toEqual([
+    0, 0,
+  ]);
+});
+
 it("a card mount refreshes the held data, and the card shows what changed", async () => {
   replies[WA_CHATS] = [chatLegal];
   replies[DC_BOTS] = [dcBot];

@@ -56,6 +56,11 @@ function headLines(input: DiscordBlockInput): string[] {
       : replyMode === "ask"
         ? `To answer, draft a reply to route ${routeId} ${how}: ${escapedJson(memberName)} approves it before it goes out.`
         : "This route is read only: you cannot answer in Discord.",
+    ...(replyMode === "read"
+      ? [
+          `To answer, ask ${escapedJson(memberName)} to change route ${routeId} with a messaging-route step (page \`route-asks\`).`,
+        ]
+      : []),
     ...(channelRequired && replyMode !== "read"
       ? [
           "This route covers more than one channel: each reply names its channel with the channelId of the message it answers.",

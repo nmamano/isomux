@@ -113,8 +113,9 @@ type SettingKey = "trigger" | "replyMode" | "prefix" | "includeBots" | "react";
 
 // The settings of a create or an update, checked: the keys to set and the
 // keys to delete (false and a blank prefix are the default, stored as no
-// key), or a refusal.
-function settingsOf(req: {
+// key), or a refusal. The messaging-route step checks its `set` with it
+// (server/step-asks.ts).
+export function discordRouteSettings(req: {
   trigger?: unknown;
   replyMode?: unknown;
   prefix?: unknown;
@@ -222,7 +223,7 @@ export function createDiscordRoutes(deps: DiscordRoutesDeps): DiscordRoutes {
         return refuse(400, "name must be 1 to 60 characters on one line");
       if (!isScope(req.scope))
         return refuse(400, "scope must be channel, category or server");
-      const settings = settingsOf(req);
+      const settings = discordRouteSettings(req);
       if (!settings.ok) return settings;
       const problem = agentProblem(userId, req.agentId);
       if (problem) return refuse(400, AGENT_ERRORS[problem]);
@@ -281,7 +282,7 @@ export function createDiscordRoutes(deps: DiscordRoutesDeps): DiscordRoutes {
           return refuse(400, "no such agent");
         next.agentId = req.agentId;
       }
-      const settings = settingsOf(req);
+      const settings = discordRouteSettings(req);
       if (!settings.ok) return settings;
       Object.assign(next, settings.set);
       for (const key of settings.clear) delete next[key];

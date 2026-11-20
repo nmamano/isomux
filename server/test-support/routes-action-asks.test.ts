@@ -27,6 +27,11 @@ import {
   loadBackupSettings,
   saveBackupSettings,
 } from "../backup.ts";
+import {
+  DEFAULT_LOG_RETENTION,
+  loadLogRetentionSettings,
+  saveLogRetentionSettings,
+} from "../storage-retention.ts";
 import { FOLDER_NOT_ALLOWED } from "../../shared/agent-access.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
 
@@ -2110,9 +2115,155 @@ describe("backup-settings asks", () => {
   });
 });
 
+// Task 2ff2729f: the ages of the daily automatic log cleanup, as
+// PUT /api/storage/retention takes them (owner only).
+const retentionStep = (set: unknown) => ({ kind: "storage-retention", set });
+const resetRetention = () => {
+  const saved = saveLogRetentionSettings({ ...DEFAULT_LOG_RETENTION });
+  expect(saved.ok).toBe(true);
+};
+
+describe("storage-retention asks", () => {
+  afterEach(resetRetention);
+
+  it("opens for an owner with the set as sent, and saves nothing", async () => {
+    resetRetention();
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const set = { compressAfterDays: 14, deleteAfterDays: 90 };
+    const entry = await opened(o, asker.id, retentionStep(set));
+    expect([entry.step, entry.link]).toEqual([
+      { kind: "storage-retention", set },
+      undefined,
+    ]);
+    expect(loadLogRetentionSettings()).toEqual(DEFAULT_LOG_RETENTION);
+  });
+
+  it("refuses a member who is not an owner (403); a set that is not well formed (400); a set the office has (409 step_done)", async () => {
+    resetRetention();
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    expect(
+      outcome(
+        await ask(
+          o,
+          asker.id,
+          retentionStep({ compressAfterDays: 14 }),
+          o.caseyName,
+        ),
+      ),
+    ).toEqual({ status: 403, code: "member_not_allowed" });
+    const bad: [string, Record<string, unknown>][] = [
+      ["no set", { kind: "storage-retention" }],
+      ["an empty set", retentionStep({})],
+      ["a set that is a list", retentionStep([14])],
+      ["an unknown key", retentionStep({ keepPerAgent: 3 })],
+      ["a compress age of 0", retentionStep({ compressAfterDays: 0 })],
+      [
+        "a compress age above the range",
+        retentionStep({ compressAfterDays: 3651 }),
+      ],
+      ["a compress age not whole", retentionStep({ compressAfterDays: 1.5 })],
+      ["a compress age as text", retentionStep({ compressAfterDays: "14" })],
+      ["compress off", retentionStep({ compressAfterDays: null })],
+      ["a delete age of 0", retentionStep({ deleteAfterDays: 0 })],
+      ["a delete age as a word", retentionStep({ deleteAfterDays: "off" })],
+      [
+        "an extra key",
+        { ...retentionStep({ compressAfterDays: 14 }), roomId: o.room },
+      ],
+    ];
+    for (const [label, step] of bad)
+      expect({ label, ...outcome(await ask(o, asker.id, step)) }).toEqual({
+        label,
+        status: 400,
+        code: "invalid_request",
+      });
+    for (const set of [
+      { compressAfterDays: DEFAULT_LOG_RETENTION.compressAfterDays },
+      { deleteAfterDays: null },
+      { ...DEFAULT_LOG_RETENTION },
+    ])
+      expect({
+        set,
+        ...outcome(await ask(o, asker.id, retentionStep(set))),
+      }).toEqual({ set, status: 409, code: "step_done" });
+    // One key apart, the other equal: not done.
+    await opened(
+      o,
+      asker.id,
+      retentionStep({ ...DEFAULT_LOG_RETENTION, deleteAfterDays: 90 }),
+    );
+  });
+
+  it("Apply saves with the owner's session and keeps the key `set` leaves out, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    // After the boot: a test server boot wipes the state root.
+    const o = await office();
+    expect(saveLogRetentionSettings({ deleteAfterDays: 30 }).ok).toBe(true);
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      retentionStep({ compressAfterDays: 14 }),
+    );
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(loadLogRetentionSettings()).toEqual({
+      compressAfterDays: 14,
+      deleteAfterDays: 30,
+    });
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    auditedOnce("storage.setRetention", entry.id, o.morganId);
+  });
+
+  it("Apply turns automatic deletes off with deleteAfterDays null", async () => {
+    // After the boot: a test server boot wipes the state root.
+    const o = await office();
+    expect(saveLogRetentionSettings({ deleteAfterDays: 30 }).ok).toBe(true);
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      retentionStep({ deleteAfterDays: null }),
+    );
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(loadLogRetentionSettings().deleteAfterDays).toBe(null);
+    await closesDone(o, asker.id, entry.id);
+  });
+
+  it("a change by hand closes it, and a change to the other key does not", async () => {
+    resetRetention();
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      retentionStep({ deleteAfterDays: 90 }),
+    );
+    const other = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      "/api/storage/retention",
+      {
+        compressAfterDays: 14,
+      },
+    );
+    expect(other.status).toBe(200);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+    const res = await asSession(o, o.morgan, "PUT", "/api/storage/retention", {
+      deleteAfterDays: 90,
+    });
+    expect(res.status).toBe(200);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
 describe("settings asks from /mcp", () => {
   afterEach(() => {
     saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
+    resetRetention();
   });
 
   it("open_ask takes each part 3 kind", async () => {
@@ -2149,6 +2300,10 @@ describe("settings asks from /mcp", () => {
         officeStep({ memberUsageShare: share }),
       ],
       [backupStep({ retention: 3 }), backupStep({ retention: 3 })],
+      [
+        retentionStep({ compressAfterDays: 14, deleteAfterDays: 90 }),
+        retentionStep({ compressAfterDays: 14, deleteAfterDays: 90 }),
+      ],
     ] as const) {
       const result = (await client.callTool({
         name: "open_ask",

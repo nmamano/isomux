@@ -27,6 +27,9 @@
 // Task 386ec4d6: one place of the member's Discord bots routed to an agent
 // (discord-route), the same way: the member picks one of the channels,
 // categories and servers whose name matches.
+// Task 2ff2729f: some settings of one existing route of the member, in
+// either app (messaging-route), read from the same held route data; and the
+// ages of the daily automatic cleanup (storage-retention).
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -44,6 +47,7 @@ import {
   discordPlacesMatching,
   type DiscordPlace,
   type DiscordReplyMode,
+  type DiscordRoute as DiscordRouteWire,
   type DiscordRouteTrigger,
 } from "../../shared/discord.ts";
 import type { ActionStepRequest } from "../../shared/types.ts";
@@ -57,6 +61,7 @@ import type {
   AccessibleRoomWire,
   ApiTokenListRes,
   BackupStatusWire,
+  LogRetentionWire,
   CompressResultWire,
   PrunePlanWire,
   PruneResultWire,
@@ -236,6 +241,31 @@ function levelAfterView(
   }
 }
 
+// A Discord route's and a WhatsApp row's settings as a messaging-route step
+// compares them: a key the route does not store has its default (off, no
+// prefix, mention on a group).
+function routeNow(r: DiscordRouteWire): Record<string, unknown> {
+  return {
+    name: r.name,
+    agentId: r.agentId,
+    trigger: r.trigger,
+    replyMode: r.replyMode,
+    prefix: r.prefix ?? "",
+    includeBots: r.includeBots === true,
+    react: r.react === true,
+  };
+}
+function rowNow(r: WhatsAppRoute): Record<string, unknown> {
+  return {
+    name: r.name,
+    agentId: r.agentId,
+    ...(r.group ? { trigger: r.trigger ?? "mention" } : {}),
+    prefix: r.prefix ?? "",
+    sendDirect: r.sendDirect === true,
+    ownMessages: r.ownMessages === true,
+  };
+}
+
 export function AskActionBlock({
   askId,
   askingAgentId,
@@ -294,7 +324,9 @@ export function AskActionBlock({
                 ? "/api/removed-members"
                 : step.kind === "office-update"
                   ? "/api/office/update"
-                  : null;
+                  : step.kind === "storage-retention"
+                    ? "/api/storage/retention"
+                    : null;
   const [fetched, setFetched] = useState<unknown>(undefined);
   // A whatsapp-route step reads the chats and rows of the viewer, so only the
   // member the ask is for reads them: another viewer (an owner) would see
@@ -302,7 +334,8 @@ export function AskActionBlock({
   // (ui/route-ask-data.ts), so the card draws its shape at once.
   const viewerId = sessionContext?.userId ?? null;
   const waMember =
-    step.kind === "whatsapp-route" &&
+    (step.kind === "whatsapp-route" ||
+      (step.kind === "messaging-route" && step.app === "whatsapp")) &&
     !!memberUserId &&
     viewerId === memberUserId;
   const waData = useWhatsAppRouteData(waMember ? viewerId : null);
@@ -324,7 +357,8 @@ export function AskActionBlock({
   // and their routes, so only the member the ask is for reads them, as for
   // WhatsApp.
   const dcMember =
-    step.kind === "discord-route" &&
+    (step.kind === "discord-route" ||
+      (step.kind === "messaging-route" && step.app === "discord")) &&
     !!memberUserId &&
     viewerId === memberUserId;
   const dcData = useDiscordRouteData(dcMember ? viewerId : null);
@@ -1526,6 +1560,190 @@ export function AskActionBlock({
     };
   }
 
+  // The route's name and app, and a row per key of `set`: the value now
+  // (the default when the route stores no key) and the one asked. Only the
+  // member reads their routes; a route their list no longer has is gone.
+  function messagingRouteView(s: Step<"messaging-route">): ActionView {
+    const isMember = s.app === "discord" ? dcMember : waMember;
+    const list: { id: string }[] | null =
+      s.app === "discord" ? (dcData?.routes ?? null) : waRows;
+    const found = list?.find((r) => r.id === s.routeId);
+    const now: Record<string, unknown> | null = !found
+      ? null
+      : s.app === "discord"
+        ? routeNow(found as DiscordRouteWire)
+        : rowNow(found as WhatsAppRoute);
+    const onOff = (v: unknown) => t(v ? "asks.action.on" : "asks.action.off");
+    const agentName = (id: unknown) =>
+      agents.find((a) => a.id === id)?.name ?? String(id);
+    const dc = s.app === "discord";
+    const label = (key: string): string => {
+      switch (key) {
+        case "name":
+          return t("integrations.whatsapp.rows.name");
+        case "agentId":
+          return t("integrations.whatsapp.rows.agent");
+        case "trigger":
+          return t(
+            dc
+              ? "integrations.discord.routes.trigger"
+              : "integrations.whatsapp.rows.trigger",
+          );
+        case "replyMode":
+          return t("integrations.discord.routes.replies");
+        case "prefix":
+          return t("integrations.whatsapp.rows.prefix");
+        case "includeBots":
+          return t("integrations.discord.routes.includeBots");
+        case "react":
+          return t("integrations.discord.routes.react");
+        // As the Integrations page and the whatsapp-route card name it.
+        case "sendDirect":
+          return t("integrations.whatsapp.rows.waitForSend");
+        case "ownMessages":
+          return t("integrations.whatsapp.rows.ownMessages");
+        default:
+          return key;
+      }
+    };
+    const valueOf = (key: string, v: unknown): Value => {
+      const value = String(v);
+      switch (key) {
+        case "agentId":
+          return { value, label: agentName(v) };
+        case "trigger":
+          return {
+            value,
+            label: t(
+              dc
+                ? v === "all"
+                  ? "integrations.discord.routes.trigger.all"
+                  : "integrations.discord.routes.trigger.mention"
+                : v === "all"
+                  ? "integrations.whatsapp.rows.trigger.all"
+                  : "integrations.whatsapp.rows.trigger.mention",
+            ),
+          };
+        case "replyMode":
+          return {
+            value,
+            label: t(
+              v === "bot"
+                ? "integrations.discord.routes.replies.bot"
+                : v === "read"
+                  ? "integrations.discord.routes.replies.read"
+                  : "integrations.discord.routes.replies.ask",
+            ),
+          };
+        case "prefix":
+          return { value, label: value || t("asks.action.off") };
+        case "sendDirect":
+          return { value, label: onOff(!v) };
+        case "includeBots":
+        case "react":
+        case "ownMessages":
+          return { value, label: onOff(v) };
+        default:
+          return { value, label: value };
+      }
+    };
+    const target =
+      typeof s.set.agentId === "string"
+        ? agents.find((a) => a.id === s.set.agentId)
+        : undefined;
+    const member = memberUserId ? memberById(memberUserId) : undefined;
+    const lines: ReactNode[] = [];
+    if (target && !belowStandard(agentAccessOf(target)))
+      lines.push(
+        <div
+          key="shell"
+          data-ask-action-route-shell=""
+          style={{ ...muted, color: "var(--orange-text)" }}
+        >
+          {t(
+            dc
+              ? "integrations.discord.routes.shellWarning"
+              : "integrations.whatsapp.rows.shellWarning",
+          )}
+        </div>,
+      );
+    if (!isMember)
+      lines.push(
+        <div key="other" data-ask-action-route-other="" style={muted}>
+          {rich("asks.action.routeOtherMember", {
+            member: member ? <Data>{member.name}</Data> : "",
+          })}
+        </div>,
+      );
+    const routeName = (found as { name?: string } | undefined)?.name;
+    return {
+      name: t("asks.action.routeName", {
+        app: dc ? "Discord" : "WhatsApp",
+        name: routeName ?? s.routeId,
+      }),
+      rows: Object.entries(s.set).map(([key, value]) => ({
+        key,
+        label: label(key),
+        ...(now ? { current: valueOf(key, now[key]) } : {}),
+        requested: valueOf(key, value),
+        ...(key === "sendDirect" && value === true
+          ? { hint: t("integrations.whatsapp.rows.directHint") }
+          : {}),
+      })),
+      loading: isMember && list === null,
+      lines,
+      marks: { "data-ask-action-route": s.routeId },
+      gone:
+        isMember && list !== null && !found ? t("asks.action.routeGone") : null,
+      noApply: !isMember,
+    };
+  }
+
+  // A row per key of `set`: the age now and the one asked (null: off), as
+  // the Storage page names them.
+  function storageRetentionView(s: Step<"storage-retention">): ActionView {
+    const now = (fetched ?? null) as LogRetentionWire | null;
+    const valueOf = (v: unknown): Value => ({
+      value: String(v),
+      label:
+        typeof v === "number"
+          ? tn("common.days", v)
+          : t("settings.storage.autoDeleteOff"),
+    });
+    return {
+      name: t("settings.storage.autoSection"),
+      rows: Object.entries(s.set).map(([key, value]) => ({
+        key,
+        label: t(
+          key === "deleteAfterDays"
+            ? "settings.storage.autoDeleteAfter"
+            : "settings.storage.autoCompressAfter",
+        ),
+        ...(now
+          ? {
+              current: valueOf(
+                key === "deleteAfterDays"
+                  ? now.deleteAfterDays
+                  : now.compressAfterDays,
+              ),
+            }
+          : {}),
+        requested: valueOf(value),
+        ...(key === "deleteAfterDays" && typeof value === "number" && now
+          ? {
+              hint: t("settings.storage.autoDeleteHint", {
+                count: String(now.keepPerAgent),
+              }),
+            }
+          : {}),
+      })),
+      loading: now === null,
+      lines: [],
+      marks: {},
+      gone: null,
+    };
+  }
+
   function discordRouteView(s: Step<"discord-route">): ActionView {
     const target = agents.find((a) => a.id === s.agentId);
     const agentName = (id: string) =>
@@ -1781,6 +1999,10 @@ export function AskActionBlock({
         return whatsappRouteView(step);
       case "discord-route":
         return discordRouteView(step);
+      case "messaging-route":
+        return messagingRouteView(step);
+      case "storage-retention":
+        return storageRetentionView(step);
     }
   })();
 

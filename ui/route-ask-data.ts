@@ -1,6 +1,7 @@
 // The data the whatsapp-route and discord-route ask cards read (task
-// 33210f25): the viewer's WhatsApp chats and rows, and their Discord bots,
-// the servers each bot sees and their routes. A card cannot know its shape
+// 33210f25), and the messaging-route card of each app (task 2ff2729f): the
+// viewer's WhatsApp chats and rows, and their Discord bots, the servers each
+// bot sees and their routes. A card cannot know its shape
 // before this lands (a chat picker, a "moves" line, the current values), so
 // the reads happen once per viewer, at boot when the viewer has an open ask of
 // that kind (useRouteAskPrefetch), and the cards draw what is held at once.
@@ -210,11 +211,17 @@ export function useDiscordRouteData(
 export function useRouteAskPrefetch(): void {
   const { asks, sessionContext } = useAppState();
   const viewerId = sessionContext?.userId ?? null;
-  const owns = (kind: string) =>
+  // A messaging-route ask (task 2ff2729f) reads the data of its app.
+  const owns = (kind: string, app: "whatsapp" | "discord") =>
     viewerId !== null &&
-    asks.some((e) => e.memberUserId === viewerId && e.step?.kind === kind);
-  const wantWhatsApp = owns("whatsapp-route");
-  const wantDiscord = owns("discord-route");
+    asks.some(
+      (e) =>
+        e.memberUserId === viewerId &&
+        (e.step?.kind === kind ||
+          (e.step?.kind === "messaging-route" && e.step.app === app)),
+    );
+  const wantWhatsApp = owns("whatsapp-route", "whatsapp");
+  const wantDiscord = owns("discord-route", "discord");
   useEffect(() => {
     if (viewerId !== null && wantWhatsApp) loadWhatsAppRouteData(viewerId);
   }, [viewerId, wantWhatsApp]);
