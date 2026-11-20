@@ -12,6 +12,7 @@ import {
   fchmodSync,
   lstatSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -149,6 +150,32 @@ export function removeMemberShareFiles(share: string, agentId?: string): void {
       : memberShareFilesDir(share, agentId),
     { recursive: true, force: true },
   );
+}
+
+// The manager of `agentId`, live or killed, or null when unknown. Set at
+// boot (isomux-office.ts).
+let managerOfAgent: (agentId: string) => string | null = () => null;
+
+export function setAgentManagerResolver(
+  resolver: ((agentId: string) => string | null) | null,
+): void {
+  managerOfAgent = resolver ?? (() => null);
+}
+
+// Removes the copies of the agents that `userId` manages, and keeps those of
+// other agents (task 12c796b2: other members on the same OS user share the
+// share). A folder whose agent is unknown stays.
+export function removeMemberShareFilesOf(share: string, userId: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(join(share, "files"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  for (const agentId of names)
+    if (AGENT_ID.test(agentId) && managerOfAgent(agentId) === userId)
+      removeMemberShareFiles(share, agentId);
 }
 
 // Every member share (each member with an OS user). Set at boot.

@@ -1408,6 +1408,7 @@ const OLD_BLOCK_KEY = {
   busy: "officeMove.in.members.old.busy",
   moved_in: "officeMove.in.members.old.movedIn",
   adopted: "officeMove.in.members.old.adopted",
+  shared_user: "officeMove.in.members.old.sharedUser",
   bad_home: "officeMove.in.members.old.badHome",
   runner_down: "officeMove.in.members.old.runnerDown",
   wrong_runner: "officeMove.in.members.old.wrongRunner",

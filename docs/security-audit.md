@@ -84,6 +84,8 @@ What stays open:
 - Their agents can see the process lists of other users.
 - The office checks only the office files that the member's user can reach by path. A hard link or an open file that the user got while it could still reach such a file is not checked.
 - An owner can give them an existing account that can become root (sudo). Then none of this section holds for them, and the page says so.
+- Several members can run as one OS user. They can read each other's sign-ins, variables, secrets and agent tokens, so they can act as each other's agents. A member on an owner's OS user can act as that owner.
+- An owner can have their own OS user. They still set office variables, which reach every agent that runs as the office's user, so their OS user keeps their files apart and does not keep them from the office's files.
 
 ---
 

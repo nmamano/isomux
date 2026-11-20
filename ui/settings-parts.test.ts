@@ -41,7 +41,7 @@ describe("memberParts", () => {
       ],
     },
     {
-      // An owner reaches every room and runs as the office: no OS user.
+      // Task 12c796b2: an owner may have their own OS user too.
       who: "an owner on another owner",
       v: {
         viewerIsOwner: true,
@@ -49,7 +49,15 @@ describe("memberParts", () => {
         creating: false,
         targetIsOwner: true,
       },
-      parts: ["general", "access", "rooms", "instructions", "signIn", "chat"],
+      parts: [
+        "general",
+        "access",
+        "rooms",
+        "instructions",
+        "osUser",
+        "signIn",
+        "chat",
+      ],
     },
     {
       who: "an owner on themself",
@@ -59,7 +67,7 @@ describe("memberParts", () => {
         creating: false,
         targetIsOwner: true,
       },
-      parts: ["general", "access", "rooms", "instructions"],
+      parts: ["general", "access", "rooms", "instructions", "osUser"],
     },
     {
       who: "an owner creating a member",

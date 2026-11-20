@@ -636,6 +636,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.pickOther": "Other existing user…",
   "settings.osUser.newName": "New user name",
   "settings.osUser.existingName": "Existing user name",
+  "settings.osUser.shared":
+    "The agents of {members} also run as {name}. Members on one OS user can read each other's sign-ins, variables and secrets, and act as each other's agents.",
+  "settings.osUser.ownerNote":
+    "An owner's OS user does not keep them from the office's files: their office variables reach the office's agents. Members on an owner's OS user can act as that owner.",
+  "settings.osUser.pickShared": "{name} (also {members})",
+  "settings.osUser.disableHintShared":
+    "{name} stays as it is for {members}. To run their agents as the office's OS user again and move their agent chats and sign-ins back, run this on the office's machine:",
   "settings.osUser.rootCapable":
     "{name} can become root, so their agents can read the office's files and secrets.",
   "settings.osUser.unsupported.notLinux":
@@ -3649,6 +3656,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "They came to the old office with an earlier move, and the turn-on command has not run there yet.",
   "officeMove.in.members.old.adopted":
     "On the old office, they run as an existing OS user, which cannot move. Turn their OS user off there first.",
+  "officeMove.in.members.old.sharedUser":
+    "On the old office, they share an OS user with other members, which cannot move. Turn their OS user off there for all of them but one first.",
   "officeMove.in.members.old.badHome":
     "On the old office, their home folder cannot move.",
   "officeMove.in.members.old.runnerDown":

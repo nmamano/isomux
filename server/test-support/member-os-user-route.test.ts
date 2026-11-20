@@ -7,7 +7,7 @@
 //   command cannot run, with no command), and nothing else of the member's
 //   record does;
 // - the command holds the member id only: a member named with a quote,
-//   spaces and dashes changes no word of it; an owner gets no command.
+//   spaces and dashes changes no word of it; an owner gets theirs too.
 //
 // Seam: startTestServer() - real auth, executor and guards. The verdict is
 // set (the installer's container), so the commands are set on any box.
@@ -157,9 +157,14 @@ describe("GET /api/users/:username/os-user", () => {
     expect(view.newUserName).toBe("mia");
     expect(view.officeOsUser).toBe(userInfo().username);
     expect(view.commands?.enable.endsWith(`enable ${o.ids.mia}`)).toBe(true);
-    // An owner never gets an OS user: no command.
+    // Task 12c796b2: an owner may have an OS user: their commands, and the
+    // owner flag for the page's note.
     const ownerView = await get(o.srv, o.ownerName, o.callers.ownerSession);
-    expect((ownerView.body as MemberOsUserWire).commands).toBeNull();
+    const ownerWire = ownerView.body as MemberOsUserWire;
+    expect(ownerWire.commands?.enable.endsWith(`enable ${o.ids.owner}`)).toBe(
+      true,
+    );
+    expect(ownerWire.owner).toBe(true);
     // Where the command cannot run: the reason, and no command.
     setMemberUserAdminDeps({ support: { ok: false, reason: "kubernetes" } });
     try {

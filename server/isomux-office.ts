@@ -16,6 +16,7 @@ import {
 } from "./member-hosts.ts";
 import {
   removeMemberShareFiles,
+  setAgentManagerResolver,
   setAgentShareResolver,
   setMemberShareLister,
 } from "./member-share-files.ts";
@@ -573,6 +574,7 @@ import {
   hasMemberOsUser,
   sameAgentHost,
   memberOsUidTies,
+  sameMemberOsUser,
   memberOsUserRecordsForMove,
   memberOsUserIds,
   memberOsUsersForMove,
@@ -889,9 +891,18 @@ setAgentShareResolver((agentId) => {
   const userId = agentManager?.getAgent(agentId)?.userId;
   return userId ? memberShareOf(userId) : null;
 });
-setMemberShareLister(() =>
-  memberOsUserIds().flatMap((userId) => memberShareOf(userId) ?? []),
+setAgentManagerResolver(
+  (agentId) =>
+    agentManager?.getAgent(agentId)?.userId ??
+    agentManager?.killedAgentManagerUserId(agentId) ??
+    null,
 );
+// One entry per share: members on one OS user share it (task 12c796b2).
+setMemberShareLister(() => [
+  ...new Set(
+    memberOsUserIds().flatMap((userId) => memberShareOf(userId) ?? []),
+  ),
+]);
 // Vault secrets that apps read as raw values (task c7007f8b): the files in
 // STATE_ROOT/secrets/apps, synced after every secret change, app delete and
 // boot. The supervisor is read at call time: startServer assigns it.
@@ -3255,7 +3266,12 @@ function buildLiveGuardDeps(): GuardDeps {
         cronjobVisibleTo(cronjobFactsById(jobId), cronjobViewerFor(identity))
       );
     },
-    memberIsolated: (userId) => memberFolderHost(userId) !== null,
+    // Task 12c796b2: an owner with their own OS user has no reach limits:
+    // owners set office variables, which reach the office's agents anyway.
+    memberIsolated: (userId) =>
+      memberFolderHost(userId) !== null &&
+      getUserById(userId)?.role !== "owner",
+    sameMemberOsUser: (a, b) => sameMemberOsUser(a, b),
     getUserByName: (username) => getUserByName(username) ?? null,
     getUserById: (userId) => getUserById(userId) ?? null,
     // A grant can name a closed room, so only live ordinary rooms count.

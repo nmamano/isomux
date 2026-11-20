@@ -6,7 +6,8 @@
 // instructions, and no agent made for another manager. Their skills page
 // reaches only their own skills, through their runner. Messages, logs and
 // the rest stay open (the soft boundary of
-// docs/isolation-model.md).
+// docs/isolation-model.md). Task 12c796b2: an agent of another member on the
+// same OS user counts as theirs, and an owner has no limits.
 //
 // Every route of API_ROUTES has a row, and every client WS frame type: a new
 // route or frame without one fails the completeness tests. For an actor
@@ -22,8 +23,8 @@ export const MEMBER_REACH = "member_reach";
 
 export type ReachRule =
   // Refused for every isolated actor. The route is an office owner's, and an
-  // owner cannot have their own OS user, so this is a no-op today; it keeps
-  // an isolated member out if a guard ever widens.
+  // owner has no reach limits (task 12c796b2), so this is a no-op today; it
+  // keeps an isolated member out if a guard ever widens.
   | { kind: "owners" }
   // Refused unless the agent in this route param is the actor's own.
   | { kind: "agent"; param: string }
@@ -95,7 +96,9 @@ const SKILL_WRITE = open(
 const OWN_RESOURCE = open(
   "the actor's own app or schedule (its owner guard); until slice 3 it still runs as the office user, which is safe only because the enable answers not ready until slice 4",
 );
-const ROLE = open("the users core refuses to make an isolated member an owner");
+const ROLE = open(
+  "an office owner's route; an owner, isolated or not, has no reach limits",
+);
 const TERMINAL: ReachRule = { kind: "agent", param: "agentId" };
 
 // By route opId: every route of API_ROUTES.
@@ -590,13 +593,16 @@ function refusal(message: string): AgentWriteRefusal {
   return { status: 403, code: MEMBER_REACH, message };
 }
 
-// Whether `agentId` is managed by `member`. While the member's own host is
-// not ready, their own agent passes: the write runs nowhere until the host is
-// ready.
+// Whether `agentId` is managed by `member`, or by another member who runs
+// as the same OS user (task 12c796b2: they share every file already). While
+// the member's own host is not ready, their own agent passes: the write runs
+// nowhere until the host is ready.
 function ownsAgent(member: string, agentId: string, deps: GuardDeps): boolean {
+  if (deps.roomIdForAgent(agentId) === null) return false;
+  const manager = deps.agentManagerUserId(agentId);
   return (
-    deps.roomIdForAgent(agentId) !== null &&
-    deps.agentManagerUserId(agentId) === member
+    manager === member ||
+    (manager !== null && deps.sameMemberOsUser?.(manager, member) === true)
   );
 }
 

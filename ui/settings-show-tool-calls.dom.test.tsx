@@ -177,7 +177,14 @@ for (const [BOX, key] of CHOICES) {
     const ids = [
       ...view.container.querySelectorAll("button[data-settings-part]"),
     ].map((b) => b.getAttribute("data-settings-part")!);
-    expect(ids).toEqual(["general", "access", "rooms", "instructions"]);
+    // Task 12c796b2: an owner's own OS user part.
+    expect(ids).toEqual([
+      "general",
+      "access",
+      "rooms",
+      "instructions",
+      "osUser",
+    ]);
     for (const id of ids) {
       await act(async () => {
         await openPart(view.container, id);

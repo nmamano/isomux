@@ -632,6 +632,13 @@ Coses que pots fer per ell:
   "settings.osUser.pickOther": "Un altre usuari existent…",
   "settings.osUser.newName": "Nom de l'usuari nou",
   "settings.osUser.existingName": "Nom de l'usuari existent",
+  "settings.osUser.shared":
+    "Els agents de {members} també s'executen com a {name}. Els membres d'un mateix usuari del sistema poden llegir els inicis de sessió, les variables i els secrets dels altres, i actuar com els seus agents.",
+  "settings.osUser.ownerNote":
+    "L'usuari del sistema d'un propietari no l'aparta dels fitxers de l'oficina: les seves variables de l'oficina arriben als agents de l'oficina. Els membres de l'usuari del sistema d'un propietari poden actuar com aquest propietari.",
+  "settings.osUser.pickShared": "{name} (també {members})",
+  "settings.osUser.disableHintShared":
+    "{name} es queda tal com és per a {members}. Per tornar a executar els seus agents com l'usuari del sistema de l'oficina i tornar-hi els seus xats d'agents i inicis de sessió, executa això a la màquina de l'oficina:",
   "settings.osUser.rootCapable":
     "{name} pot esdevenir root, de manera que els seus agents poden llegir els fitxers i els secrets de l'oficina.",
   "settings.osUser.unsupported.notLinux":
@@ -3760,6 +3767,8 @@ Coses que pots fer per ell:
     "Van arribar a l'oficina antiga amb un trasllat anterior, i l'ordre d'activació encara no s'hi ha executat.",
   "officeMove.in.members.old.adopted":
     "A l'oficina antiga, s'executen com un usuari del sistema existent, que no es pot traslladar. Desactiva-hi primer el seu usuari del sistema.",
+  "officeMove.in.members.old.sharedUser":
+    "A l'oficina antiga, comparteixen un usuari del sistema amb altres membres, que no es pot traslladar. Desactiva-hi primer el seu usuari del sistema per a tots menys un.",
   "officeMove.in.members.old.badHome":
     "A l'oficina antiga, la seva carpeta personal no es pot traslladar.",
   "officeMove.in.members.old.runnerDown":

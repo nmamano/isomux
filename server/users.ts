@@ -14,7 +14,6 @@
 // process touches users.json). The pre-userid backup helper in
 // migrations.ts captures the original file before this rewrite.
 
-import { hasMemberOsUser } from "./member-os-users.ts";
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { existsSync, readFileSync } from "fs";
@@ -654,21 +653,6 @@ function notifyAccessChange(
   }
 }
 
-// An isolated member (own OS user, server/member-os-users.ts) cannot become
-// an owner: an owner sets office variables that reach every office-user
-// agent. A record that does not parse counts as isolated. Every role write
-// passes here.
-export const ISOLATED_OWNER_ERROR =
-  "A member with their own OS user cannot be an owner. Turn off their OS user first.";
-
-function refusesOwnerRole(
-  id: string,
-  from: UserRole | undefined,
-  to: UserRole,
-): boolean {
-  return to === "owner" && from !== "owner" && hasMemberOsUser(id);
-}
-
 // An isolated member is not removed until removal moves their agents (task
 // b94dfd25, slice 3): a removal passes the agents to an heir that may run as
 // the office user. The removal route refuses; the record of their OS user
@@ -685,7 +669,6 @@ export function setUserRoleById(id: string, role: UserRole): boolean {
   const existing = users[id];
   if (!existing) return false;
   if (existing.role === role) return true;
-  if (refusesOwnerRole(id, existing.role, role)) return false;
   const { pack, ...rest } = existing;
   users[id] = { ...rest, role, ...(pack && role === "member" ? { pack } : {}) };
   try {
@@ -732,8 +715,6 @@ export function restoreUserRecord(record: UserRecord):
       code: "name_taken",
       error: `User "${record.name}" already exists`,
     };
-  if (refusesOwnerRole(record.id, undefined, record.role))
-    return { ok: false, code: "member_os_user", error: ISOLATED_OWNER_ERROR };
   users[record.id] = record;
   try {
     persist();
@@ -812,11 +793,6 @@ export function updateUserById(
   load();
   const existing = users[id];
   if (!existing) return { ok: false, error: `User id=${id} not found` };
-  if (
-    changes.role !== undefined &&
-    refusesOwnerRole(id, existing.role, changes.role)
-  )
-    return { ok: false, error: ISOLATED_OWNER_ERROR };
 
   let nextName = existing.name;
   if (changes.name !== undefined) {

@@ -54,8 +54,11 @@ export interface GuardDepsLiveReaders {
   // rule; any id that is not a known run's stream is false.
   cronRunVisibleTo(identity: Identity, streamId: string): boolean;
   // Whether member `userId` has their own OS user (agent-folder.ts
-  // memberFolderHost).
+  // memberFolderHost) and is not an owner: the member reach rules apply.
   memberIsolated(userId: string): boolean;
+  // Whether `a` and `b` run as one OS user (member-os-users.ts
+  // sameMemberOsUser, task 12c796b2).
+  sameMemberOsUser?(a: string, b: string): boolean;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
   // The live ordinary rooms (lobby excluded) a member reaches, or [] for an
@@ -241,6 +244,10 @@ export function buildProductionGuardDeps(
 
     memberIsolated(userId: string): boolean {
       return live.memberIsolated(userId);
+    },
+
+    sameMemberOsUser(a: string, b: string): boolean {
+      return live.sameMemberOsUser?.(a, b) ?? false;
     },
   };
 }

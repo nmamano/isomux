@@ -95,7 +95,9 @@ export function memberOfficeFolder(
 
 // The isolated member and provider whose member office folder `dir` is, or
 // null. Billing, the usage key and the sign-in label map such a folder to
-// the office account.
+// the office account. Members on one OS user share the folder (task
+// 12c796b2): `userId` is the first of them, and the callers read only
+// `provider`.
 export function memberOfficeFolderOwner(
   dir: string,
 ): { userId: string; provider: OfficeLoginProvider } | null {
@@ -408,8 +410,11 @@ export function createOfficeLoginSync(
   const renewOfficeCodex = deps.renewOfficeCodex ?? defaultRenewOfficeCodex;
   const hostOf = deps.hostFor ?? ((userId: string) => memberHostFor(userId));
 
-  // One sync per member at a time.
+  // One sync per member office folder at a time: members on one OS user
+  // share it (task 12c796b2), and a sync reads, then writes, its file.
   const chains = new Map<string, Promise<void>>();
+  const folderKey = (userId: string, provider: "claude" | "codex"): string =>
+    memberOfficeFolder(userId, provider) ?? `${userId}:${provider}`;
   function serial(key: string, run: () => Promise<void>): Promise<void> {
     const next = (chains.get(key) ?? Promise.resolve())
       .catch(() => {})
@@ -599,12 +604,13 @@ export function createOfficeLoginSync(
   let closed = true;
 
   function syncMember(userId: string, copyOnly = false): void {
-    void serial(userId, () => syncClaudeNow(userId, copyOnly)).catch(
-      (err: unknown) =>
-        console.error(
-          `[office-login-sync] ${userId}: the office Claude sign-in did not reach their folder:`,
-          errMessage(err),
-        ),
+    void serial(folderKey(userId, "claude"), () =>
+      syncClaudeNow(userId, copyOnly),
+    ).catch((err: unknown) =>
+      console.error(
+        `[office-login-sync] ${userId}: the office Claude sign-in did not reach their folder:`,
+        errMessage(err),
+      ),
     );
   }
 
@@ -711,9 +717,12 @@ export function createOfficeLoginSync(
   }
 
   return {
-    syncClaude: (userId) => serial(userId, () => syncClaudeNow(userId)),
+    syncClaude: (userId) =>
+      serial(folderKey(userId, "claude"), () => syncClaudeNow(userId)),
     prepareCodex: (userId) =>
-      serial(`${userId}:codex`, () => prepareCodexNow(userId)),
+      serial(`${folderKey(userId, "codex")}:codex`, () =>
+        prepareCodexNow(userId),
+      ),
     codexOfficeAuth: () => officeAuth,
     start() {
       if (!closed) return;

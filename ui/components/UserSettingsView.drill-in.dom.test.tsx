@@ -200,7 +200,8 @@ describe("a member, drilled in from Members", () => {
     second.unmount();
   });
 
-  it("an owner who drafts the member as an owner loses the OS user part until the draft goes", async () => {
+  // Task 12c796b2: an owner may have their own OS user.
+  it("an owner who drafts the member as an owner keeps the OS user part", async () => {
     const view = await mount({ initialUserId: STEPHEN.id });
     await openPart(view, "access");
     await click(
@@ -208,8 +209,12 @@ describe("a member, drilled in from Members", () => {
         'button[role="radio"][data-member-level="owner"]',
       ) ?? null,
     );
-    expect(parts(view)).not.toContain("osUser");
     expect(dirty(view)).toEqual(["access"]);
+    expect(parts(view)).toContain("osUser");
+    await openPart(view, "osUser");
+    expect(
+      body(view, "osUser")?.querySelector('[data-testid="member-os-user"]'),
+    ).not.toBeNull();
     view.unmount();
   });
 });

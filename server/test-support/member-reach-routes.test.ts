@@ -24,10 +24,12 @@ import { getAgentTokenRaw } from "../identity/tokens.ts";
 import {
   forgetMemberOsUser,
   memberOsUsersPath,
+  memberOsUserState,
   recordMemberOsUser,
   reloadMemberOsUsers,
 } from "../member-os-users.ts";
 import { getUserByName } from "../users.ts";
+import { connectMemberHost } from "../member-hosts.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import {
   agentHostMoving,
@@ -802,5 +804,136 @@ describe("the folder of a new schedule", () => {
       typeof cwdOf(owners.body),
       cwdOf(owners.body) === iso!.home,
     ]).toEqual(["string", false]);
+  });
+});
+
+// Task 12c796b2: the reach limits keep a member off other OS users. Members
+// on one OS user already share every file, so an agent of another member on
+// the same user is theirs to use; an owner with their own OS user keeps
+// every owner route.
+describe("members on one OS user, and an owner with their own OS user", () => {
+  const recorded: string[] = [];
+  afterEach(() => {
+    for (const id of recorded.splice(0)) forgetMemberOsUser(id);
+  });
+  // Bob's agent, and Carol's on another OS user, are spawned before their
+  // records: the rule reads the records, not where the agent runs.
+  async function shared() {
+    const o = await office();
+    const bobAgent = await o.spawn("Bob worker", o.bob);
+    const carol = await o.srv.seedMember("ReachCarol");
+    const carolId = getUserByName(carol.username)!.id;
+    const access = await call(
+      o.srv,
+      "PUT",
+      `/api/users/${carol.username}/access`,
+      o.ownerAuth,
+      { allowedRooms: [o.room.id] },
+    );
+    expect(access.status).toBe(200);
+    const carolAgent = await o.spawn("Carol worker", {
+      username: carol.username,
+      id: carolId,
+    });
+    const aliceUser = memberOsUserState(o.alice.id);
+    if (aliceUser.kind !== "isolated") throw new Error("Alice is not isolated");
+    recorded.push(o.bob.id, carolId);
+    recordMemberOsUser(o.bob.id, aliceUser.osUser);
+    recordMemberOsUser(carolId, {
+      name: "isomux-reach-carol",
+      uid: aliceUser.osUser.uid + 1,
+    });
+    // Bob's runner is Alice's (the fixture's stand-in answers every connect).
+    expect(await connectMemberHost(o.bob.id)).toBe(true);
+    return { ...o, bobAgent, carolAgent };
+  }
+
+  // MUTANT: ownsAgent without the same-OS-user branch (dies on Alice's
+  // first row).
+  it("lets Alice edit and instruct an agent of Bob, who runs as her OS user, but not one of Carol, who runs as another", async () => {
+    const o = await shared();
+    // The instructions write needs the version of a read (the owner's).
+    const versionOf = async (id: string) => {
+      const read = await call(
+        o.srv,
+        "GET",
+        `/api/agents/${id}/instructions`,
+        o.ownerAuth,
+      );
+      expect(read.status).toBe(200);
+      return (read.body as { version: string }).version;
+    };
+    const rows = async (id: string): Promise<[string, string, unknown][]> => [
+      [
+        "PUT",
+        `/api/agents/${id}/instructions`,
+        { instructions: "use the cache", version: await versionOf(id) },
+      ],
+      ["PATCH", `/api/agents/${id}`, { permissionMode: "bypassPermissions" }],
+    ];
+    for (const [method, path, body] of await rows(o.bobAgent.id)) {
+      const alice = await call(o.srv, method, path, o.alice.auth, body);
+      expect([`${method} ${path}`, alice.status < 300, alice.code]).toEqual([
+        `${method} ${path}`,
+        true,
+        undefined,
+      ]);
+    }
+    // The control: Carol runs as another OS user.
+    for (const [method, path, body] of await rows(o.carolAgent.id)) {
+      const alice = await call(o.srv, method, path, o.alice.auth, body);
+      expect([`${method} ${path}`, alice.status, alice.code]).toEqual([
+        `${method} ${path}`,
+        403,
+        "member_reach",
+      ]);
+    }
+    // And the office's agent stays out of reach for both of them.
+    for (const auth of [o.alice.auth, o.bob.auth]) {
+      const office = await call(
+        o.srv,
+        "PATCH",
+        `/api/agents/${o.officeAgent.id}`,
+        auth,
+        { permissionMode: "bypassPermissions" },
+      );
+      expect([office.status, office.code]).toEqual([403, "member_reach"]);
+    }
+  });
+
+  // MUTANT: memberIsolated true for an owner (dies on the office variable).
+  it("leaves an owner with their own OS user every owner route and the office's agent", async () => {
+    const o = await office();
+    const owner = getUserByName("ReachNil")!;
+    recorded.push(owner.id);
+    recordMemberOsUser(owner.id, { name: "isomux-reach-nil", uid: 2_000_123 });
+    const env = await call(
+      o.srv,
+      "PUT",
+      "/api/office/env/REACH_OWNER_VAR",
+      o.ownerAuth,
+      { value: "1" },
+    );
+    expect([env.status < 300, env.code]).toEqual([true, undefined]);
+    const read = await call(
+      o.srv,
+      "GET",
+      `/api/agents/${o.officeAgent.id}/instructions`,
+      o.ownerAuth,
+    );
+    expect(read.status).toBe(200);
+    const edit = await call(
+      o.srv,
+      "PUT",
+      `/api/agents/${o.officeAgent.id}/instructions`,
+      o.ownerAuth,
+      {
+        instructions: "office rules",
+        version: (read.body as { version: string }).version,
+      },
+    );
+    expect([edit.status < 300, edit.code]).toEqual([true, undefined]);
+    // The enabling condition: the owner is recorded on their own OS user.
+    expect(memberOsUserState(owner.id).kind).toBe("isolated");
   });
 });

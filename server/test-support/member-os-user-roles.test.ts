@@ -1,14 +1,15 @@
-// An isolated member (internal-docs/member-os-user-design.md, section 3.1 and
-// slice 1a) cannot become an owner while they have an OS user: an owner sets
-// office variables that reach every office-user agent. And the office does not
-// remove them while they have one: a removal passes the agents to an heir that
+// An isolated member (internal-docs/member-os-user-design.md, section 3.1)
+// may be an owner (task 12c796b2). The office does not remove a member
+// while they have an OS user: a removal passes the agents to an heir that
 // may run as the office user. Their OS user is turned off first, which brings
 // their files and apps back; moving agents between hosts is task abdb452b.
 import { afterEach, expect, it } from "bun:test";
 import { rmSync } from "fs";
 import { startTestServer, type TestServer } from "./harness.ts";
 import {
+  deleteUserById,
   getUserByName,
+  restoreUserRecord,
   setUserRole,
   setUserRoleById,
   updateUserById,
@@ -20,15 +21,6 @@ import {
 } from "../member-os-users.ts";
 import { managedUserEnvExists, writeManagedUserEnv } from "../user-env.ts";
 
-// A refusal by the store: a throw or a false return, never true.
-function refused(write: () => boolean): boolean {
-  try {
-    return write() === false;
-  } catch {
-    return true;
-  }
-}
-
 let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
@@ -37,11 +29,13 @@ afterEach(async () => {
   reloadMemberOsUsers();
 });
 
-it("refuses every role write that would make an isolated member an owner", async () => {
+// Task 12c796b2: an owner may run as their own OS user (Nil, 2026-11-20:
+// "owners are privileged. that is accepted"). The residual risk is a note in
+// docs/security-audit.md, not a refusal.
+it("makes an isolated member an owner through the route and every store writer", async () => {
   const srv = (server = await startTestServer());
   const owner = await srv.seedOwner("Morgan");
   await srv.seedMember("Alice");
-  await srv.seedMember("Plain");
   const alice = getUserByName("Alice")!;
   recordMemberOsUser(alice.id, { name: "isomux-alice", uid: 2001 });
 
@@ -51,40 +45,68 @@ it("refuses every role write that would make an isolated member an owner", async
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role: "owner" }),
   });
-  expect(res.status).toBeGreaterThanOrEqual(400);
-  expect(getUserByName("Alice")?.role).toBe("member");
+  expect(res.status).toBe(200);
+  expect(getUserByName("Alice")?.role).toBe("owner");
 
-  // The store refuses too, for every writer of a role.
-  expect(refused(() => setUserRoleById(alice.id, "owner"))).toBe(true);
-  expect(getUserByName("Alice")?.role).toBe("member");
-  expect(refused(() => setUserRole("Alice", "owner"))).toBe(true);
-  expect(getUserByName("Alice")?.role).toBe("member");
-  const update = updateUserById(alice.id, { role: "owner" });
-  expect(update.ok).toBe(false);
-  expect(getUserByName("Alice")?.role).toBe("member");
-  // Other changes to the isolated member still go through.
-  expect(updateUserById(alice.id, { memberPrompt: "hi" }).ok).toBe(true);
+  // Each store writer of a role, from member to owner again.
+  const writers: [string, () => boolean][] = [
+    ["setUserRoleById", () => setUserRoleById(alice.id, "owner")],
+    ["setUserRole", () => setUserRole("Alice", "owner")],
+    ["updateUserById", () => updateUserById(alice.id, { role: "owner" }).ok],
+  ];
+  for (const [name, write] of writers) {
+    expect(setUserRoleById(alice.id, "member")).toBe(true);
+    expect([name, write(), getUserByName("Alice")?.role]).toEqual([
+      name,
+      true,
+      "owner",
+    ]);
+  }
 
-  // A member without an OS user is promoted as before.
-  const plain = await srv.http("/api/users/Plain", {
+  // The restore of a removed owner whose OS user record outlived them (a
+  // record is kept past a removal: server/member-os-users.ts).
+  // The harness seeds one owner; a second one is a member made an owner.
+  await srv.seedMember("Olga");
+  const promoted = await srv.http("/api/users/Olga", {
     method: "PATCH",
     rawSessionId: owner.rawSessionId,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role: "owner" }),
   });
-  expect(plain.status).toBe(200);
-  expect(getUserByName("Plain")?.role).toBe("owner");
+  expect(promoted.status).toBe(200);
+  const olga = getUserByName("Olga")!;
+  expect(olga.role).toBe("owner");
+  const removed = await srv.http("/api/users/Olga", {
+    method: "DELETE",
+    rawSessionId: owner.rawSessionId,
+  });
+  expect(removed.status).toBe(204);
+  expect(getUserByName("Olga")).toBeUndefined();
+  recordMemberOsUser(olga.id, { name: "isomux-olga", uid: 2002 });
+  const restored = await srv.http(`/api/removed-members/${olga.id}/restore`, {
+    method: "POST",
+    rawSessionId: owner.rawSessionId,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(restored.status).toBe(200);
+  expect(getUserByName("Olga")?.role).toBe("owner");
+  // The store writer the restore uses, on its own.
+  const record = { ...getUserByName("Olga")! };
+  expect(deleteUserById(olga.id)).toBe(true);
+  expect(restoreUserRecord(record).ok).toBe(true);
+  expect(getUserByName("Olga")?.role).toBe("owner");
 });
 
-it("treats an unreadable record as isolated for the owner rule", async () => {
+it("makes a member with an unreadable record an owner", async () => {
   const srv = (server = await startTestServer());
   await srv.seedOwner("Morgan");
   await srv.seedMember("Alice");
   const alice = getUserByName("Alice")!;
   await Bun.write(memberOsUsersPath(), "{");
   reloadMemberOsUsers();
-  expect(updateUserById(alice.id, { role: "owner" }).ok).toBe(false);
-  expect(getUserByName("Alice")?.role).toBe("member");
+  expect(updateUserById(alice.id, { role: "owner" }).ok).toBe(true);
+  expect(getUserByName("Alice")?.role).toBe("owner");
 });
 
 it("refuses to remove an isolated member, before any removal step runs", async () => {

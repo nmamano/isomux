@@ -485,12 +485,16 @@ function readVerifiedAncestry(
 
 export const openCodeAuthorityBroker = new OpenCodeAuthorityBroker();
 
-// One broker per member with their own OS user: <share>/authority/
-// authority.sock, for their uid only. Its turn handles exist only there, so
-// a handle of another member's agent, or of an office agent, is refused on
-// it. The folder is 2750 with the member's group, from the setgid share, and
-// the socket 0660 with that group.
+// One broker per OS user of members: <share>/authority/authority.sock, for
+// that uid only. Its turn handles exist only there, so a handle of an agent on
+// another OS user, or of an office agent, is refused on it. Members on one OS
+// user share it (task 12c796b2): they can act as each other's agents anyway.
+// The folder is 2750 with the member's group, from the setgid share, and the
+// socket 0660 with that group.
 const memberBrokers = new Map<string, OpenCodeAuthorityBroker>();
+// The OS user name each member's broker was last made or found for, so a
+// close finds it after the member's record changed.
+const brokerOsUserOf = new Map<string, string>();
 
 // The broker for an agent with `env`: the office's, or its member's. Throws
 // for a member whose share or OS user is not known: their OpenCode does not
@@ -505,7 +509,9 @@ export function openCodeAuthorityBrokerForEnv(
   if (state.kind !== "isolated" || !share)
     throw new Error(`${userId} has no OS user of their own`);
   const socketPath = memberAuthoritySocketPath(share);
-  const existing = memberBrokers.get(userId);
+  const key = state.osUser.name;
+  brokerOsUserOf.set(userId, key);
+  const existing = memberBrokers.get(key);
   if (existing?.serves(socketPath, state.osUser.uid)) return existing;
   existing?.close();
   const broker = new OpenCodeAuthorityBroker(
@@ -516,15 +522,25 @@ export function openCodeAuthorityBrokerForEnv(
     false,
     share,
   );
-  memberBrokers.set(userId, broker);
+  memberBrokers.set(key, broker);
   return broker;
 }
 
-// Disable or an undone enable (member-hosts.ts, forgetMemberHost): the
-// member's broker stops, its turn handles go, and its socket file is removed.
+// Stops the broker of the member's OS user: its turn handles go, and its
+// socket file is removed.
 export function closeMemberAuthorityBroker(userId: string): void {
-  memberBrokers.get(userId)?.close();
-  memberBrokers.delete(userId);
+  const state = memberOsUserState(userId);
+  const key =
+    state.kind === "isolated" ? state.osUser.name : brokerOsUserOf.get(userId);
+  brokerOsUserOf.delete(userId);
+  if (key === undefined) return;
+  memberBrokers.get(key)?.close();
+  memberBrokers.delete(key);
 }
 
-onMemberHostForgotten(closeMemberAuthorityBroker);
+// Disable or an undone enable (member-hosts.ts, forgetMemberHost): closed
+// with the last member on the OS user, kept for the others.
+onMemberHostForgotten((userId, last) => {
+  if (last) closeMemberAuthorityBroker(userId);
+  else brokerOsUserOf.delete(userId);
+});

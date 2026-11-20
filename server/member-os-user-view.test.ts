@@ -231,10 +231,10 @@ describe("the support verdict", () => {
     ).toBeUndefined();
     expect(view(INSTALLER)).toBeUndefined();
     expect(view(CONTAINER)).toBeUndefined();
-    // No command, no hint.
-    expect(
-      view({ ok: true, shape: "docker", container: null }, "owner"),
-    ).toBeUndefined();
+    // An owner gets the same command, so the same hint (task 12c796b2).
+    expect(view({ ok: true, shape: "docker", container: null }, "owner")).toBe(
+      "container_name",
+    );
   });
 });
 
@@ -500,8 +500,12 @@ describe("the state", () => {
     ]);
   });
 
-  it("gives an owner no command, and passes the gate through", () => {
-    expect(view("owner").commands).toBeNull();
+  // Task 12c796b2: an owner may have their own OS user; the view says the
+  // member is an owner, for the page's note.
+  it("gives an owner the commands a member gets, marks the owner, and passes the gate through", () => {
+    expect(view("owner").commands).toEqual(memberUserCommands(ID, INSTALLER));
+    expect(view("owner").owner).toBe(true);
+    expect(view("member").owner).toBeUndefined();
     expect(view("member").commands).toEqual(memberUserCommands(ID, INSTALLER));
     expect(
       memberOsUserView(
@@ -552,12 +556,53 @@ describe("the attempt", () => {
   });
 });
 
+// Task 12c796b2: the other members recorded on the member's OS user, with
+// whether each is an owner, for the page's note. A member on another user,
+// or the member alone, gets none.
+describe("the members sharing the OS user", () => {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const id of made.splice(0)) deleteUserById(id);
+  });
+  function person(name: string, role: "member" | "owner" = "member") {
+    const created = createMember(`${name}${Date.now()}`, { role });
+    if (!created.ok) throw new Error(created.error);
+    made.push(created.user.id);
+    return created.user;
+  }
+
+  it("names each other member on the user, owners marked, and nobody else", () => {
+    const mia = person("ShareMia");
+    const bob = person("ShareBob");
+    const olivia = person("ShareOlivia", "owner");
+    const carol = person("ShareCarol");
+    const family = { name: "isomux-family", uid: 2001 };
+    recordMemberOsUser(mia.id, family);
+    const sharedOf = (user: typeof mia) =>
+      memberOsUserView(user, { support: INSTALLER, now: NOW }).sharedWith;
+    // Alone on it: none.
+    expect(sharedOf(mia)).toBeUndefined();
+    recordMemberOsUser(bob.id, family);
+    recordMemberOsUser(olivia.id, family);
+    recordMemberOsUser(carol.id, { name: "isomux-carol", uid: 2002 });
+    expect(
+      [...(sharedOf(mia) ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    ).toEqual(
+      [
+        { name: bob.name, owner: false },
+        { name: olivia.name, owner: true },
+      ].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    expect(sharedOf(carol)).toBeUndefined();
+  });
+});
+
 // Task e15a82e7: the existing OS users an owner can pick for a member, and
 // what the page needs to pick one. The properties:
 // - a candidate is a login user: a passwd entry with a name of the root
 //   command's pattern, a uid in UID_MIN..UID_MAX of login.defs (defaults
-//   1000..60000, both ends in), a login shell; never the office's user, a
-//   user a member runs as or a user the root command made; each name once,
+//   1000..60000, both ends in), a login shell; never the office's user; a
+//   user members run as carries their names (task 12c796b2); each name once,
 //   sorted by name, at most MEMBER_USER_CANDIDATES_MAX;
 // - the view carries the candidates only while off, on the installer's
 //   install; the new user's default name while off; adopted and rootCapable
@@ -623,16 +668,33 @@ describe("the candidates", () => {
     ).toEqual(["a2", "a3"]);
   });
 
-  it("leave out the office's user, a user a member runs as and a user the root command made", () => {
+  // Task 12c796b2: several members may run as one OS user, so a user that
+  // members run as, and a user the root command made, are candidates too,
+  // each with the members on it (the page's note names them, and says when
+  // one is an owner).
+  it("leave out the office's user, and list a user members run as with its members, and a user the root command made", () => {
     const lines = [
       line("isomux", 1001),
       line("isomux-mia", 1002),
       line("isomux-old", 1003),
       line("erin", 1004),
     ];
+    const mia = [
+      { name: "Leo", owner: true },
+      { name: "Mia", owner: false },
+    ];
     expect(
-      names(input(lines, { taken: ["isomux-mia"], made: ["isomux-old"] })),
-    ).toEqual(["erin"]);
+      memberUserCandidates(
+        input(lines, {
+          taken: [{ name: "isomux-mia", members: mia }],
+          made: ["isomux-old"],
+        }),
+      ),
+    ).toEqual([
+      { name: "erin", uid: 1004 },
+      { name: "isomux-mia", uid: 1002, members: mia },
+      { name: "isomux-old", uid: 1003 },
+    ]);
     // The office's user is left out by name, whatever its uid.
     expect(names(input(lines, { officeOsUser: null }))).toContain("isomux");
   });

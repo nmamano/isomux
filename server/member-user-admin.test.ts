@@ -1,7 +1,7 @@
 // The admin.sock verbs of isomux-member-user (server/member-user-admin.ts,
 // internal-docs/member-os-user-design.md 2.2-2.3; slice 1b-ii-a of task
 // b94dfd25). The properties: only root reaches them, and only when the rig
-// gate is on; an owner never gets an OS user; the OS user named by root is
+// gate is on; an owner gets one like any member; the OS user named by root is
 // checked against the user database (name, uid, never root or the office);
 // go-on waits for a late runner and undoes only what it did; disable and an
 // undone go-on leave no host, no retry and no record behind; go-on forgets
@@ -241,6 +241,25 @@ describe("info", () => {
     expect(isolated.body.state).toBe("isolated");
   });
 
+  // Task 12c796b2: the root command asks, under its lock on the OS user,
+  // which other members run as it (a join, or a reopen when none).
+  it("names the other members recorded on the OS user it is asked about", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    const carol = member("Carol");
+    deps();
+    const onUser = async () =>
+      (await call("info", { member: alice, osUser: "isomux-alice" })).body
+        .onUser;
+    expect(await onUser()).toEqual([]);
+    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID });
+    recordMemberOsUser(carol, { name: "isomux-carol", uid: MEMBER_UID + 1 });
+    expect(await onUser()).toEqual(["Bob"]);
+    // The member asked about is never in the list.
+    recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
+    expect(await onUser()).toEqual(["Bob"]);
+  });
+
   // Task 3b5234dc: userName is the default name of a new user for the
   // command line with no --user, the same name the page shows: the member's
   // own name, or the next free one.
@@ -260,23 +279,25 @@ describe("info", () => {
 });
 
 describe("prepare and go-on: who and which OS user", () => {
-  it("refuse an owner, both of them", async () => {
+  // Task 12c796b2: an owner may have their own OS user.
+  it("take an owner like any member: prepare installs, go-on records", async () => {
     const owner = member("Olivia", "owner");
     deps();
-    for (const verb of ["prepare", "go-on"]) {
-      const answer = await call(verb, {
-        member: owner,
-        osUser: "isomux-alice",
-        uid: MEMBER_UID,
-      });
-      expect([verb, answer.status, answer.body.error]).toEqual([
-        verb,
-        409,
-        "member_owner",
-      ]);
-    }
-    expect(prepared).toEqual([]);
-    expect(memberOsUserState(owner).kind).toBe("none");
+    const prepare = await call("prepare", {
+      member: owner,
+      osUser: "isomux-alice",
+      uid: MEMBER_UID,
+    });
+    expect([prepare.status, prepare.body.ok]).toEqual([200, true]);
+    expect(prepared).toEqual([
+      { share: memberSharePath("isomux-alice"), gid: MEMBER_GID },
+    ]);
+    const answer = await goOn(owner);
+    expect(answer.body).toEqual({ ok: true, ready: true });
+    expect(memberOsUserState(owner)).toMatchObject({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+    });
   });
 
   it("refuse a name that is not a user name before any lookup or write", async () => {
@@ -471,10 +492,25 @@ describe("go-on", () => {
     expect(hostFor(alice)).not.toBe(officeAgentHost());
   });
 
-  // Two members on one OS user would share a home, a runner and their
-  // sign-ins.
-  // The name and the uid each name the OS user: a match on either refuses.
-  it("refuses an OS user that another member runs as, by name or by uid", async () => {
+  // Task 12c796b2: several members may run as one OS user.
+  it("records a second member on an OS user that another member runs as", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID });
+    deps();
+    const answer = await goOn(alice);
+    expect(answer.body).toEqual({ ok: true, ready: true });
+    expect(connects).toEqual([alice]);
+    for (const id of [alice, bob])
+      expect(memberOsUserState(id)).toMatchObject({
+        kind: "isolated",
+        osUser: { name: "isomux-alice", uid: MEMBER_UID },
+      });
+  });
+
+  // A record that names the user with another uid, or the uid with another
+  // name, is a stale or edited record: two members on one user agree on both.
+  it("refuses an OS user that another record names with another uid, or a uid it names with another name", async () => {
     const alice = member("Alice");
     const bob = member("Bob");
     for (const theirs of [
@@ -487,12 +523,66 @@ describe("go-on", () => {
       expect([theirs, answer.status, answer.body.error]).toEqual([
         theirs,
         409,
-        "os_user_taken",
+        "os_user_mismatch",
       ]);
       expect(memberOsUserState(alice).kind).toBe("none");
       expect(memberOsUserState(bob)).toMatchObject({ osUser: theirs });
       expect(connects).toEqual([]);
     }
+  });
+
+  // The members on one OS user share the runner's staging (.move-in,
+  // .move-out of the agent space): one go-on, disable or agent move per OS
+  // user at a time.
+  it("refuses a go-on while a go-on or an agent move of another member on the same OS user runs", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    const carol = member("Carol");
+    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID });
+    recordMemberOsUser(carol, { name: "isomux-alice", uid: MEMBER_UID });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let bobConnects = 0;
+    deps({
+      connect: async (userId) => {
+        connects.push(userId);
+        if (userId === bob) {
+          bobConnects++;
+          await held;
+        }
+        return true;
+      },
+    });
+    // Bob's go-on (a rerun of his enable) holds in its connect.
+    const bobs = goOn(bob);
+    for (let i = 0; i < 100 && bobConnects === 0; i++) await Bun.sleep(5);
+    // The enabling condition: Bob's go-on runs.
+    expect(bobConnects).toBe(1);
+    const refused = await goOn(alice);
+    expect([refused.status, refused.body.error]).toEqual([
+      409,
+      "move_in_progress",
+    ]);
+    expect(memberOsUserState(alice).kind).toBe("none");
+    // An agent move of Carol, on the same OS user, waits too: it would use
+    // the same staging.
+    expect(claimMemberMoves([carol])).toBe(false);
+    release();
+    expect((await bobs).body).toEqual({ ok: true, ready: true });
+
+    // An agent move of Bob holds the OS user: Alice's go-on is refused.
+    expect(claimMemberMoves([bob])).toBe(true);
+    try {
+      const during = await goOn(alice);
+      expect([during.status, during.body.error]).toEqual([
+        409,
+        "move_in_progress",
+      ]);
+    } finally {
+      releaseMemberMoves([bob]);
+    }
+    // Once released, Alice joins.
+    expect((await goOn(alice)).body).toEqual({ ok: true, ready: true });
   });
 
   // A malformed entry or file keeps the member off the office user: go-on
@@ -578,6 +668,29 @@ describe("disable", () => {
     });
     expect(memberOsUserState(alice).kind).toBe("none");
     expect(hostFor(alice)).toBe(officeAgentHost());
+  });
+});
+
+// Task 12c796b2: the root command changes nothing on an OS user that other
+// members still run as; the office's answer says so.
+describe("disable of one of several members on an OS user", () => {
+  it("answers userStays while another member still runs as the user, and not for the last one", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    const carol = member("Carol");
+    recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
+    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID });
+    recordMemberOsUser(carol, { name: "isomux-carol", uid: MEMBER_UID + 1 });
+    deps();
+    expect(
+      (await call("disable", { member: alice, keepFiles: true })).body,
+    ).toEqual({ ok: true, kept: true, userStays: true });
+    expect(memberOsUserState(alice).kind).toBe("none");
+    expect(memberOsUserState(bob).kind).toBe("isolated");
+    // Bob is the last on isomux-alice; Carol runs as another user.
+    expect(
+      (await call("disable", { member: bob, keepFiles: true })).body,
+    ).toEqual({ ok: true, kept: true });
   });
 });
 
@@ -973,12 +1086,12 @@ describe("go-on moves the member's files", () => {
     releaseMemberMoves([alice]);
   });
 
-  it("holds nothing when go-on refuses (another OS user, a taken user)", async () => {
+  it("holds nothing when go-on refuses (another OS user, a mismatched record)", async () => {
     const alice = member("Alice");
     const bob = member("Bob");
-    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID });
+    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID + 7 });
     moveDeps(alice);
-    expect((await goOn(alice)).body.error).toBe("os_user_taken");
+    expect((await goOn(alice)).body.error).toBe("os_user_mismatch");
     recordMemberOsUser(alice, { name: "isomux-other", uid: 2002 });
     expect((await goOn(alice)).body.error).toBe("already_isolated");
     expect(steps).toEqual([]);
@@ -1495,7 +1608,7 @@ describe("go-on of a member who came with an office move", () => {
     reloadMemberOsUsers();
     deps();
     const answer = await goOn(alice);
-    expect(answer.body.error).not.toBe("os_user_taken");
+    expect(answer.body.error).not.toBe("os_user_mismatch");
     expect(answer.body).toMatchObject({ ok: true, ready: true });
   });
 });

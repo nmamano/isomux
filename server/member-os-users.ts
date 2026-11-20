@@ -264,7 +264,7 @@ export function recordMemberOsUser(
   if (!validOsUser(osUser))
     throw new Error("an OS user needs a lowercase name and a uid above 0");
   const entries = writableEntries();
-  writeTie(osUser.uid, userId);
+  writeTie(osUser.uid, userId, entries);
   entries[userId] = {
     name: osUser.name,
     uid: osUser.uid,
@@ -286,11 +286,14 @@ export function forgetMemberOsUser(userId: string): void {
 
 // The tie of each member OS user's uid to its member, for the secret proxy
 // (internal-docs/member-os-user-design.md, slice 2d-ii):
-// STATE_ROOT/member-os-uid-ties.json, { "<uid>": "<userId>" }. A tie
-// outlives its entry: disable removes the entry while processes of the uid
-// may still run with the proxy password in their env, and the tie keeps them
-// to their member's secrets. A record of the same uid for another member
-// replaces it.
+// STATE_ROOT/member-os-uid-ties.json, { "<uid>": "<userId>" | ["<userId>", ...] }
+// (task 12c796b2: several members may run as one OS user; a file of the
+// single-id form still reads). A tie outlives its entry: disable removes the
+// entry while processes of the uid may still run with the proxy password in
+// their env, and the tie keeps them to their members' secrets. A record of
+// the uid writes its tie again from the entries that name the uid now plus
+// the new member, so a uid that comes back for another member drops the
+// members who left it.
 export const MEMBER_OS_UID_TIES_FILE = "member-os-uid-ties.json";
 
 export interface MemberUidTie {
@@ -302,7 +305,7 @@ function tiesPath(): string {
   return join(STATE_ROOT, MEMBER_OS_UID_TIES_FILE);
 }
 
-function readTies(): Record<string, string> {
+function readTies(): Record<string, string[]> {
   let text: string;
   try {
     text = readFileSync(tiesPath(), "utf8");
@@ -313,19 +316,43 @@ function readTies(): Record<string, string> {
   const parsed: unknown = JSON.parse(text);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
     throw new Error(`${tiesPath()} is not a JSON object`);
-  const ties: Record<string, string> = {};
-  for (const [uid, userId] of Object.entries(parsed))
-    if (/^[1-9]\d*$/.test(uid) && typeof userId === "string" && userId)
-      ties[uid] = userId;
+  const ties: Record<string, string[]> = {};
+  for (const [uid, value] of Object.entries(parsed)) {
+    if (!/^[1-9]\d*$/.test(uid)) continue;
+    const ids = (Array.isArray(value) ? value : [value]).filter(
+      (id): id is string => typeof id === "string" && id !== "",
+    );
+    if (ids.length > 0) ties[uid] = [...new Set(ids)];
+  }
   return ties;
+}
+
+// The members whose valid entry (not moved in) names `uid`.
+function entryMembersOf(
+  entries: Record<string, unknown>,
+  uid: number,
+): string[] {
+  return Object.entries(entries)
+    .filter(
+      ([, entry]) =>
+        validOsUser(entry) && entry.uid === uid && !movedInOf(entry).movedIn,
+    )
+    .map(([userId]) => userId);
 }
 
 // A file that cannot be read is not rewritten: the write throws, and so
 // does the enable that called it.
-function writeTie(uid: number, userId: string): void {
+function writeTie(
+  uid: number,
+  userId: string,
+  entries: Record<string, unknown>,
+): void {
   const ties = readTies();
-  if (ties[String(uid)] === userId) return;
-  ties[String(uid)] = userId;
+  const next = [...new Set([...entryMembersOf(entries, uid), userId])].sort();
+  const before = ties[String(uid)] ?? [];
+  if (before.length === next.length && before.every((id, i) => id === next[i]))
+    return;
+  ties[String(uid)] = next;
   const path = tiesPath();
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, JSON.stringify(ties, null, 2) + "\n", {
@@ -334,29 +361,76 @@ function writeTie(uid: number, userId: string): void {
   renameSync(temporary, path);
 }
 
-// Every uid tie: the tie file, and each valid entry of the record (an entry
-// wins for its uid). A tie file that cannot be read is logged, and the
-// record's entries still count.
+// Every uid tie, one row per (uid, member): the tie file, and the valid
+// entries of the record (the entries that name a uid win for it). A tie file
+// that cannot be read is logged, and the record's entries still count.
 export function memberOsUidTies(): MemberUidTie[] {
-  const byUid = new Map<number, string>();
+  const byUid = new Map<number, string[]>();
   try {
-    for (const [uid, userId] of Object.entries(readTies()))
-      byUid.set(Number(uid), userId);
+    for (const [uid, userIds] of Object.entries(readTies()))
+      byUid.set(Number(uid), userIds);
   } catch (error) {
     console.error(
       `[member-os-users] the uid ties: ${(error as Error).message}`,
     );
   }
   const loaded = load();
-  if (loaded.kind === "ok")
+  if (loaded.kind === "ok") {
+    const fromEntries = new Map<number, string[]>();
     for (const [userId, entry] of Object.entries(loaded.entries))
       // Slice 5c-2: a moved-in entry's uid is the old box's; on this box it
       // can be anyone's, so it ties nothing.
       if (validOsUser(entry) && !movedInOf(entry).movedIn)
-        byUid.set(entry.uid, userId);
+        fromEntries.set(entry.uid, [
+          ...(fromEntries.get(entry.uid) ?? []),
+          userId,
+        ]);
+    for (const [uid, userIds] of fromEntries) byUid.set(uid, userIds);
+  }
   return [...byUid]
     .sort(([a], [b]) => a - b)
-    .map(([uid, userId]) => ({ uid, userId }));
+    .flatMap(([uid, userIds]) =>
+      [...userIds].sort().map((userId) => ({ uid, userId })),
+    );
+}
+
+// The other members whose record names the OS user `name` (task 12c796b2:
+// several members may run as one OS user), valid entries only, moved-in
+// ones excluded (their name is the old box's). Sorted by id.
+export function membersOnOsUser(name: string, except?: string): string[] {
+  const loaded = load();
+  if (loaded.kind !== "ok") return [];
+  return Object.entries(loaded.entries)
+    .filter(
+      ([userId, entry]) =>
+        userId !== except &&
+        validOsUser(entry) &&
+        entry.name === name &&
+        !movedInOf(entry).movedIn,
+    )
+    .map(([userId]) => userId)
+    .sort();
+}
+
+// True when `a` and `b` are two complete records (isolated, not unfinished,
+// not moved in) that name one OS user, by name and uid.
+export function sameMemberOsUser(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  const sa = memberOsUserState(a);
+  const sb = memberOsUserState(b);
+  return (
+    sa.kind === "isolated" &&
+    sb.kind === "isolated" &&
+    !sa.unfinished &&
+    !sb.unfinished &&
+    !sa.movedIn &&
+    !sb.movedIn &&
+    sa.osUser.name === sb.osUser.name &&
+    sa.osUser.uid === sb.osUser.uid
+  );
 }
 
 // Tests: forget the cached file, so the next read loads it from disk.

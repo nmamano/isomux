@@ -1417,6 +1417,57 @@ describe("a member's own OS user", () => {
       expect(answered).toEqual([ALICE_UID]);
     });
 
+  // Task 12c796b2: several members on one OS user share its uid, and can
+  // read each other's secrets anyway. A connection from that uid swaps the
+  // office's secrets and those of every member tied to it, and still refuses
+  // a member on another uid.
+  test("swaps the secrets of every member tied to the uid, and refuses a member tied to another", async () => {
+    const VALUE_CAROL = "fake-carol-token-FAKEccccFAKEcccc0005";
+    const PH_CAROL = placeholderFor(
+      KEY,
+      { kind: "user", userId: "carol" },
+      "CAROL_TOKEN",
+      1,
+      VALUE_CAROL,
+    );
+    member.update(
+      snapshot({
+        secrets: [
+          ...SECRETS,
+          BOB_SECRET,
+          {
+            ...BOB_SECRET,
+            scope: "user:carol",
+            ownerId: "carol",
+            name: "CAROL_TOKEN",
+            value: VALUE_CAROL,
+            placeholder: PH_CAROL,
+          },
+        ],
+        members: [
+          { uid: ALICE_UID, userId: "alice" },
+          { uid: ALICE_UID, userId: "bob" },
+          { uid: BOB_UID, userId: "carol" },
+        ],
+      }),
+    );
+    const [alice, bob] = await on("api.stub.test", [
+      get("/a", [`Authorization: Bearer ${PH_A}`]),
+      get("/b", [`Authorization: Bearer ${PH_BOB}`]),
+    ]);
+    expect([alice?.status, bob?.status]).toEqual([200, 200]);
+    expect(header("authorization", https.seen[0])).toBe(`Bearer ${VALUE_A}`);
+    expect(header("authorization", https.seen[1])).toBe(`Bearer ${VALUE_BOB}`);
+    const [carol] = await on("api.stub.test", [
+      get("/c", [`Authorization: Bearer ${PH_CAROL}`]),
+    ]);
+    expect(carol?.status).toBe(403);
+    expect(carol?.body ?? "").not.toContain("CAROL_TOKEN");
+    expect(https.seen).toHaveLength(2);
+    expect(memberLogs).toContain("request_refused_foreign");
+    expect(answered).toEqual([ALICE_UID, ALICE_UID]);
+  });
+
   test("refuses it on a later request of a tunnel that began with the member's own", async () => {
     const [first, second] = await on("api.stub.test", [
       get("/a", [`Authorization: Bearer ${PH_A}`]),

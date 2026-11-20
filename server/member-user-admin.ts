@@ -41,6 +41,7 @@ import {
   forgetMemberOsUser,
   memberOsUserIds,
   memberOsUserState,
+  membersOnOsUser,
   OS_USER_NAME_PATTERN,
   recordMemberOsUser,
   type MemberOsUserOrigin,
@@ -351,16 +352,6 @@ export function goOnOrigin(
   };
 }
 
-function ownerRefusal(user: UserRecord): Response | null {
-  return user.role === "owner"
-    ? refusal(
-        409,
-        "member_owner",
-        `${user.name} is an owner; an owner cannot have their own OS user`,
-      )
-    : null;
-}
-
 // Where the root command can run (the owner's page shows why it cannot).
 export function memberUsersSupport(): MemberUserSupport {
   return deps.support;
@@ -458,6 +449,17 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
 
   if (verb === "info") {
     const state = memberOsUserState(user.id);
+    // Task 12c796b2: the other members recorded on the OS user asked about
+    // (else the member's own), by name, for the root command's join, reopen
+    // and teardown decisions.
+    const asked =
+      typeof request.osUser === "string" &&
+      OS_USER_NAME_PATTERN.test(request.osUser)
+        ? request.osUser
+        : state.kind === "isolated"
+          ? state.osUser.name
+          : null;
+    const onUser = asked ? memberNamesOnOsUser(asked, user.id) : [];
     return json(200, {
       ok: true,
       userId: user.id,
@@ -471,6 +473,7 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
         : { userName: await defaultOsUserName(user.name) }),
       osUser: state.kind === "isolated" ? state.osUser : null,
       state: state.kind,
+      onUser,
       ...(state.kind === "isolated" && state.movedIn
         ? { movedIn: true, oldHome: state.movedIn.home }
         : {}),
@@ -478,13 +481,25 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
   }
 
   if (verb === "disable") {
-    if (goingOn.has(user.id) || placeJobs.has(user.id))
+    const state = memberOsUserState(user.id);
+    const osUserName = state.kind === "isolated" ? state.osUser.name : null;
+    if (
+      goingOn.has(user.id) ||
+      placeJobs.has(user.id) ||
+      (osUserName !== null && busyOsUsers.has(osUserName))
+    )
       return refusal(
         409,
         "move_in_progress",
         `the files of ${user.name} are moving; wait for that call to answer`,
       );
-    const state = memberOsUserState(user.id);
+    // Task 12c796b2: true when another member still runs as the OS user
+    // after this one is forgotten; the root command then changes nothing on
+    // the account.
+    const stays = (): { userStays?: true } =>
+      osUserName !== null && membersOnOsUser(osUserName, user.id).length > 0
+        ? { userStays: true }
+        : {};
     if (state.kind === "none")
       return refusal(
         409,
@@ -517,7 +532,7 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
     if (request.keepFiles === true || state.kind === "broken") {
       forgetMemberHost(user.id);
       forgetMemberOsUser(user.id);
-      return json(200, { ok: true, kept: true });
+      return json(200, { ok: true, kept: true, ...stays() });
     }
     if (!memberHostConnected(user.id))
       return refusal(
@@ -526,15 +541,21 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
         `the runner of ${user.name} is not connected; start it, or disable with --keep-files`,
       );
     goingOn.add(user.id);
+    if (osUserName !== null) busyOsUsers.add(osUserName);
     try {
-      return await disableMove(user.id);
+      const answer = await disableMove(user.id);
+      const extra = stays();
+      if (!extra.userStays) return answer;
+      const body = (await answer.clone().json()) as Record<string, unknown>;
+      return body.ok === true
+        ? json(answer.status, { ...body, ...extra })
+        : answer;
     } finally {
       goingOn.delete(user.id);
+      if (osUserName !== null) busyOsUsers.delete(osUserName);
     }
   }
 
-  const owner = ownerRefusal(user);
-  if (owner) return owner;
   const osUser = osUserOf(request);
   if (!osUser.ok) return osUser.response;
 
@@ -586,8 +607,10 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
       "already_isolated",
       `${user.name} already runs as ${state.osUser.name}`,
     );
-  // Two members on one OS user would share a home, a runner and sign-ins.
-  const taken = memberOsUserIds().find((id) => {
+  // Task 12c796b2: several members may run as one OS user, and then their
+  // records agree on its name and uid. Another record that names the user
+  // with another uid, or the uid with another name, is stale or edited.
+  const mismatch = memberOsUserIds().find((id) => {
     if (id === user.id) return false;
     const other = memberOsUserState(id);
     // A moved-in record names the old box's uid and a user enable has not
@@ -595,18 +618,20 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
     return (
       other.kind === "isolated" &&
       !other.movedIn &&
-      (other.osUser.name === osUser.name || other.osUser.uid === osUser.uid)
+      (other.osUser.name === osUser.name) !== (other.osUser.uid === osUser.uid)
     );
   });
-  if (taken)
+  if (mismatch)
     return refusal(
       409,
-      "os_user_taken",
-      `another member already runs as ${osUser.name}`,
+      "os_user_mismatch",
+      `another member's record names ${osUser.name} or uid ${osUser.uid} with another uid or name`,
     );
-  // One go-on per member at a time: a second one (an admin who thinks the
-  // first hung) would hold again and clear the first one's staging.
-  if (goingOn.has(user.id))
+  // One go-on per member, and per OS user, at a time: a second one (an
+  // admin who thinks the first hung, or another member on the same user)
+  // would hold again and clear the first one's staging in the shared agent
+  // space.
+  if (goingOn.has(user.id) || busyOsUsers.has(osUser.name))
     return refusal(
       409,
       "move_in_progress",
@@ -615,6 +640,7 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
   if (state.kind === "isolated" && state.movedIn)
     return startPlace(user.id, osUser, state.movedIn.home);
   goingOn.add(user.id);
+  busyOsUsers.add(osUser.name);
   try {
     return await goOn(
       user.id,
@@ -631,29 +657,66 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
     );
   } finally {
     goingOn.delete(user.id);
+    busyOsUsers.delete(osUser.name);
   }
 }
 
 // The members whose go-on, disable or agent host move runs.
 const goingOn = new Set<string>();
+// The OS users those calls hold (task 12c796b2): members on one OS user
+// share its agent space, whose staging folders each move clears.
+const busyOsUsers = new Set<string>();
+// The OS user each agent host move claimed for a member.
+const claimedOsUserOf = new Map<string, string>();
 
-// Whether a go-on, a disable or an agent host move runs for the member (an office move waits).
+function recordedOsUserName(userId: string): string | null {
+  const state = memberOsUserState(userId);
+  return state.kind === "isolated" ? state.osUser.name : null;
+}
+
+// Whether a go-on, a disable or an agent host move runs for the member, or
+// for another member on their OS user (an office move waits).
 export function memberUserCallRunning(userId: string): boolean {
-  return goingOn.has(userId);
+  const name = recordedOsUserName(userId);
+  return goingOn.has(userId) || (name !== null && busyOsUsers.has(name));
 }
 
 // A host move of an agent (agent-host-move.ts) claims each member it
-// touches that has an OS user, so no go-on, disable or other agent move
-// of that member runs meanwhile (they share the runner's staging). False,
-// and nothing claimed, when one of them is busy.
+// touches that has an OS user, and their OS users, so no go-on, disable or
+// other agent move of that member or of another member on the same OS user
+// runs meanwhile (they share the runner's staging). False, and nothing
+// claimed, when one of them is busy.
 export function claimMemberMoves(userIds: string[]): boolean {
-  if (userIds.some((id) => goingOn.has(id))) return false;
-  for (const id of userIds) goingOn.add(id);
+  const names = userIds.map(recordedOsUserName);
+  if (
+    userIds.some((id) => goingOn.has(id)) ||
+    names.some((name) => name !== null && busyOsUsers.has(name))
+  )
+    return false;
+  userIds.forEach((id, i) => {
+    goingOn.add(id);
+    const name = names[i];
+    if (name !== null && !busyOsUsers.has(name)) {
+      busyOsUsers.add(name);
+      claimedOsUserOf.set(id, name);
+    }
+  });
   return true;
 }
 
 export function releaseMemberMoves(userIds: string[]): void {
-  for (const id of userIds) goingOn.delete(id);
+  for (const id of userIds) {
+    goingOn.delete(id);
+    const name = claimedOsUserOf.get(id);
+    if (name !== undefined) busyOsUsers.delete(name);
+    claimedOsUserOf.delete(id);
+  }
+}
+
+// The names of the members other than `except` whose record names the OS
+// user `name`.
+function memberNamesOnOsUser(name: string, except: string): string[] {
+  return membersOnOsUser(name, except).map((id) => getUserById(id)?.name ?? id);
 }
 
 // disable (design 2.3): hold the member's agents, tear their apps down on

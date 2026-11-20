@@ -189,18 +189,23 @@ describe("the refusals", () => {
     r: Awaited<ReturnType<ReturnType<typeof createMemberOsUserRun>["run"]>>,
   ) => (r.ok ? "started" : `${r.status} ${r.code}`);
 
-  it("come in order: the action, an owner, no Run here or no id, and none starts sudo", async () => {
+  it("come in order: the action, no Run here or no id, and none starts sudo", async () => {
     const run = createMemberOsUserRun(deps());
     for (const action of ["", "Enable", "delete", undefined, 7])
       expect({
         action,
         r: refusal(await run.run(OWNER, body({ action }))),
       }).toEqual({ action, r: "400 invalid_action" });
-    expect(refusal(await run.run(OWNER, body()))).toBe("409 member_owner");
-    // An owner before the id check.
+    // Task 12c796b2: an owner's Run starts like a member's.
+    expect(refusal(await run.run(OWNER, body()))).toBe("started");
+    expect(starts).toHaveLength(1);
+    starts.pop()!.end({ exitCode: 0 });
+    // An owner with a bad id is refused by the id check, as a member is.
     expect(
       refusal(await run.run({ id: "not-an-id", role: "owner" }, body())),
-    ).toBe("409 member_owner");
+    ).toBe("409 run_unavailable");
+    // The owner's Run read the mode: read it again.
+    resetRunModeCache();
     probeAnswer = "unavailable";
     expect(refusal(await run.run(MIA, body()))).toBe("409 run_unavailable");
     resetRunModeCache();

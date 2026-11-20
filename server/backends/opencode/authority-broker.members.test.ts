@@ -1,4 +1,4 @@
-// One OpenCode authority broker per member with their own OS user (slice
+// One OpenCode authority broker per OS user of members (slice
 // 2d-ii-b of task b94dfd25): their OpenCode runs as their uid, which cannot
 // reach the office's socket, so their agents get <share>/authority/
 // authority.sock (folder 02750, socket 0660), served for their uid only. The
@@ -11,8 +11,11 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
+import { memberShareFilesDir } from "../../member-share-files.ts";
 import { chmodShare } from "../../split/share-mode.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -127,5 +130,63 @@ describe("a member's OpenCode authority broker", () => {
     const next = after.bind("agent-a", "token-a");
     expect(lstatSync(next.socketPath).isSocket()).toBe(true);
     next.unbind();
+  });
+});
+
+// Task 12c796b2: members on one OS user share its share, so one socket and
+// one broker serve the uid. A disable of one of them keeps it for the others;
+// the last one's closes it.
+describe("an OS user that several members run as", () => {
+  let bob: string;
+  let isoBob: IsolatedMember;
+
+  beforeEach(async () => {
+    const made = createMember(`BrokerBob${Date.now()}`, { role: "member" });
+    if (!made.ok) throw new Error(made.error);
+    bob = made.user.id;
+    // The fixture records Bob on Alice's OS user name and uid.
+    isoBob = await isolateMember(bob);
+  });
+
+  afterEach(() => {
+    closeMemberAuthorityBroker(bob);
+    isoBob.dispose();
+    deleteUserById(bob);
+  });
+
+  it("is one broker for both, and outlives the forget of one of them", () => {
+    // The enabling condition: both run as one OS user.
+    expect(iso.member.host.username()).toBe(isoBob.member.host.username());
+    const aliceEnv = buildEnvForUserId(alice);
+    const bobEnv = buildEnvForUserId(bob);
+    const broker = openCodeAuthorityBrokerForEnv(aliceEnv);
+    expect(openCodeAuthorityBrokerForEnv(bobEnv)).toBe(broker);
+    const aliceBinding = broker.bind("agent-a", "token-a");
+    const bobBinding = broker.bind("agent-b", "token-b");
+    expect(bobBinding.socketPath).toBe(aliceBinding.socketPath);
+    // Alice's disable forgets her host while her record is still there
+    // (member-user-admin.ts: forgetMemberHost, then forgetMemberOsUser).
+    aliceBinding.unbind();
+    forgetMemberHost(alice);
+    expect(lstatSync(bobBinding.socketPath).isSocket()).toBe(true);
+    expect(openCodeAuthorityBrokerForEnv(bobEnv)).toBe(broker);
+    // Bob is the last one: his forget closes it.
+    forgetMemberHost(bob);
+    expect(existsSync(bobBinding.socketPath)).toBe(false);
+  });
+
+  // Task 12c796b2: the share's files/ holds the copies of uploads for every
+  // agent on the OS user. Forgetting one member keeps the others' copies.
+  it("keeps the share files of the other members' agents when one member is forgotten", () => {
+    const bobFiles = memberShareFilesDir(share, "agent-b");
+    mkdirSync(bobFiles, { recursive: true });
+    writeFileSync(join(bobFiles, "upload.txt"), "bob's upload");
+    forgetMemberHost(alice);
+    expect(readFileSync(join(bobFiles, "upload.txt"), "utf8")).toBe(
+      "bob's upload",
+    );
+    // The last member's forget removes them.
+    forgetMemberHost(bob);
+    expect(existsSync(bobFiles)).toBe(false);
   });
 });

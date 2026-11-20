@@ -2331,7 +2331,7 @@ function UserEditPanel({
     ),
     osUser: (
       <>
-        {isOwner && !creating && !targetIsOwner && (
+        {isOwner && !creating && (
           <MemberOsUserSection
             username={user.name}
             headingStyle={sectionTitleStyle}

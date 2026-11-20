@@ -88,8 +88,8 @@ export interface MemberOsUserAttemptWire {
 
 // GET /api/users/:username/os-user: a member's own OS user, for the owner's
 // Members page. gate false: the office does not offer it yet, and the page
-// shows nothing. commands: null where the root command cannot run here, or
-// for an owner. run: how the page can run it itself (null: copy only).
+// shows nothing. commands: null where the root command cannot run here.
+// run: how the page can run it itself (null: copy only).
 export interface MemberOsUserWire {
   state: "off" | "on" | "moving" | "not_ready" | "broken";
   osUser?: { name: string; uid: number };
@@ -112,8 +112,13 @@ export interface MemberOsUserWire {
   // the server's uid has no passwd entry.
   officeOsUser?: string;
   // Task e15a82e7. The existing OS users the owner can pick for this member:
-  // only on the installer's install, while the state is off.
-  candidates?: { name: string; uid: number }[];
+  // only on the installer's install, while the state is off. members: the
+  // members who run as that user already (task 12c796b2).
+  candidates?: {
+    name: string;
+    uid: number;
+    members?: MemberOsUserMemberWire[];
+  }[];
   // The name a new OS user gets unless the owner types another.
   newUserName?: string;
   // Their OS user is a person's existing account (enable --existing-user).
@@ -121,6 +126,17 @@ export interface MemberOsUserWire {
   // That account can become root: the member is not separated from the
   // office.
   rootCapable?: true;
+  // Task 12c796b2: the member is an owner (an owner still reaches the
+  // office's OS user through office variables).
+  owner?: true;
+  // Task 12c796b2: the other members recorded on the member's OS user.
+  sharedWith?: MemberOsUserMemberWire[];
+}
+
+// A member who runs as an OS user, for the Members page's notes.
+export interface MemberOsUserMemberWire {
+  name: string;
+  owner: boolean;
 }
 
 // POST /api/users/:username/os-user/run: the owner's Run (202 at the start).

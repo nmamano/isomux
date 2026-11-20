@@ -422,6 +422,30 @@ describe("D1, D2, C2, C5, C6: checkMoveMembers and the lock's refusal", () => {
     }
   });
 
+  // Task 12c796b2: members who share an OS user share its home. The move
+  // carries a home per member, so it would carry that home twice, and the
+  // new box's enable of the second member would find the user made: both
+  // are blocked, before their runner is asked.
+  it("members who share an OS user are blocked as shared_user, before their runner is asked", async () => {
+    const bed = checkBed([
+      record("u-mia", "Mia", "isomux-mia"),
+      record("u-leo", "Leo", "isomux-mia"),
+      record("u-sam", "Sam", "isomux-sam"),
+    ]);
+    const check = await checkMoveMembers(bed.deps);
+    if ("broken" in check) throw new Error("broken");
+    expect(check.members.map((m) => [m.userId, m.block])).toEqual([
+      ["u-mia", "shared_user"],
+      ["u-leo", "shared_user"],
+      ["u-sam", null],
+    ]);
+    expect(check.ready.map((m) => m.userId)).toEqual(["u-sam"]);
+    expect(bed.infoCalls).toEqual(["isomux-sam"]);
+    const refusal = moveMembersLockRefusal(check);
+    if (!refusal || "broken" in refusal) throw new Error("no refusal");
+    expect([...refusal.names].sort()).toEqual(["Leo", "Mia"]);
+  });
+
   it("a member no user has is named by her id", async () => {
     const check = await checkMoveMembers(
       checkBed([record("u-gone", null, "isomux-mia", { unfinished: true })])

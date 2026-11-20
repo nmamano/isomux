@@ -581,6 +581,13 @@ export const zh: Catalog = {
   "settings.osUser.pickOther": "其他已有系统用户…",
   "settings.osUser.newName": "新系统用户名",
   "settings.osUser.existingName": "已有系统用户名",
+  "settings.osUser.shared":
+    "{members} 的代理也以 {name} 运行。同一系统用户上的成员可以读取彼此的登录信息、变量和机密，并以彼此的代理身份操作。",
+  "settings.osUser.ownerNote":
+    "所有者自己的系统用户并不能让其接触不到办公室的文件：其办公室变量会到达办公室的代理。以所有者的系统用户运行的成员可以以该所有者的身份操作。",
+  "settings.osUser.pickShared": "{name}（还有 {members}）",
+  "settings.osUser.disableHintShared":
+    "{name} 为 {members} 保持不变。要让其代理重新以办公室的系统用户运行，并把其代理的对话和登录信息移回，请在办公室的机器上运行：",
   "settings.osUser.rootCapable":
     "{name} 可以成为 root，因此其代理可以读取办公室的文件和机密。",
   "settings.osUser.unsupported.notLinux": "无法更改：办公室不在 Linux 上运行。",
@@ -3363,6 +3370,8 @@ export const zh: Catalog = {
     "他们是随之前的一次迁移来到旧办公室的，那里还没有运行开启命令。",
   "officeMove.in.members.old.adopted":
     "在旧办公室，他们以一个已有的系统用户运行，该用户无法迁移。请先在那里关闭其系统用户。",
+  "officeMove.in.members.old.sharedUser":
+    "在旧办公室，他们与其他成员共用一个系统用户，该用户无法迁移。请先在那里为其中除一人外的所有成员关闭系统用户。",
   "officeMove.in.members.old.badHome": "在旧办公室，他们的主文件夹无法迁移。",
   "officeMove.in.members.old.runnerDown": "在旧办公室，其系统用户没有响应。",
   "officeMove.in.members.old.wrongRunner":

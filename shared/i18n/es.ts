@@ -633,6 +633,13 @@ Cosas que puedes hacer por él:
   "settings.osUser.pickOther": "Otro usuario existente…",
   "settings.osUser.newName": "Nombre del usuario nuevo",
   "settings.osUser.existingName": "Nombre del usuario existente",
+  "settings.osUser.shared":
+    "Los agentes de {members} también se ejecutan como {name}. Los miembros de un mismo usuario del sistema pueden leer los inicios de sesión, las variables y los secretos de los demás, y actuar como sus agentes.",
+  "settings.osUser.ownerNote":
+    "El usuario del sistema de un propietario no lo aparta de los archivos de la oficina: sus variables de la oficina llegan a los agentes de la oficina. Los miembros del usuario del sistema de un propietario pueden actuar como ese propietario.",
+  "settings.osUser.pickShared": "{name} (también {members})",
+  "settings.osUser.disableHintShared":
+    "{name} se queda como está para {members}. Para volver a ejecutar sus agentes como el usuario del sistema de la oficina y devolver sus chats de agentes e inicios de sesión, ejecuta esto en la máquina de la oficina:",
   "settings.osUser.rootCapable":
     "{name} puede convertirse en root, así que sus agentes pueden leer los archivos y los secretos de la oficina.",
   "settings.osUser.unsupported.notLinux":
@@ -3757,6 +3764,8 @@ Cosas que puedes hacer por él:
     "Llegaron a la oficina antigua con un traslado anterior, y el comando de activación aún no se ha ejecutado allí.",
   "officeMove.in.members.old.adopted":
     "En la oficina antigua, se ejecutan como un usuario del sistema existente, que no se puede trasladar. Desactiva allí primero su usuario del sistema.",
+  "officeMove.in.members.old.sharedUser":
+    "En la oficina antigua, comparten un usuario del sistema con otros miembros, que no se puede trasladar. Desactiva allí primero su usuario del sistema para todos menos uno.",
   "officeMove.in.members.old.badHome":
     "En la oficina antigua, su carpeta personal no se puede trasladar.",
   "officeMove.in.members.old.runnerDown":

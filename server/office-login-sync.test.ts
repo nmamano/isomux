@@ -44,7 +44,7 @@ import {
   personalProviderHome,
 } from "./provider-homes.ts";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
-import { createMember, getUserByName } from "./users.ts";
+import { createMember, deleteUserById, getUserByName } from "./users.ts";
 import {
   isolateMember,
   type IsolatedMember,
@@ -54,6 +54,12 @@ import {
   setTestManagedOfficeEnv,
 } from "./test-support/managed-office-env.ts";
 import { removeStateDir } from "./test-support/temp-state.ts";
+import {
+  forgetMemberOsUser,
+  memberOsUserState,
+  recordMemberOsUser,
+} from "./member-os-users.ts";
+import { connectMemberHost } from "./member-hosts.ts";
 
 function memberId(name: string): string {
   const known = getUserByName(name);
@@ -367,6 +373,49 @@ describe("the member's Claude file", () => {
         join(personalProviderHome(iso.userId, "claude"), ".credentials.json"),
       ),
     }).toEqual({ switchOn: false, personal: false });
+  });
+});
+
+// Task 12c796b2: members on one OS user share its default Claude folder, so
+// their syncs read and write one file. They run one after another, as one
+// member's do, or one could write back what it read before the other wrote.
+describe("the Claude file of an OS user that two members run as", () => {
+  it("is synced for one member at a time", async () => {
+    const pia = memberId("Pia");
+    const olga = memberOsUserState(iso.userId);
+    if (olga.kind !== "isolated") throw new Error("Olga is not isolated");
+    recordMemberOsUser(pia, olga.osUser);
+    try {
+      expect(await connectMemberHost(pia)).toBe(true);
+      // The enabling condition: one folder for both.
+      expect(memberOfficeFolder(pia, "claude")).toBe(
+        memberOfficeFolder(iso.userId, "claude"),
+      );
+      let active = 0;
+      let most = 0;
+      let reads = 0;
+      const { sync } = makeSync(
+        {},
+        {
+          readOfficeClaude: async () => {
+            reads++;
+            most = Math.max(most, ++active);
+            await sleep(30);
+            active--;
+            return officeOauth("office-access-1");
+          },
+        },
+      );
+      await Promise.all([sync.syncClaude(iso.userId), sync.syncClaude(pia)]);
+      expect(reads).toBe(2);
+      expect(most).toBe(1);
+      expect(
+        (readJson(claudeFile()).claudeAiOauth as ClaudeOauth).accessToken,
+      ).toBe("office-access-1");
+    } finally {
+      forgetMemberOsUser(pia);
+      deleteUserById(pia);
+    }
   });
 });
 

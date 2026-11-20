@@ -1495,3 +1495,84 @@ it("a Copy after a failure shows the wait, not the old failure", async () => {
   expect(all(m, "member-os-user-attempt-details").length).toBe(0);
   expect(commandLines(m)).toEqual([COMMANDS.enable]);
 });
+
+// Task 12c796b2: members may share an OS user, and an owner may have one.
+// No refusal: a note (member-os-user-shared) names the other members on the
+// user, as values, when the member runs as a shared user or the owner picks
+// one; a candidate's option names its members; a second note
+// (member-os-user-owner-note) shows when an owner is involved (the member is
+// an owner, or an owner runs as the user).
+it("names the other members on a shared OS user, and on a picked candidate, as values", async () => {
+  const mia = { name: "isomux-family", uid: 2001 };
+  answers = [
+    view({
+      state: "on",
+      osUser: mia,
+      sharedWith: [{ name: "Bob", owner: false }],
+    }),
+  ];
+  const on = await mount();
+  expect(valuesIn(on.q("member-os-user-shared"))?.values ?? []).toContain(
+    "Bob",
+  );
+  expect(on.q("member-os-user-owner-note")).toBeNull();
+  on.rendered.unmount();
+
+  // The control: a user of her own has no note.
+  answers = [view({ state: "on", osUser: mia })];
+  const alone = await mount();
+  expect(alone.q("member-os-user-shared")).toBeNull();
+  alone.rendered.unmount();
+
+  answers = [
+    picker({
+      candidates: [
+        { name: "bob", uid: 1001 },
+        {
+          name: "isomux-family",
+          uid: 1600,
+          members: [{ name: "Carla", owner: false }],
+        },
+      ],
+    }),
+  ];
+  const m = await mount();
+  const option = [...(pickOf(m)?.options ?? [])].find(
+    (o) => o.value === "existing:isomux-family",
+  );
+  expect(option?.textContent).toContain("Carla");
+  expect(m.q("member-os-user-shared")).toBeNull();
+  await pick(m, "existing:isomux-family");
+  expect(valuesIn(m.q("member-os-user-shared"))?.values ?? []).toContain(
+    "Carla",
+  );
+  await pick(m, "existing:bob");
+  expect(m.q("member-os-user-shared")).toBeNull();
+});
+
+it("shows the owner note for an owner, and for a user an owner runs as", async () => {
+  const user = { name: "isomux-family", uid: 2001 };
+  const cases: [string, Partial<MemberOsUserWire>, boolean][] = [
+    ["a member alone", { state: "on", osUser: user }, false],
+    ["an owner", { state: "on", osUser: user, owner: true }, true],
+    ["an owner while off", { state: "off", owner: true }, true],
+    [
+      "a member on an owner's user",
+      {
+        state: "on",
+        osUser: user,
+        sharedWith: [{ name: "Olivia", owner: true }],
+      },
+      true,
+    ],
+  ];
+  for (const [name, over, shown] of cases) {
+    answers = [view(over)];
+    const m = await mount();
+    expect([name, m.q("member-os-user-owner-note") !== null]).toEqual([
+      name,
+      shown,
+    ]);
+    m.rendered.unmount();
+  }
+});

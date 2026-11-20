@@ -209,6 +209,11 @@ export async function checkMoveMembers(
   const members: MoveMemberInfo[] = [];
   const ready: MoveMember[] = [];
   let expected: string | null = null;
+  // Task 12c796b2: how many records name each OS user.
+  const onUser = new Map<string, number>();
+  for (const rec of read.members)
+    if (rec.osUser && !rec.movedIn)
+      onUser.set(rec.osUser.name, (onUser.get(rec.osUser.name) ?? 0) + 1);
   for (const rec of read.members) {
     const name = rec.name ?? rec.userId;
     const info: MoveMemberInfo = {
@@ -247,6 +252,10 @@ export async function checkMoveMembers(
     }
     if (rec.adopted) {
       block("adopted");
+      continue;
+    }
+    if ((onUser.get(os.name) ?? 0) > 1) {
+      block("shared_user");
       continue;
     }
     const pw = deps.passwd(os.name);

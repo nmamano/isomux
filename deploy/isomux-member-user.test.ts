@@ -106,6 +106,9 @@ else command -p stat "$@"; fi`,
   // $T/next-id, or 1005.
   python3: `
 [[ $3 == next-id ]] && { cat "$T/next-id" 2>/dev/null || echo 1005; }
+# Task 12c796b2: made-id prints the id in the mark ($T/made-id, else the
+# member of these tests).
+if [[ $3 == made-id ]]; then [[ -e $T/made-id ]] && cat "$T/made-id" || echo u-0123456789ab; fi
 exit 0`,
   // The office: the answer to each verb is $T/answers/<verb> (body, then a
   // line with the status); a verb with no file answers 500.
@@ -347,17 +350,6 @@ describe("enable", () => {
   });
 
   const refusals: [string, () => void][] = [
-    [
-      "the member is an owner",
-      () =>
-        answer("info", 200, {
-          ok: true,
-          userId: USER_ID,
-          role: "owner",
-          userName: OS_USER,
-          osUser: null,
-        }),
-    ],
     [
       "the member already runs as an OS user",
       () =>
@@ -657,14 +649,6 @@ describe("an enable that go-on did not finish", () => {
       [],
     ],
     [
-      "this command made the user for another member",
-      () => {
-        recorded();
-        writeFileSync(etc(`${OS_USER}.made`), "u-other\n");
-      },
-      [],
-    ],
-    [
       "--user names another user than the recorded one",
       () => recorded(),
       ["--user", "isomux-other"],
@@ -885,10 +869,7 @@ describe("disable", () => {
     expect(existsSync(etc(`${OS_USER}.made`))).toBe(false);
   });
 
-  for (const [name, made] of [
-    ["it did not make the user", null],
-    ["it made the user for another member", "u-another"],
-  ] as const)
+  for (const [name, made] of [["it did not make the user", null]] as const)
     it(`refuses --delete-user before any change when ${name}`, () => {
       isolated(made);
       const result = run("disable", "Alice", "--delete-user");
@@ -917,6 +898,263 @@ describe("disable", () => {
   it("refuses a member with no OS user of their own", () => {
     expect(run("disable", "Alice").code).toBe(1);
     expect(sent("disable")).toBeNull();
+  });
+});
+
+// Task 12c796b2: several members on one OS user, and an owner on one. The
+// root command adds a member to a user it made for another member (a join),
+// reopens a made user that no member runs as any more, leaves a user that
+// other members still run as when one of them is disabled, and runs one
+// enable or disable per OS user at a time.
+describe("several members on one OS user", () => {
+  const OTHER = "u-first";
+  // The user this command made for the first member on it, as a finished
+  // enable left it.
+  function madeForOther(onUser: string[], markId = OTHER): void {
+    mkdirSync(join(root, "users"), { recursive: true });
+    writeFileSync(join(root, "users", OS_USER), "");
+    mkdirSync(join(root, "home", OS_USER), { recursive: true });
+    mkdirSync(share(), { recursive: true });
+    // The share root as root keeps it, whatever the test's umask.
+    chmodSync(join(root, "share"), 0o755);
+    chmodSync(share(), 0o2750);
+    writeFileSync(etc(`${OS_USER}.made`), `${markId}\n`);
+    writeFileSync(etc(`${OS_USER}.env`), "ISOMUX_OFFICE_UID=1000\n");
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      userName: OS_USER,
+      osUser: null,
+      state: "none",
+      onUser,
+    });
+  }
+  // Nothing of the shared user was undone or ended.
+  function expectSharedUserKept(markId = OTHER): void {
+    expect(existsSync(join(root, "users", OS_USER))).toBe(true);
+    expect(readFileSync(etc(`${OS_USER}.made`), "utf8")).toBe(`${markId}\n`);
+    expect(existsSync(share())).toBe(true);
+    expect(readFileSync(etc(`${OS_USER}.env`), "utf8")).toBe(
+      "ISOMUX_OFFICE_UID=1000\n",
+    );
+    for (const step of [
+      "useradd",
+      "userdel",
+      "usermod",
+      "systemctl disable",
+      "loginctl disable-linger",
+      "loginctl terminate-user",
+      "pkill",
+      "crontab",
+    ])
+      expect([step, called(step)]).toEqual([step, false]);
+  }
+
+  it("makes an owner's OS user as a member's", () => {
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "owner",
+      userName: OS_USER,
+      osUser: null,
+      state: "none",
+    });
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(0);
+    expect(log()).toContain(
+      `useradd --create-home --user-group --shell /bin/bash ${OS_USER}`,
+    );
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 2001,
+    });
+  });
+
+  for (const extra of [[], ["--user", OS_USER]])
+    it(`joins a user it made for another member${extra.length ? " named by --user" : ""}: no new user, the mark as it was, prepare and go-on with its uid`, () => {
+      madeForOther(["Bob"]);
+      const result = run("enable", "Alice", ...extra);
+      expect(result.code).toBe(0);
+      const body = { member: USER_ID, osUser: OS_USER, uid: 2001 };
+      expect(sent("prepare")).toEqual(body);
+      expect(sent("go-on")).toEqual(body);
+      expectSharedUserKept();
+      // The root check still runs before go-on.
+      expect(at("sudo -n -l -U")).toBeGreaterThan(-1);
+    });
+
+  // The page offers a made user among the existing users, and its command
+  // says --existing-user: on a user with a .made mark that flag joins as
+  // --user does.
+  it("joins a user it made for another member when named by --existing-user", () => {
+    madeForOther(["Bob"]);
+    const result = run("enable", "Alice", "--existing-user", OS_USER);
+    expect(result.code).toBe(0);
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 2001,
+    });
+    expectSharedUserKept();
+  });
+
+  it("undoes nothing of the user when the office refuses the join's go-on", () => {
+    madeForOther(["Bob"]);
+    answer("go-on", 200, {
+      ok: false,
+      ready: false,
+      reason: "the runner did not connect",
+    });
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(1);
+    expect(sent("go-on")).not.toBeNull();
+    expectSharedUserKept();
+  });
+
+  // D7: a made user whose last member was disabled without --delete-user:
+  // its account expired at the disable, and its share went.
+  it("reopens a made user that no member runs as: the expiry cleared, the share and the unit again, then go-on", () => {
+    madeForOther([]);
+    rmSync(share(), { recursive: true });
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(0);
+    const reopen = log().findIndex((l) =>
+      /^usermod .*(--expiredate|-e) '' isomux-alice$/.test(l),
+    );
+    expect(reopen).toBeGreaterThan(-1);
+    expect(at(`systemctl enable --now ${UNIT}`)).toBeGreaterThan(reopen);
+    expect(statSync(share()).mode & 0o7777).toBe(0o2750);
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 2001,
+    });
+    expect(called("useradd")).toBe(false);
+    expect(readFileSync(etc(`${OS_USER}.made`), "utf8")).toBe(`${OTHER}\n`);
+  });
+
+  it("expires a reopened user again, and keeps it, when the office refuses its go-on", () => {
+    madeForOther([]);
+    rmSync(share(), { recursive: true });
+    answer("go-on", 200, {
+      ok: false,
+      ready: false,
+      reason: "the runner did not connect",
+    });
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(1);
+    expect(
+      log().some((l) =>
+        /^usermod .*(--expiredate|-e) 1( |$).*isomux-alice$/.test(l),
+      ),
+    ).toBe(true);
+    expect(called("userdel")).toBe(false);
+    expect(existsSync(join(root, "users", OS_USER))).toBe(true);
+    expect(existsSync(share())).toBe(false);
+    expect(readFileSync(etc(`${OS_USER}.made`), "utf8")).toBe(`${OTHER}\n`);
+    if (called("systemctl enable"))
+      expect(called(`systemctl disable --now ${UNIT}`)).toBe(true);
+  });
+
+  function sharedDisable(
+    disableAnswer: object,
+    onUser = ["Bob"],
+    markId = OTHER,
+  ): void {
+    madeForOther(onUser, markId);
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      userName: OS_USER,
+      osUser: { name: OS_USER, uid: 2001 },
+      state: "isolated",
+      onUser,
+    });
+    answer("disable", 200, disableAnswer);
+  }
+
+  for (const extra of [[], ["--keep-files"]])
+    it(`changes nothing on the user when other members still run as it${extra.length ? " (--keep-files)" : ""}`, () => {
+      sharedDisable({
+        ok: true,
+        userStays: true,
+        ...(extra.length ? { kept: true } : {}),
+      });
+      const result = run("disable", "Alice", ...extra);
+      expect(result.code).toBe(0);
+      expect(sent("disable")).toEqual({
+        member: USER_ID,
+        ...(extra.length ? { keepFiles: true } : {}),
+      });
+      expectSharedUserKept();
+      expect(called("systemctl")).toBe(false);
+    });
+
+  // The mark names Alice, so only the other members can refuse.
+  it("refuses --delete-user before any change while other members run as the user", () => {
+    sharedDisable({ ok: true, userStays: true }, ["Bob"], USER_ID);
+    const result = run("disable", "Alice", "--delete-user");
+    expect(result.code).toBe(1);
+    expect(result.stderr.length).toBeGreaterThan(0);
+    expect(sent("disable")).toBeNull();
+    expectSharedUserKept(USER_ID);
+    expect(called("systemctl")).toBe(false);
+  });
+
+  it("tears the user down at the disable of the last member on it, whoever's id the mark holds", () => {
+    sharedDisable({ ok: true }, []);
+    const result = run("disable", "Alice", "--delete-user");
+    expect(result.code).toBe(0);
+    expect(log()).toContain(`systemctl disable --now ${UNIT}`);
+    expect(log()).toContain(`userdel --remove ${OS_USER}`);
+    expect(existsSync(etc(`${OS_USER}.made`))).toBe(false);
+  });
+
+  // D1: one enable or disable per OS user at a time; a second refuses at
+  // once, before any change (a go-on can run for hours).
+  describe("while another enable or disable of the user runs", () => {
+    let holder: ReturnType<typeof Bun.spawn> | null = null;
+    afterEach(() => {
+      holder?.kill();
+      holder = null;
+    });
+    function hold(): void {
+      const lock = etc(`${OS_USER}.lock`);
+      // -o: the sleep does not hold the lock, so a kill of flock frees it.
+      holder = Bun.spawn(["flock", "-o", lock, "sleep", "30"]);
+      // Held once flock -n cannot take it.
+      for (let i = 0; i < 200; i++) {
+        if (spawnSync("flock", ["-n", lock, "true"]).status !== 0) return;
+        spawnSync("sleep", ["0.01"]);
+      }
+      throw new Error("the lock was never held");
+    }
+
+    it("refuses an enable before any change, and a disable before it asks the office to disable", async () => {
+      madeForOther(["Bob"]);
+      hold();
+      const enable = run("enable", "Alice");
+      expect(enable.code).not.toBe(0);
+      expect(enable.stderr.length).toBeGreaterThan(0);
+      expect(sent("prepare")).toBeNull();
+      expect(sent("go-on")).toBeNull();
+      sharedDisable({ ok: true });
+      const disable = run("disable", "Alice");
+      expect(disable.code).not.toBe(0);
+      expect(sent("disable")).toBeNull();
+      expectSharedUserKept();
+      expect(called("systemctl")).toBe(false);
+      expect(called("install -d")).toBe(false);
+      // The enabling condition: once it is free, the same enable joins.
+      holder!.kill();
+      await holder!.exited;
+      holder = null;
+      madeForOther(["Bob"]);
+      expect(run("enable", "Alice").code).toBe(0);
+    });
   });
 });
 
@@ -962,7 +1200,10 @@ describe("in the container", () => {
     writeFileSync(join(root, "next-id"), "1007\n");
     const result = run("enable", "Alice");
     expect(result.code).toBe(0);
+    // Task 12c796b2: the second info, under the lock, asks who runs as
+    // the user.
     expect(changes()).toEqual([
+      curl("info"),
       curl("info"),
       `${HELPER_CALL} next-id`,
       `groupadd -g 1007 ${OS_USER}`,
@@ -994,7 +1235,11 @@ describe("in the container", () => {
       rmSync(join(root, "fail"), { recursive: true, force: true });
       setup();
       expect(run("enable", "Alice").code).toBe(1);
-      expect(changes()).toEqual([curl("info"), `${HELPER_CALL} next-id`]);
+      expect(changes()).toEqual([
+        curl("info"),
+        curl("info"),
+        `${HELPER_CALL} next-id`,
+      ]);
     }
   });
 
@@ -1075,7 +1320,8 @@ describe("in the container", () => {
     expect(run("enable", "Alice").code).toBe(0);
     expect(changes()).toEqual([
       curl("info"),
-      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+      curl("info"),
+      `${HELPER_CALL} made-id ${OS_USER}`,
       curl("prepare"),
       `${HELPER_CALL} start ${OS_USER}`,
       curl("go-on"),
@@ -1106,12 +1352,13 @@ describe("in the container", () => {
       userName: OS_USER,
       osUser: { name: OS_USER, uid: 2001 },
     });
-    fail("python3", "check-made");
+    fail("python3", "made-id");
     rmSync(join(root, "log"));
     expect(run("enable", "Alice").code).toBe(1);
     expect(changes()).toEqual([
       curl("info"),
-      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+      curl("info"),
+      `${HELPER_CALL} made-id ${OS_USER}`,
     ]);
   });
 
@@ -1142,7 +1389,7 @@ describe("in the container", () => {
     expect(run("disable", "Alice", "--delete-user").code).toBe(0);
     expect(changes()).toEqual([
       curl("info"),
-      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+      `${HELPER_CALL} made-id ${OS_USER}`,
       curl("disable"),
       `${HELPER_CALL} stop ${OS_USER}`,
       `${HELPER_CALL} delete ${OS_USER} ${USER_ID}`,
@@ -1153,12 +1400,85 @@ describe("in the container", () => {
 
   it("disable --delete-user of a user it did not make changes nothing", () => {
     isolatedHere();
-    fail("python3", "check-made");
+    fail("python3", "made-id");
     expect(run("disable", "Alice", "--delete-user").code).toBe(1);
     expect(changes()).toEqual([
       curl("info"),
-      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+      `${HELPER_CALL} made-id ${OS_USER}`,
     ]);
+  });
+
+  // Task 12c796b2: a user the helper made for another member. A join starts
+  // no loop (the helper's start ends every process of the uid, the other
+  // members' runner included); a reopen of a user no member runs as clears
+  // the record's lock first; a disable of one of several changes nothing.
+  function madeHereForOther(onUser: string[], osUser: object | null): void {
+    mkdirSync(join(root, "users"), { recursive: true });
+    writeFileSync(join(root, "users", OS_USER), "");
+    writeFileSync(join(root, "made-id"), "u-first\n");
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      userName: OS_USER,
+      osUser,
+      state: osUser ? "isolated" : "none",
+      onUser,
+    });
+  }
+  const makesOrEnds = (line: string) =>
+    [
+      `${HELPER_CALL} next-id`,
+      `${HELPER_CALL} add`,
+      `${HELPER_CALL} start`,
+      `${HELPER_CALL} stop`,
+      `${HELPER_CALL} delete`,
+      `${HELPER_CALL} lock`,
+      "groupadd",
+      "groupdel",
+      "useradd",
+      "userdel",
+      "usermod",
+    ].some((p) => line.startsWith(p));
+
+  it("joins a user the helper made for another member: no new user, no loop start, prepare and go-on", () => {
+    madeHereForOther(["Bob"], null);
+    expect(run("enable", "Alice").code).toBe(0);
+    expect(changes().filter(makesOrEnds)).toEqual([]);
+    const body = { member: USER_ID, osUser: OS_USER, uid: 2001 };
+    expect(sent("prepare")).toEqual(body);
+    expect(sent("go-on")).toEqual(body);
+  });
+
+  it("undoes nothing of a joined user when the office refuses go-on", () => {
+    madeHereForOther(["Bob"], null);
+    answer("go-on", 200, { ok: false, ready: false, reason: "no" });
+    expect(run("enable", "Alice").code).toBe(1);
+    expect(sent("go-on")).not.toBeNull();
+    expect(changes().filter(makesOrEnds)).toEqual([]);
+  });
+
+  it("reopens a user the helper made that no member runs as: unlock, then the loop, then go-on", () => {
+    madeHereForOther([], null);
+    expect(run("enable", "Alice").code).toBe(0);
+    const unlock = changes().indexOf(`${HELPER_CALL} unlock ${OS_USER}`);
+    const start = changes().indexOf(`${HELPER_CALL} start ${OS_USER}`);
+    expect(unlock).toBeGreaterThan(-1);
+    expect(start).toBeGreaterThan(unlock);
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 2001,
+    });
+    expect(called("useradd")).toBe(false);
+  });
+
+  it("disable of one of several members on the user stops nothing and keeps the record open", () => {
+    madeHereForOther(["Bob"], { name: OS_USER, uid: 2001 });
+    answer("disable", 200, { ok: true, userStays: true });
+    expect(run("disable", "Alice").code).toBe(0);
+    expect(sent("disable")).toEqual({ member: USER_ID });
+    expect(changes().filter(makesOrEnds)).toEqual([]);
   });
 
   it("the container conf of the host still points to docker exec", () => {
@@ -1427,18 +1747,6 @@ describe("an existing OS user", () => {
     ["the shell is nologin", () => person({ shell: "/usr/sbin/nologin" })],
     ["the shell is false", () => person({ shell: "/bin/false" })],
     [
-      "this command made the user for another member",
-      () => writeFileSync(etc(`${PERSON}.made`), "u-another\n"),
-    ],
-    [
-      "this command made the user for this member",
-      () => writeFileSync(etc(`${PERSON}.made`), `${USER_ID}\n`),
-    ],
-    [
-      "another member's enable adopted the user",
-      () => writeFileSync(mark(), "u-another\nlinger=0\n"),
-    ],
-    [
       "another uid owns the home",
       () => {
         writeFileSync(join(root, "stat-owner"), "");
@@ -1515,17 +1823,6 @@ describe("an existing OS user", () => {
     [
       "the member already runs as another OS user",
       () => memberInfo({ name: "isomux-old", uid: 2999 }),
-    ],
-    [
-      "the member is an owner",
-      () =>
-        answer("info", 200, {
-          ok: true,
-          userId: USER_ID,
-          role: "owner",
-          userName: OS_USER,
-          osUser: null,
-        }),
     ],
     [
       "the install is the container's",
@@ -1698,6 +1995,73 @@ describe("an existing OS user", () => {
     });
   });
 
+  // Task 12c796b2: a person's user that another member's enable adopted.
+  // The next member joins it as adopted, whatever the flag: the mark, the
+  // linger, the share and the unit are the first member's, and stay.
+  describe("that other members run as", () => {
+    function adoptedForOther(onUser: string[], osUser: object | null): void {
+      writeFileSync(mark(), "u-first\nlinger=0\n");
+      mkdirSync(personShare(), { recursive: true });
+      chmodSync(join(root, "share"), 0o755);
+      chmodSync(personShare(), 0o2750);
+      writeFileSync(etc(`${PERSON}.env`), "ISOMUX_OFFICE_UID=1000\n");
+      answer("info", 200, {
+        ok: true,
+        userId: USER_ID,
+        role: "member",
+        userName: OS_USER,
+        osUser,
+        state: osUser ? "isolated" : "none",
+        onUser,
+      });
+    }
+    function expectAdoptKept(): void {
+      expectPersonUntouched();
+      expect(readFileSync(mark(), "utf8")).toBe("u-first\nlinger=0\n");
+      expect(existsSync(personShare())).toBe(true);
+      expect(existsSync(etc(`${PERSON}.env`))).toBe(true);
+      for (const step of ["systemctl disable", "loginctl disable-linger"])
+        expect([step, called(step)]).toEqual([step, false]);
+    }
+
+    for (const flag of ["--existing-user", "--user"])
+      it(`joins it with ${flag}, and tells go-on the user is adopted`, () => {
+        adoptedForOther(["Bob"], null);
+        const result = run("enable", "Alice", flag, PERSON);
+        expect(result.code).toBe(0);
+        expect(sent("go-on")).toEqual({
+          member: USER_ID,
+          osUser: PERSON,
+          uid: PERSON_UID,
+          adopted: true,
+        });
+        expectAdoptKept();
+      });
+
+    it("undoes nothing when the office refuses the join's go-on", () => {
+      adoptedForOther(["Bob"], null);
+      answer("go-on", 200, {
+        ok: false,
+        ready: false,
+        reason: "the runner did not connect",
+      });
+      const result = adopt();
+      expect(result.code).toBe(1);
+      expect(sent("go-on")).not.toBeNull();
+      expectAdoptKept();
+    });
+
+    it("disable of one of them changes nothing on the user", () => {
+      adoptedForOther(["Bob"], { name: PERSON, uid: PERSON_UID });
+      answer("disable", 200, { ok: true, userStays: true });
+      const result = run("disable", "Alice");
+      expect(result.code).toBe(0);
+      expect(sent("disable")).toEqual({ member: USER_ID });
+      expectAdoptKept();
+      expect(called("systemctl")).toBe(false);
+    });
+  });
+
   describe("an adopt that go-on did not finish", () => {
     function cut(): void {
       rmSync(join(root, "answers", "go-on"));
@@ -1747,15 +2111,21 @@ describe("an existing OS user", () => {
       });
     });
 
-    it("refuses a rerun before any change when the mark names another member", () => {
+    // Task 12c796b2: the mark names the first member on the user; any
+    // member's rerun on a marked user finishes as adopted.
+    it("finishes a rerun when the mark names another member, and leaves the mark as it was", () => {
       cut();
       writeFileSync(mark(), "u-another\nlinger=0\n");
       const result = run("enable", "Alice");
-      expect(result.code).toBe(1);
-      for (const change of ["loginctl", "systemctl", "install -d"])
-        expect([change, called(change)]).toEqual([change, false]);
-      expect(sent("prepare")).toBeNull();
-      expect(sent("go-on")).toBeNull();
+      expect(result.code).toBe(0);
+      expect(sent("go-on")).toEqual({
+        member: USER_ID,
+        osUser: PERSON,
+        uid: PERSON_UID,
+        adopted: true,
+      });
+      expect(readFileSync(mark(), "utf8")).toBe("u-another\nlinger=0\n");
+      expectPersonUntouched();
     });
   });
 });

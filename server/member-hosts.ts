@@ -26,12 +26,16 @@ import {
   runtimeSource,
   writeMemberCaBundle,
 } from "./member-runtime.ts";
-import { removeMemberShareFiles } from "./member-share-files.ts";
+import {
+  removeMemberShareFiles,
+  removeMemberShareFilesOf,
+} from "./member-share-files.ts";
 import { checkMemberShare, type ShareVerdict } from "./member-share-check.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
   memberOsUserIds,
   memberOsUserState,
+  membersOnOsUser,
   type MemberOsUser,
 } from "./member-os-users.ts";
 import { CODE_ROOT, readAgentIdentity } from "./split/start.ts";
@@ -630,9 +634,31 @@ const inflight = new Map<string, Promise<boolean>>();
 export function connectMemberHost(userId: string): Promise<boolean> {
   const running = inflight.get(userId);
   if (running) return running;
-  const run = connectNow(userId).finally(() => inflight.delete(userId));
+  const run = inOsUserChain(userId, () => connectNow(userId)).finally(() =>
+    inflight.delete(userId),
+  );
   inflight.set(userId, run);
   return run;
+}
+
+// Task 12c796b2: the members on one OS user share its runner, so their
+// connects run one after another. Else two connects on a new runtime both
+// ask the runner to exit, and the second exit cuts the first reconnect.
+const osUserChains = new Map<string, Promise<unknown>>();
+
+function inOsUserChain<T>(userId: string, run: () => Promise<T>): Promise<T> {
+  const state = memberOsUserState(userId);
+  if (state.kind !== "isolated") return run();
+  const key = state.osUser.name;
+  const next = (osUserChains.get(key) ?? Promise.resolve())
+    .catch(() => {})
+    .then(run);
+  const tail = next.catch(() => {});
+  osUserChains.set(key, tail);
+  void tail.then(() => {
+    if (osUserChains.get(key) === tail) osUserChains.delete(key);
+  });
+  return next;
 }
 
 async function connectNow(userId: string): Promise<boolean> {
@@ -784,6 +810,12 @@ async function connectNow(userId: string): Promise<boolean> {
   )
     return refuse("the record changed while connecting");
   connected.set(userId, { osUser, host, runtimeHash: wanted });
+  // The other members on this OS user reach the same runner process: it
+  // runs `wanted` for them too, so their next connect does not drop them.
+  for (const entry of connected.values())
+    if (entry.osUser.name === osUser.name && entry.osUser.uid === osUser.uid)
+      entry.runtimeHash = wanted;
+  forgotten.delete(userId);
   refusals.delete(userId);
   clearRetry(userId);
   // The office's bundle was made since the write above: writeMemberCaBundles
@@ -835,11 +867,15 @@ async function writeCaBundleTo(
 }
 
 // The office's CA bundle was made or read: a copy to each connected member.
+// One write per share: members on one OS user share it.
 export function writeMemberCaBundles(): Promise<void> {
+  const byShare = new Map<string, string>();
+  for (const [userId, entry] of connected) {
+    const share = memberSharePath(entry.osUser.name);
+    if (!byShare.has(share)) byShare.set(share, userId);
+  }
   return Promise.all(
-    [...connected].map(([userId, entry]) =>
-      writeCaBundleTo(userId, memberSharePath(entry.osUser.name)),
-    ),
+    [...byShare].map(([share, userId]) => writeCaBundleTo(userId, share)),
   ).then(() => {});
 }
 
@@ -880,14 +916,24 @@ function clearRetry(userId: string): void {
 // is undone), with the share files of their agents (member-share-files.ts)
 // and what the forgotten hooks hold for them (their authority socket).
 // Called before the record goes; hostFor then follows the record alone.
+//
+// Task 12c796b2: while another member whose host is not forgotten runs as
+// the same OS user, the share and its broker stay theirs: only the copies of
+// this member's agents go, and `last` is false for the hooks.
 export function forgetMemberHost(userId: string): void {
   const share = memberShareOf(userId);
+  const state = memberOsUserState(userId);
   connected.delete(userId);
   refusals.delete(userId);
   clearRetry(userId);
+  forgotten.add(userId);
+  const last =
+    state.kind !== "isolated" ||
+    membersOnOsUser(state.osUser.name, userId).every((id) => forgotten.has(id));
   if (share)
     try {
-      removeMemberShareFiles(share);
+      if (last) removeMemberShareFiles(share);
+      else removeMemberShareFilesOf(share, userId);
     } catch (error) {
       console.error(
         `[member-hosts] ${userId}: cannot remove the share files: ${(error as Error).message}`,
@@ -895,7 +941,7 @@ export function forgetMemberHost(userId: string): void {
     }
   for (const hook of forgottenHooks)
     try {
-      hook(userId);
+      hook(userId, last);
     } catch (error) {
       console.error(
         `[member-hosts] ${userId}: a forget hook failed: ${(error as Error).message}`,
@@ -903,10 +949,17 @@ export function forgetMemberHost(userId: string): void {
     }
 }
 
-const forgottenHooks = new Set<(userId: string) => void>();
+// The members whose host was forgotten (disable, an undone go-on) and has
+// not connected since: they no longer hold their OS user's share.
+const forgotten = new Set<string>();
+
+const forgottenHooks = new Set<(userId: string, last: boolean) => void>();
 
 // Runs at forgetMemberHost for each member (the OpenCode authority broker).
-export function onMemberHostForgotten(hook: (userId: string) => void): void {
+// `last`: no other member whose host is not forgotten runs as their OS user.
+export function onMemberHostForgotten(
+  hook: (userId: string, last: boolean) => void,
+): void {
   forgottenHooks.add(hook);
 }
 
@@ -940,6 +993,8 @@ export function resetMemberHosts(): void {
   retries.clear();
   connected.clear();
   moving.clear();
+  forgotten.clear();
+  osUserChains.clear();
 }
 
 // Runner-reply rule (design 1.1): the server never signals a pid that a

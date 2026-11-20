@@ -145,9 +145,13 @@ export interface GuardDeps {
   // owners' only.
   cronRunVisibleTo(identity: Identity, streamId: string): boolean;
   // Whether member `userId` has their own OS user (ready, moving or not
-  // ready): the member reach rule (server/identity/member-reach.ts) applies.
-  // Absent (test fakes): no member has one.
+  // ready) and is not an owner: the member reach rule
+  // (server/identity/member-reach.ts) applies. Absent (test fakes): no
+  // member has one.
   memberIsolated?(userId: string): boolean;
+  // Whether `a` and `b` run as one OS user (task 12c796b2): an agent of
+  // either is the other's to use. Absent (test fakes): never.
+  sameMemberOsUser?(a: string, b: string): boolean;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer; contract

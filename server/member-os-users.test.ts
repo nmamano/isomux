@@ -147,6 +147,44 @@ describe("the uid ties", () => {
     expect(memberOsUidTies()).toEqual([{ uid: 2001, userId: "u-bob" }]);
   });
 
+  // Task 12c796b2: several members on one OS user share its uid. Each
+  // stays tied after a disable while another still runs as it; a uid that
+  // comes back for a new member after every entry left drops the old ones.
+  it("tie one uid to every member recorded with it, keep each after a disable, and drop them when the uid is reused", () => {
+    const ties = () =>
+      memberOsUidTies()
+        .map((t) => `${t.uid}:${t.userId}`)
+        .sort();
+    recordMemberOsUser("u-alice", { name: "isomux-family", uid: 2001 });
+    recordMemberOsUser("u-bob", { name: "isomux-family", uid: 2001 });
+    recordMemberOsUser("u-carol", { name: "isomux-carol", uid: 2002 });
+    expect(ties()).toEqual(["2001:u-alice", "2001:u-bob", "2002:u-carol"]);
+    // From the file alone, as after a restart with no entries.
+    forgetMemberOsUser("u-alice");
+    forgetMemberOsUser("u-bob");
+    reloadMemberOsUsers();
+    expect(ties()).toEqual(["2001:u-alice", "2001:u-bob", "2002:u-carol"]);
+    // The uid comes back for Dave alone: Alice's and Bob's processes are
+    // gone with their user.
+    recordMemberOsUser("u-dave", { name: "isomux-dave", uid: 2001 });
+    reloadMemberOsUsers();
+    expect(ties()).toEqual(["2001:u-dave", "2002:u-carol"]);
+  });
+
+  // The file written before task 12c796b2 holds one id per uid; the new
+  // one may hold a list.
+  it("read a tie file with a single id or a list of ids per uid", () => {
+    writeFileSync(
+      tiesPath(),
+      JSON.stringify({ "2001": "u-alice", "2002": ["u-bob", "u-carol"] }),
+    );
+    expect(
+      memberOsUidTies()
+        .map((t) => `${t.uid}:${t.userId}`)
+        .sort(),
+    ).toEqual(["2001:u-alice", "2002:u-bob", "2002:u-carol"]);
+  });
+
   it("count a recorded entry when the tie file cannot be read, and refuse a new record then", () => {
     recordMemberOsUser("u-alice", { name: "isomux-alice", uid: 2001 });
     writeFileSync(tiesPath(), "{ not json");

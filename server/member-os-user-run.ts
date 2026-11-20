@@ -222,12 +222,6 @@ export function createMemberOsUserRun(
         return refuse(400, "invalid_action", 'action: "enable" or "disable"');
       const pick = osUserPick(body as Record<string, unknown>, action);
       if (!pick.ok) return pick.refusal;
-      if (user.role === "owner")
-        return refuse(
-          409,
-          "member_owner",
-          "an owner cannot have their own OS user",
-        );
       if (!MEMBER_ID.test(user.id))
         return refuse(409, "run_unavailable", "Run is not available here");
       const id = user.id;

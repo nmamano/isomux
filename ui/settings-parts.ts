@@ -71,7 +71,8 @@ export function memberParts(v: {
   const rooms = viewerIsOwner ? !targetIsOwner || isMe || !creating : isMe;
   if (rooms) parts.push("rooms");
   parts.push("instructions");
-  if (viewerIsOwner && !creating && !targetIsOwner) parts.push("osUser");
+  // Task 12c796b2: an owner may have their own OS user too.
+  if (viewerIsOwner && !creating) parts.push("osUser");
   if (viewerIsOwner && !isMe && !creating) parts.push("signIn");
   if (viewerIsOwner && !isMe) parts.push("chat");
   return parts;

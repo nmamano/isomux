@@ -198,6 +198,20 @@ export function MemberOsUserSection({
   const target = picking
     ? pickTarget(pick, { newName: newUserName, otherName })
     : null;
+  // Task 12c796b2: the other members on the member's OS user, or on the
+  // existing user the owner picks; and whether an owner is involved.
+  const pickedCandidate =
+    picking && pick.startsWith(EXISTING)
+      ? view.candidates?.find((c) => `${EXISTING}${c.name}` === pick)
+      : undefined;
+  const sharedWith =
+    view.state === "off"
+      ? (pickedCandidate?.members ?? [])
+      : (view.sharedWith ?? []);
+  const sharedName =
+    view.state === "off" ? pickedCandidate?.name : view.osUser?.name;
+  const ownerInvolved =
+    view.owner === true || sharedWith.some((member) => member.owner);
   const disableHint = disableHintFor(view, i18n);
   const commands: {
     hint: ReactNode;
@@ -327,6 +341,30 @@ export function MemberOsUserSection({
           })}
         </p>
       )}
+      {sharedWith.length > 0 && sharedName && (
+        <p
+          data-testid="member-os-user-shared"
+          role="note"
+          style={{ fontSize: 12, margin: "4px 0", color: "var(--text-muted)" }}
+        >
+          {i18n.rich("settings.osUser.shared", {
+            members: nameValues(
+              sharedWith.map((member) => member.name),
+              i18n.language,
+            ),
+            name: <Data>{sharedName}</Data>,
+          })}
+        </p>
+      )}
+      {ownerInvolved && (
+        <p
+          data-testid="member-os-user-owner-note"
+          role="note"
+          style={{ fontSize: 12, margin: "4px 0", color: "var(--text-muted)" }}
+        >
+          {t("settings.osUser.ownerNote")}
+        </p>
+      )}
       {picking && !running && (
         <div style={{ marginTop: 8 }}>
           <label style={hintStyle}>
@@ -354,7 +392,14 @@ export function MemberOsUserSection({
                   key={candidate.name}
                   value={`${EXISTING}${candidate.name}`}
                 >
-                  {candidate.name}
+                  {candidate.members?.length
+                    ? t("settings.osUser.pickShared", {
+                        name: candidate.name,
+                        members: new Intl.ListFormat(i18n.language, {
+                          type: "conjunction",
+                        }).format(candidate.members.map((m) => m.name)),
+                      })
+                    : candidate.name}
                 </option>
               ))}
               <option value="new">{t("settings.osUser.pickNew")}</option>
@@ -625,8 +670,21 @@ function stateLine(view: MemberOsUserWire, { t, rich }: I18n): ReactNode {
 // command made is locked. The record does not tell a made user from one
 // whose mark was lost (disable leaves that account as it was), so a lost mark
 // also gets the made line.
-function disableHintFor(view: MemberOsUserWire, { rich }: I18n): ReactNode {
+function disableHintFor(
+  view: MemberOsUserWire,
+  { rich, language }: I18n,
+): ReactNode {
   const name = <Data>{view.osUser?.name ?? ""}</Data>;
+  // Task 12c796b2: other members still run as the user, so the command
+  // leaves it as it is.
+  if (view.sharedWith?.length)
+    return rich("settings.osUser.disableHintShared", {
+      name,
+      members: nameValues(
+        view.sharedWith.map((member) => member.name),
+        language,
+      ),
+    });
   if (!view.officeOsUser)
     return rich(
       view.adopted
@@ -640,6 +698,19 @@ function disableHintFor(view: MemberOsUserWire, { rich }: I18n): ReactNode {
       : "settings.osUser.disableHint",
     { name, office: <Data>{view.officeOsUser}</Data> },
   );
+}
+
+// Names as a list in the reader's language, each name a value.
+function nameValues(names: string[], language: string): ReactNode {
+  return new Intl.ListFormat(language, { type: "conjunction" })
+    .formatToParts(names)
+    .map((part, index) =>
+      part.type === "element" ? (
+        <Data key={index}>{part.value}</Data>
+      ) : (
+        part.value
+      ),
+    );
 }
 
 // A status row: a dot (pulsing while it runs) and the line.

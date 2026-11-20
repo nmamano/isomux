@@ -645,6 +645,65 @@ class LockAndDelete(Base):
         self.assertEqual(self.main("check-made", ALICE, "u-other"), 1)
 
 
+class SharedUser(Base):
+    """Task 12c796b2: several members on one user. made-id names the member
+    in the mark (the first one on the user); unlock reopens a locked entry
+    for a new member: the lock goes, and the share is made again."""
+
+    def made(self, member_id="u-first", locked=False):
+        entry = {"uid": 1600, "gid": 1600, **({"locked": True} if locked else {})}
+        self.layout({ALICE: entry, "isomux-bob": {"uid": 1500, "gid": 1500}})
+        self.home()
+        mark = Path(self.root, "etc", f"{ALICE}.made")
+        mark.write_text(member_id + "\n")
+        os.chmod(mark, 0o600)
+
+    def test_made_id_prints_the_id_in_the_mark(self):
+        self.made("u-first")
+        self.assertEqual(self.main("made-id", ALICE), 0, self.err)
+        self.assertEqual(self.out.strip(), "u-first")
+
+    def test_made_id_fails_with_no_mark_or_a_link(self):
+        def no_mark():
+            os.unlink(os.path.join(self.root, "etc", f"{ALICE}.made"))
+
+        def mark_link():
+            target = os.path.join(self.tmp, "mark")
+            Path(target).write_text("u-first\n")
+            os.unlink(os.path.join(self.root, "etc", f"{ALICE}.made"))
+            os.symlink(target, os.path.join(self.root, "etc", f"{ALICE}.made"))
+
+        for label, change in {"no mark": no_mark, "a link": mark_link}.items():
+            with self.subTest(label):
+                shutil.rmtree(self.root, ignore_errors=True)
+                if os.path.lexists(os.path.join(self.tmp, "mark")):
+                    os.unlink(os.path.join(self.tmp, "mark"))
+                self.made()
+                change()
+                self.assertEqual(self.main("made-id", ALICE), 1)
+                self.assertEqual(self.out.strip(), "")
+
+    def test_unlock_clears_the_lock_and_makes_the_share_so_start_runs(self):
+        self.made(locked=True)
+        # The enabling condition: a locked entry does not start.
+        self.assertEqual(self.main("start", ALICE), 1)
+        self.assertEqual(self.main("unlock", ALICE), 0, self.err)
+        self.assertEqual(self.users()[ALICE], {"uid": 1600, "gid": 1600})
+        self.assertEqual(self.users()["isomux-bob"], {"uid": 1500, "gid": 1500})
+        share = os.path.join(self.root, "share", ALICE)
+        self.assertEqual(stat.S_IMODE(os.lstat(share).st_mode), 0o2750)
+        self.assertIn((share, OFFICE, 1600), self.chowns)
+        self.assertEqual(Path(self.root, "etc", f"{ALICE}.made").read_text(), "u-first\n")
+
+    def test_unlock_refuses_an_unknown_user_or_one_with_no_mark(self):
+        self.made(locked=True)
+        self.assertEqual(self.main("unlock", "isomux-nobody"), 1)
+        os.unlink(os.path.join(self.root, "etc", f"{ALICE}.made"))
+        before = snapshot(self.tmp)
+        self.assertEqual(self.main("unlock", ALICE), 1)
+        self.assertEqual(snapshot(self.tmp), before)
+
+
 class StartAndStop(Base):
     def setUp(self):
         super().setUp()

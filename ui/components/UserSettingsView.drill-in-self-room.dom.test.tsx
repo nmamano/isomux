@@ -64,7 +64,8 @@ describe("yourself", () => {
           0,
     }).toEqual({
       item: null,
-      parts: ["general", "access", "rooms", "instructions"],
+      // Task 12c796b2: an owner may give themself an OS user.
+      parts: ["general", "access", "rooms", "instructions", "osUser"],
       current: ["rooms"],
       bodies: ["rooms"],
       back: false,

@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 
 import type {
   MemberOsUserAttemptWire,
+  MemberOsUserMemberWire,
   MemberOsUserWire,
   MemberUserUnsupported,
 } from "../shared/contract-shapes.ts";
@@ -19,8 +20,10 @@ import { memberHostConnected, memberIsMoving } from "./member-hosts.ts";
 import {
   memberOsUserIds,
   memberOsUserState,
+  membersOnOsUser,
   OS_USER_NAME_PATTERN,
 } from "./member-os-users.ts";
+import { getUserById } from "./users.ts";
 import { readUpdateConf, type UpdateConfRead } from "./update-conf.ts";
 
 // The root command, as the installer and the image install it
@@ -116,8 +119,10 @@ export function memberUserCommands(
 // root command's .made marks, and the names that members already run as. A
 // candidate is a passwd entry with a name that matches the root command's
 // pattern, a uid in UID_MIN..UID_MAX (defaults 1000..60000), a login shell
-// (not nologin or false), not the office's user, not taken by a member and
-// not made by the root command. Sorted by name, at most
+// (not nologin or false) and not the office's user. Task 12c796b2: a user
+// that members run as is listed with them (several members may run as one
+// OS user), and a user the root command made is listed too (a join, or a
+// reopen once its members left). Sorted by name, at most
 // MEMBER_USER_CANDIDATES_MAX. The root command applies the same rule.
 export const MEMBER_USER_CANDIDATES_MAX = 500;
 
@@ -127,9 +132,10 @@ export interface MemberUserCandidatesInput {
   // /etc/login.defs, or "" when it cannot be read.
   loginDefs: string;
   officeOsUser: string | null;
-  // The OS users that members run as (member-os-users.json).
-  taken: string[];
-  // The users with a .made mark of the root command.
+  // The OS users that members run as (member-os-users.json), with them.
+  taken: { name: string; members: MemberOsUserMemberWire[] }[];
+  // The users with a .made mark of the root command. Listed like any user;
+  // kept in the input for the root command's rule.
   made: string[];
 }
 
@@ -150,10 +156,11 @@ function loginUidRange(loginDefs: string): { min: number; max: number } {
 
 export function memberUserCandidates(
   input: MemberUserCandidatesInput,
-): { name: string; uid: number }[] {
+): { name: string; uid: number; members?: MemberOsUserMemberWire[] }[] {
   const { min, max } = loginUidRange(input.loginDefs);
-  const left = new Set([...input.taken, ...input.made]);
+  const left = new Set<string>();
   if (input.officeOsUser) left.add(input.officeOsUser);
+  const membersOf = new Map(input.taken.map((t) => [t.name, t.members]));
   const found = new Map<string, number>();
   for (const line of input.passwd.split("\n")) {
     const fields = line.split(":");
@@ -171,7 +178,12 @@ export function memberUserCandidates(
   return [...found]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .slice(0, MEMBER_USER_CANDIDATES_MAX)
-    .map(([name, uid]) => ({ name, uid }));
+    .map(([name, uid]) => {
+      const members = membersOf.get(name);
+      return members && members.length > 0
+        ? { name, uid, members }
+        : { name, uid };
+    });
 }
 
 // Where the root command keeps its marks (deploy/isomux-member-user.sh
@@ -243,7 +255,7 @@ function recordedOsUserNames(): string[] {
 // installer's install. A passwd that cannot be read in time gives none: the
 // owner can still type an existing user's name.
 export async function readMemberUserCandidates(): Promise<
-  { name: string; uid: number }[]
+  { name: string; uid: number; members?: MemberOsUserMemberWire[] }[]
 > {
   const passwd = await readGetent("passwd");
   if (passwd === null) return [];
@@ -254,7 +266,18 @@ export async function readMemberUserCandidates(): Promise<
     // The defaults.
   }
   const made = readMadeNames();
-  const taken = recordedOsUserNames();
+  const names = new Set(
+    memberOsUserIds().flatMap((id) => {
+      const state = memberOsUserState(id);
+      return state.kind === "isolated" && !state.movedIn
+        ? [state.osUser.name]
+        : [];
+    }),
+  );
+  const taken = [...names].map((name) => ({
+    name,
+    members: membersOnUser(name),
+  }));
   return memberUserCandidates({
     passwd,
     loginDefs,
@@ -402,7 +425,7 @@ export function memberOsUserView(
     support: MemberUserSupport;
     // The existing OS users the owner can pick (memberUserCandidates), as the
     // route read them; null: not read.
-    candidates?: { name: string; uid: number }[] | null;
+    candidates?: MemberOsUserWire["candidates"] | null;
     // How the page can run the command itself (member-os-user-run.ts).
     run?: MemberOsUserWire["run"];
     now?: number;
@@ -423,8 +446,7 @@ export function memberOsUserView(
   // enable command places her home, also while its job runs. The office
   // refuses a plain disable of her: hers gives up the moved home.
   const movedIn = record.kind === "isolated" && record.movedIn !== undefined;
-  const plain =
-    user.role === "owner" ? null : memberUserCommands(user.id, support);
+  const plain = memberUserCommands(user.id, support);
   const commands =
     plain && movedIn
       ? {
@@ -446,6 +468,7 @@ export function memberOsUserView(
     run: commands ? (opts.run ?? null) : null,
     ...(attempt ? { attempt } : {}),
     ...(officeOsUser ? { officeOsUser } : {}),
+    ...(user.role === "owner" ? { owner: true as const } : {}),
   };
   if (record.kind === "none")
     return {
@@ -469,6 +492,7 @@ export function memberOsUserView(
   if (record.kind === "broken")
     return { state: "broken", reason: record.reason, ...common };
   const osUser = { name: record.osUser.name, uid: record.osUser.uid };
+  const sharedWith = movedIn ? [] : membersOnUser(osUser.name, user.id);
   // A move that a restart cut stays not ready until enable runs again.
   const state = movedIn
     ? "not_ready"
@@ -488,8 +512,21 @@ export function memberOsUserView(
     ...(record.unfinished && state === "not_ready"
       ? { unfinished: true as const }
       : {}),
+    ...(sharedWith.length > 0 ? { sharedWith } : {}),
     ...common,
   };
+}
+
+// The members other than `except` whose record names the OS user `name`,
+// with whether each is an owner (task 12c796b2).
+function membersOnUser(
+  name: string,
+  except?: string,
+): MemberOsUserMemberWire[] {
+  return membersOnOsUser(name, except).map((id) => {
+    const member = getUserById(id);
+    return { name: member?.name ?? id, owner: member?.role === "owner" };
+  });
 }
 
 // The OS user this server runs as. userInfo() throws where the uid has no

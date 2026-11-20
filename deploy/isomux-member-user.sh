@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# isomux-member-user - run one member's agents as their own OS user
-# (internal-docs/member-os-user-design.md, section 2). Installed root-owned
+# isomux-member-user - run one member's agents as an OS user of their own,
+# or as one that other members run as too (internal-docs/member-os-user-design.md,
+# section 2; task 12c796b2). Installed root-owned
 # as /usr/local/sbin/isomux-member-user by deploy/install.sh. Root acts only
 # on the account and on new places it makes; the office does the rest over
 # admin.sock (server/member-user-admin.ts). It reads its settings from
@@ -51,7 +52,8 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 usage: isomux-member-user <command>
-  enable <member> [--user <osuser>]   run the member's agents as a new OS user
+  enable <member> [--user <osuser>]   run the member's agents as a new OS user,
+                                      or as one this command made for a member
   enable <member> --existing-user <osuser>
                                       run them as an existing OS user; disable
                                       never deletes or locks that user
@@ -115,6 +117,23 @@ admin_call() {
 
 # The field of a JSON answer, or "" (jq -r prints null as "null").
 field() { jq -r "$1 // empty" <<<"$2"; }
+
+# The number of other members the office records on the OS user that the
+# info answer $1 was asked about (onUser).
+on_user_count() { jq -r '(.onUser // []) | length' <<<"$1"; }
+
+# One enable or disable per OS user at a time (task 12c796b2): members on
+# one user share it, and a join must not meet the last member's teardown.
+# The lock is a file in the root-only ETC_DIR, opened only after the name
+# check, and held on fd 9 until the command exits. A second command refuses
+# at once: a go-on or a disable can take hours.
+lock_os_user() {
+  local os_user=$1
+  [[ $os_user =~ $NAME_RE ]] || die "$os_user is not a user name."
+  [[ -d $ETC_DIR ]] || install -d -m 755 "$ETC_DIR" || die "cannot make $ETC_DIR"
+  exec 9>"$ETC_DIR/$os_user.lock" || die "cannot open $ETC_DIR/$os_user.lock"
+  flock -n 9 || die "another enable or disable of $os_user runs; run this again when it ends."
+}
 
 # The container's helper, for every change under /var/data/members.
 helper() { python3 -I "$HELPER" "$@"; }
@@ -237,9 +256,6 @@ check_existing_user() {
   esac
   [[ ! -e $ETC_DIR/$os_user.made ]] ||
     die "this command made $os_user for a member; --existing-user takes only a user it did not make."
-  if [[ -e $ETC_DIR/$os_user.adopted ]] && ! adopted_by_command "$os_user" "$user_id"; then
-    die "the agents of another member run as $os_user."
-  fi
   # The home: the rule of an office move's check (server/office-move-members.ts
   # moveMemberHomeRefusal).
   office_home=$(getent passwd "$SERVICE_USER" | cut -d: -f6) && [[ -n $office_home ]] ||
@@ -273,14 +289,15 @@ check_existing_user() {
   EXISTING_UID=$((10#$uid))
 }
 
-# The mark that enable --existing-user took the user for this member: its
-# first line is the member's id, its second whether the user lingered
-# before (linger=0 or linger=1).
+# The mark that enable --existing-user took the user: its first line is the
+# id of the first member on it, its second whether the user lingered before
+# (linger=0 or linger=1). Task 12c796b2: several members may run as the
+# user, so the mark is the user's, whoever's id it holds; a join never
+# rewrites it.
 adopted_by_command() {
-  local os_user=$1 user_id=$2
+  local os_user=$1
   [[ -z $IN_CONTAINER ]] || return 1
-  [[ -f $ETC_DIR/$os_user.adopted && ! -L $ETC_DIR/$os_user.adopted ]] || return 1
-  [[ $(head -n 1 "$ETC_DIR/$os_user.adopted") == "$user_id" ]]
+  [[ -f $ETC_DIR/$os_user.adopted && ! -L $ETC_DIR/$os_user.adopted ]]
 }
 
 # go-on hears that the user is a person's existing account (ADOPTED), and
@@ -292,22 +309,22 @@ ADOPTED= ROOT_CAPABLE=
 # the share, the env file, the unit). It never makes, changes, locks or
 # deletes the user or its home, and an undo never ends its processes.
 enable_existing() {
-  local member=$1 os_user=$2 info role user_id current uid gid linger=0
+  local member=$1 os_user=$2 info user_id current uid gid linger=0
   [[ -z $IN_CONTAINER ]] || die "--existing-user is not supported in the container."
   [[ -d $SYSTEMD_DIR ]] || die "this box does not run systemd."
   [[ $os_user =~ $NAME_RE ]] || die "$os_user is not a user name."
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "$(field .message "$info")"
-  role=$(field .role "$info")
   user_id=$(field .userId "$info")
   current=$(field .osUser.name "$info")
-  [[ $role != owner ]] || die "$member is an owner; an owner cannot have their own OS user."
   [[ -z $current || $current == "$os_user" ]] || die "$member already runs as $current."
+  lock_os_user "$os_user"
   ADOPTED=1
-  # An earlier enable --existing-user that did not finish: finish it.
-  if [[ -n $current ]] || adopted_by_command "$os_user" "$user_id"; then
-    adopted_by_command "$os_user" "$user_id" ||
+  # An earlier enable --existing-user that did not finish, or a user that
+  # another member's enable took (a join): finish it, with no undo.
+  if [[ -n $current ]] || adopted_by_command "$os_user"; then
+    adopted_by_command "$os_user" ||
       die "$member already runs as $os_user, which this command made; run enable without --existing-user."
     check_existing_user "$os_user" "$user_id"
     resume "$user_id" "$os_user" "$(field .osUser.uid "$info")"
@@ -343,12 +360,12 @@ enable_existing() {
 }
 
 enable() {
-  local member=$1 os_user=$2 info role user_id user_name current current_uid moved_in home
+  local member=$1 os_user=$2 info user_id user_name current current_uid moved_in home
+  local others
   [[ -n $IN_CONTAINER || -d $SYSTEMD_DIR ]] || die "this box does not run systemd."
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "$(field .message "$info")"
-  role=$(field .role "$info")
   user_id=$(field .userId "$info")
   user_name=$(field .userName "$info")
   current=$(field .osUser.name "$info")
@@ -356,30 +373,40 @@ enable() {
   # A member who came with an office move: the record names her user and
   # the old machine's uid, and this machine has no such user yet.
   moved_in=$(field .movedIn "$info")
-  [[ $role != owner ]] || die "$member is an owner; an owner cannot have their own OS user."
   if [[ -n $current ]]; then
     [[ -z $os_user || $os_user == "$current" ]] || die "$member already runs as $current."
     os_user=$current
   fi
   [[ -n $os_user ]] || os_user=$user_name
-  [[ $os_user =~ $NAME_RE ]] || die "$os_user is not a user name."
-  # The recorded user that enable --existing-user took for this member:
-  # finish it, as with that flag.
-  if [[ -n $current && $os_user == "$current" ]] &&
-    adopted_by_command "$os_user" "$user_id"; then
+  lock_os_user "$os_user"
+  # Under the lock: the other members the office records on the user.
+  admin info "$(jq -n --arg m "$member" --arg u "$os_user" '{member: $m, osUser: $u}')"
+  [[ $ADMIN_STATUS == 200 ]] || die "$(field .message "$ADMIN_BODY")"
+  others=$(on_user_count "$ADMIN_BODY")
+  # A user that enable --existing-user took, for this member (a rerun) or
+  # for another one (a join): finish it as adopted, with no undo.
+  if { [[ -n $current && $os_user == "$current" ]] || ((others > 0)); } &&
+    getent passwd "$os_user" >/dev/null && adopted_by_command "$os_user"; then
     ADOPTED=1
     check_existing_user "$os_user" "$user_id"
-    resume "$user_id" "$os_user" "$current_uid"
+    resume "$user_id" "$os_user" "$current_uid" "$others"
     echo "$member runs as $os_user."
     return
   fi
-  # A user that this command made for this member, from an enable that did
-  # not finish (the office stopped during go-on): finish it.
-  if getent passwd "$os_user" >/dev/null && made_by_command "$os_user" "$user_id"; then
+  # A user that this command made: for this member, from an enable that did
+  # not finish (the office stopped during go-on), or for another member that
+  # still runs as it (a join): finish it, with no undo. A made user that no
+  # member runs as any more (its last member's disable locked it): reopen it.
+  if getent passwd "$os_user" >/dev/null && made_by_command "$os_user"; then
+    if [[ -z $current ]] && ((others == 0)); then
+      reopen "$user_id" "$os_user"
+      echo "$member runs as $os_user."
+      return
+    fi
     # The uid of a moved-in record is the old machine's until go-on
     # records the new one.
     [[ $moved_in != true ]] || current_uid=
-    resume "$user_id" "$os_user" "$current_uid"
+    resume "$user_id" "$os_user" "$current_uid" "$others"
     echo "$member runs as $os_user."
     return
   fi
@@ -400,7 +427,7 @@ enable() {
     die "$member already runs as $current, and this command did not make that user."
   fi
   # Only a user that this command makes: disable --delete-user removes it.
-  ! getent passwd "$os_user" >/dev/null || die "the OS user $os_user exists; choose another with --user."
+  ! getent passwd "$os_user" >/dev/null || die "the OS user $os_user exists; choose another with --user, or take it with --existing-user."
 
   if [[ -n $IN_CONTAINER ]]; then
     enable_container "$user_id" "$os_user"
@@ -413,17 +440,20 @@ enable() {
   echo "$member runs as $os_user."
 }
 
-# The second run of an enable that did not finish: the user, its home and
-# its share are there. Nothing here is undone: the office may hold the
-# record. Start the runner again and send go-on.
+# The second run of an enable that did not finish, or a join of a user that
+# other members run as: the user, its home and its share are there. Nothing
+# here is undone: the office may hold the record, and the other members use
+# the user. Start the runner where it may be down and send go-on. $4: the
+# number of other members on the user; in the container their runner runs,
+# and the helper's start would end every process of the uid.
 resume() {
-  local user_id=$1 os_user=$2 recorded_uid=$3 uid
+  local user_id=$1 os_user=$2 recorded_uid=$3 others=${4:-0} uid
   uid=$(id -u "$os_user") || fail "cannot look up $os_user"
   [[ -z $recorded_uid || $recorded_uid == "$uid" ]] ||
     fail "the office records uid $recorded_uid for $os_user, which has uid $uid"
   prepare "$user_id" "$os_user" "$uid"
   if [[ -n $IN_CONTAINER ]]; then
-    helper start "$os_user" || fail "cannot start the runner of $os_user"
+    ((others > 0)) || helper start "$os_user" || fail "cannot start the runner of $os_user"
   else
     [[ -e $ETC_DIR/$os_user.env ]] || {
       printf 'ISOMUX_OFFICE_UID=%s\n' "$OFFICE_UID" >"$ETC_DIR/$os_user.env" &&
@@ -438,6 +468,44 @@ resume() {
     ROOT_CAPABLE=1
   fi
   go_on "$user_id" "$os_user"
+}
+
+# A user that this command made, that no member runs as any more: its last
+# member's disable expired the account (container: locked the record) and
+# removed the share. Open it again, then go-on, with an undo of each step:
+# no member uses the user under the lock. Its files stay as they were,
+# also those a disable --keep-files left in its home.
+reopen() {
+  local user_id=$1 os_user=$2 uid gid
+  uid=$(id -u "$os_user") && gid=$(id -g "$os_user") ||
+    fail "cannot look up $os_user"
+  if [[ -n $IN_CONTAINER ]]; then
+    helper unlock "$os_user" || fail "cannot open the record of $os_user again"
+    UNDO+=("helper lock $(printf '%q' "$os_user")")
+    prepare "$user_id" "$os_user" "$uid"
+    UNDO+=("helper stop $(printf '%q' "$os_user")")
+    helper start "$os_user" || fail "cannot start the runner of $os_user"
+  else
+    usermod --expiredate '' "$os_user" || fail "cannot open the account of $os_user again"
+    UNDO+=("usermod --expiredate 1 $(printf '%q' "$os_user")")
+    [[ -e $SHARE_ROOT/$os_user || -L $SHARE_ROOT/$os_user ]] ||
+      make_share "$os_user" "$gid"
+    prepare "$user_id" "$os_user" "$uid"
+    if [[ ! -e $ETC_DIR/$os_user.env ]]; then
+      printf 'ISOMUX_OFFICE_UID=%s\n' "$OFFICE_UID" >"$ETC_DIR/$os_user.env" &&
+        chmod 644 "$ETC_DIR/$os_user.env" || fail "cannot write $ETC_DIR/$os_user.env"
+      UNDO+=("rm -f $(printf '%q' "$ETC_DIR/$os_user.env")")
+    fi
+    loginctl enable-linger "$os_user" || fail "cannot enable the linger of $os_user"
+    UNDO+=("loginctl disable-linger $(printf '%q' "$os_user")")
+    UNDO+=("systemctl disable --now $(printf '%q' "$UNIT@$os_user.service")")
+    systemctl enable --now "$UNIT@$os_user.service" || fail "cannot start $UNIT@$os_user"
+  fi
+  cannot_become_root "$os_user" || fail "$os_user can become root (a privileged group or a sudo rule)"
+  MEMBER_UID=$uid
+  go_on "$user_id" "$os_user"
+  UNDO=()
+  echo "$os_user is open again, with the files that were in its home."
 }
 
 # The office installs the runtime in the share; root writes no code.
@@ -556,20 +624,24 @@ disable() {
   user_id=$(field .userId "$info")
   os_user=$(field .osUser.name "$info")
   [[ -n $os_user ]] || die "$member has no OS user of their own."
-  [[ $os_user =~ $NAME_RE ]] || die "$os_user is not a user name."
+  lock_os_user "$os_user"
+  # Task 12c796b2: other members still run as the user, so it stays.
+  if [[ -n $delete_user ]] && (($(on_user_count "$info") > 0)); then
+    die "other members run as $os_user, so this command does not delete it; run disable without --delete-user."
+  fi
   # A user that enable --existing-user took: disable removes only Isomux's
   # parts, and never deletes or locks the user. Only a user with this
   # member's .made mark gets its processes ended and its account locked: a
   # user with no mark (a lost .adopted mark, a restored /etc) is treated as a
   # person's account.
   local adopted= made=
-  ! adopted_by_command "$os_user" "$user_id" || adopted=1
+  ! adopted_by_command "$os_user" || adopted=1
   # (The container keeps its own record: disable_container.)
-  [[ -n $adopted || -n $IN_CONTAINER ]] || ! made_by_command "$os_user" "$user_id" || made=1
+  [[ -n $adopted || -n $IN_CONTAINER ]] || ! made_by_command "$os_user" || made=1
   if [[ -n $delete_user ]]; then
     [[ -z $adopted ]] ||
       die "$os_user is an existing user that enable --existing-user took, so this command does not delete it; run disable without --delete-user."
-    made_by_command "$os_user" "$user_id" ||
+    made_by_command "$os_user" ||
       die "this command did not make $os_user, so it does not delete it; run disable without --delete-user."
   fi
   # The office moves the member's files back and stops using their host
@@ -583,6 +655,16 @@ disable() {
   [[ $ADMIN_STATUS == 200 ]] || die "the office refused: $(field .message "$answer")"
   [[ $(field .ok "$answer") == true ]] ||
     die "the office could not move the files back: $(field .reason "$answer")"
+  # Task 12c796b2: other members still run as the user; nothing on it
+  # changes (its unit, processes, share, linger and account are theirs).
+  if [[ $(field .userStays "$answer") == true ]]; then
+    [[ -z $keep_files ]] ||
+      echo "The files of $member stay in the home of $os_user."
+    [[ -z $delete_user ]] ||
+      echo "isomux-member-user: other members run as $os_user, so it is not deleted." >&2
+    echo "$member runs as the office's user again; $os_user stays as it is for the other members on it."
+    return 0
+  fi
   if [[ $(field .movedHomeRemoved "$answer") == true ]]; then
     echo "The home of $member that came with the office move is deleted."
     getent passwd "$os_user" >/dev/null || {
@@ -605,23 +687,29 @@ disable() {
   fi
 }
 
+# The mark that this command made the user. Its first line is the id of the
+# member it was made for; task 12c796b2: other members may join it, so it
+# is the user's mark, whoever's id it holds.
+# In the container, MADE_ID gets the id in the helper's mark.
+MADE_ID=
 made_by_command() {
-  local os_user=$1 user_id=$2
+  local os_user=$1
   if [[ -n $IN_CONTAINER ]]; then
-    helper check-made "$os_user" "$user_id"
+    MADE_ID=$(helper made-id "$os_user") && [[ -n $MADE_ID ]]
   else
-    [[ $(cat "$ETC_DIR/$os_user.made" 2>/dev/null) == "$user_id" ]]
+    [[ -f $ETC_DIR/$os_user.made && ! -L $ETC_DIR/$os_user.made ]]
   fi
 }
 
-# In the container the record stays, locked, unless the user is deleted: a
-# uid that owns files on the volume never goes to another member.
+# In the container the record stays, locked, unless the user is deleted, so
+# its uid is never given to a new user. A later enable onto it reopens it
+# (helper unlock) for whichever member (task 12c796b2).
 disable_container() {
   local member=$1 user_id=$2 os_user=$3 delete_user=$4
   helper stop "$os_user" || echo "isomux-member-user: some processes of $os_user are still running" >&2
   if command -v crontab >/dev/null; then crontab -r -u "$os_user" 2>/dev/null || true; fi
   if [[ -n $delete_user ]]; then
-    helper delete "$os_user" "$user_id" || die "cannot delete the home and the share of $os_user"
+    helper delete "$os_user" "$MADE_ID" || die "cannot delete the home and the share of $os_user"
     userdel "$os_user"
     groupdel "$os_user" 2>/dev/null || true
     echo "$member runs as the office's user again; $os_user is deleted."
@@ -724,7 +812,12 @@ main() {
   read_conf
   case $command in
     enable)
-      if [[ -n $existing_user ]]; then
+      # Task 12c796b2: a user this command made is joined or reopened, with
+      # either flag (the owner's page offers it as an existing user).
+      if [[ -n $existing_user && $existing_user =~ $NAME_RE &&
+        -f $ETC_DIR/$existing_user.made && ! -L $ETC_DIR/$existing_user.made ]]; then
+        enable "$member" "$existing_user"
+      elif [[ -n $existing_user ]]; then
         enable_existing "$member" "$existing_user"
       else
         enable "$member" "$os_user"

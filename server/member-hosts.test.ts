@@ -916,6 +916,113 @@ describe("the connect's runtime", () => {
   });
 });
 
+// Task 12c796b2: members on one OS user share one runner. A connect that
+// finds it on an old runtime asks it to exit (the unit starts the new one);
+// a second member's connect must not run alongside and ask again, and a
+// member already connected keeps their host while the next connect of the
+// same runner checks it.
+describe("the connects of members on one OS user", () => {
+  const NAME = "isomux-family";
+  const OLD = "2".repeat(64);
+  const WANTED = "1".repeat(64);
+
+  function shared(start: string) {
+    const log: string[] = [];
+    const hosts = new Map<string, AgentHost>();
+    let current = start;
+    let wanted = start;
+    let installGate: Promise<void> | null = null;
+    setMemberHostDeps({
+      readPeerUid: () => UID,
+      lookupUser: () => ({ uid: UID, gid: 4242, groups: [4242] }),
+      checks: async () => [],
+      checkShare: () => ({ ok: true }),
+      runtime: {
+        hash: async () => wanted,
+        install: async () => {
+          await installGate;
+        },
+        prune: async () => {},
+      },
+      connectRunner: async (_socket, opts) => {
+        const userId = (opts as { userId: string }).userId;
+        log.push(`connect ${userId} ${current === WANTED ? "new" : "old"}`);
+        const host = {
+          ...localAgentHost,
+          kind: "runner",
+          member: userId,
+        } as AgentHost;
+        hosts.set(userId, host);
+        return {
+          host,
+          runtimeHash: current,
+          exit: async () => {
+            log.push(`exit ${userId}`);
+            // The unit starts runtime/current.
+            current = wanted;
+          },
+        };
+      },
+      restartWaitMs: 300,
+      restartPollMs: 10,
+      retryMs: 60_000,
+      tieProxyUid: async () => true,
+      caBundle: () => null,
+      writeCaBundle: async () => {},
+    });
+    recordMemberOsUser("u-alice", { name: NAME, uid: UID });
+    recordMemberOsUser("u-bob", { name: NAME, uid: UID });
+    return {
+      log,
+      hosts,
+      update: () => (wanted = WANTED),
+      holdInstall: () => {
+        let release!: () => void;
+        installGate = new Promise((r) => (release = r));
+        return () => {
+          installGate = null;
+          release();
+        };
+      },
+    };
+  }
+
+  it("asks the shared runner to exit once when both connect on a new runtime", async () => {
+    const s = shared(OLD);
+    s.update();
+    const results = await Promise.all([
+      connectMemberHost("u-alice"),
+      connectMemberHost("u-bob"),
+    ]);
+    expect(results).toEqual([true, true]);
+    expect(s.log.filter((e) => e.startsWith("exit"))).toHaveLength(1);
+    // Each member ends on a host of the restarted runner.
+    for (const id of ["u-alice", "u-bob"])
+      expect(hostFor(id)).toBe(s.hosts.get(id)!);
+    expect(s.log.at(-1)).toMatch(/ new$/);
+  });
+
+  it("keeps a member on their host while another member's connect restarts the shared runner and theirs checks it again", async () => {
+    const s = shared(OLD);
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(await connectMemberHost("u-bob")).toBe(true);
+    const bobHost = hostFor("u-bob");
+    // The office updates; Alice's connect restarts the runner.
+    s.update();
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(s.log.filter((e) => e.startsWith("exit"))).toEqual(["exit u-alice"]);
+    // Bob's next connect (a retry or a poll) finds the runner on the new
+    // runtime: his host stays his while it runs.
+    const release = s.holdInstall();
+    const bobs = connectMemberHost("u-bob");
+    await Bun.sleep(20);
+    expect(hostFor("u-bob")).toBe(bobHost);
+    release();
+    expect(await bobs).toBe(true);
+    expect(s.log.filter((e) => e.startsWith("exit"))).toHaveLength(1);
+  });
+});
+
 describe("connectMemberHost", () => {
   const NAME = "isomux-alice";
 

@@ -101,7 +101,9 @@ export interface ProxySnapshot {
   clientToken: string;
   // The OS users of members (internal-docs/member-os-user-design.md, slice
   // 2d-ii): a connection from one of these uids swaps only office secrets
-  // and that member's. Absent or empty: no member has an OS user.
+  // and those of the members listed with that uid (one row per member;
+  // several members may share a uid). Absent or empty: no member has an OS
+  // user.
   members?: { uid: number; userId: string }[];
 }
 
@@ -167,28 +169,31 @@ interface State {
   patterns: string[];
   issuer: LeafIssuer;
   contexts: Map<string, SecureContext>;
-  // uid -> the member that OS user belongs to (snapshot.members).
-  memberOf: Map<number, string>;
+  // uid -> the members that run as that OS user (snapshot.members; task
+  // 12c796b2: several members may share one).
+  memberOf: Map<number, ReadonlySet<string>>;
 }
 
 // The secrets one connection may swap: every secret, or, for a connection
-// from a member's own OS user, the office's and that member's. Set at the
-// CONNECT, checked at every request in the tunnel.
-type ConnectionSet = { kind: "all" } | { kind: "member"; userId: string };
+// from a member OS user, the office's and those of the members tied to that
+// uid. Set at the CONNECT, checked at every request in the tunnel.
+type ConnectionSet =
+  { kind: "all" } | { kind: "member"; userIds: ReadonlySet<string> };
 
 const ALL: ConnectionSet = { kind: "all" };
 
 // The set of a client with peer uid `uid`.
 function connectionSet(state: State, uid: number | null): ConnectionSet {
-  const userId = uid === null ? undefined : state.memberOf.get(uid);
-  return userId === undefined ? ALL : { kind: "member", userId };
+  const userIds = uid === null ? undefined : state.memberOf.get(uid);
+  return userIds === undefined ? ALL : { kind: "member", userIds };
 }
 
 function mayUse(set: ConnectionSet, secret: ProxySecret): boolean {
   return (
     set.kind === "all" ||
     secret.scope === "office" ||
-    secret.scope === `user:${set.userId}`
+    (secret.scope.startsWith("user:") &&
+      set.userIds.has(secret.scope.slice("user:".length)))
   );
 }
 
@@ -239,10 +244,20 @@ function deriveState(snapshot: ProxySnapshot, options: ProxyOptions): State {
       isTerminable,
     ),
     contexts: new Map(),
-    memberOf: new Map(
-      (snapshot.members ?? []).map(({ uid, userId }) => [uid, userId]),
-    ),
+    memberOf: membersByUid(snapshot.members ?? []),
   };
+}
+
+function membersByUid(
+  members: readonly { uid: number; userId: string }[],
+): Map<number, ReadonlySet<string>> {
+  const byUid = new Map<number, Set<string>>();
+  for (const { uid, userId } of members) {
+    const set = byUid.get(uid) ?? new Set<string>();
+    set.add(userId);
+    byUid.set(uid, set);
+  }
+  return byUid;
 }
 
 // The proxy ends TLS for this host on this port.

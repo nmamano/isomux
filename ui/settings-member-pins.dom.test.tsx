@@ -360,6 +360,8 @@ it("no Pinned section on the owner's own page or in the New member form", async 
     access: false,
     rooms: false,
     instructions: false,
+    // Task 12c796b2: an owner's own OS user part.
+    osUser: false,
   });
   own.unmount();
 

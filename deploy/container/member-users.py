@@ -473,8 +473,9 @@ def stop(name):
 
 
 def lock(name):
-    """disable without --delete-user: the entry stays, locked, so its uid is
-    never given to another member; the share goes."""
+    """disable of the last member on the user, without --delete-user: the
+    entry stays, locked, so its uid is never given to a new user; the share
+    goes. A later enable onto the user opens it again (unlock)."""
     layout = Layout(create=False)
     try:
         layout.lock()
@@ -488,16 +489,59 @@ def lock(name):
         layout.close()
 
 
-def made_by(layout, name, member_id):
+def mark_id(layout, name):
+    """The member id in the made mark of `name` (the first member the user
+    was made for), or None: no mark, not a regular file, a link, or not
+    root's."""
     try:
         fd = os.open(f"{name}.made", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=layout.fds["etc"])
     except OSError:
-        return False
+        return None
     with os.fdopen(fd) as file:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != EXPECT_UID:
-            return False
-        return file.read().strip() == member_id
+            return None
+        return file.read().strip()
+
+
+def made_by(layout, name, member_id):
+    return mark_id(layout, name) == member_id
+
+
+def made_id(name):
+    """Task 12c796b2: the id in the made mark of `name`; exit 1 without one.
+    Several members may run as the user: the mark is the user's."""
+    layout = Layout(create=False)
+    try:
+        found = mark_id(layout, name)
+    finally:
+        layout.close()
+    if not found:
+        return 1
+    print(found)
+    return 0
+
+
+def unlock(name):
+    """Task 12c796b2: a made user that no member runs as any more (its last
+    member's disable locked the entry and removed the share) opens again for
+    a new member: the lock goes and the share is made again. Only for a user
+    this command made; a refusal changes nothing."""
+    layout = Layout(create=False)
+    try:
+        layout.lock()
+        users = layout.read_users()
+        entry = entry_of(users, name)
+        if not mark_id(layout, name):
+            raise Refused(f"this command did not make {name}")
+        office_uid, _ = office()
+        if stat_at(layout.fds["share"], name) is None:
+            make_dir(layout.fds["share"], name, office_uid, entry["gid"], 0o2750)
+        users[name] = {k: v for k, v in entry.items() if k != "locked"}
+        layout.write_users(users)
+        return 0
+    finally:
+        layout.close()
 
 
 def check_made(name, member_id):
@@ -536,6 +580,8 @@ VERBS = {
     "stop": (stop, 1),
     "lock": (lock, 1),
     "check-made": (check_made, 2),
+    "made-id": (made_id, 1),
+    "unlock": (unlock, 1),
     "delete": (delete, 2),
 }
 

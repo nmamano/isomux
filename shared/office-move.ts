@@ -145,6 +145,9 @@ export type MoveMemberBlock =
   // Task e15a82e7: her OS user is a person's existing account; the move
   // would carry that person's whole home.
   | "adopted"
+  // Task 12c796b2: another member runs as the same OS user; the move
+  // carries one home per member, and the new office makes the user once.
+  | "shared_user"
   | "bad_home"
   | "runner_down"
   | "wrong_runner"

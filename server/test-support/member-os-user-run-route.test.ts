@@ -174,7 +174,7 @@ describe("POST /api/users/:username/os-user/run", () => {
     ).toBe(404);
   });
 
-  it("tells the page to ask for the password, and gives an owner no Run", async () => {
+  it("tells the page to ask for the password, for a member and an owner alike", async () => {
     const o = await office();
     const view = (
       await call(o.srv, "GET", viewPath("Mia"), o.callers.ownerSession)
@@ -183,7 +183,8 @@ describe("POST /api/users/:username/os-user/run", () => {
     const ownerView = (
       await call(o.srv, "GET", viewPath(o.ownerName), o.callers.ownerSession)
     ).body as unknown as MemberOsUserWire;
-    expect(ownerView.run).toBeNull();
+    // Task 12c796b2: an owner may have an OS user, so their page runs it too.
+    expect(ownerView.run).toBe("password");
   });
 
   it("runs the root command with the member id only, whatever their name holds, as root's home", async () => {
