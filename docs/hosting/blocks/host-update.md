@@ -6,4 +6,4 @@ When a new release is out, the office header shows a "new release" notice. The o
 isomux-update v2026.7.19
 ```
 
-Either way, the update installs system dependencies and the release's Bun, rebuilds and restarts the service, which interrupts running agents. If the new version fails to start, the updater restores the old code. To downgrade, add `--allow-downgrade`.
+Either way, the update installs system dependencies and the release's Bun, rebuilds and restarts the service, which interrupts running agents. If the new version fails to start, the updater restores the old code. When an update does not finish, owners see the updater's message on the update screen and in the audit log. To downgrade, add `--allow-downgrade`.

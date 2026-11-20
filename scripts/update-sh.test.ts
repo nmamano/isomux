@@ -39,6 +39,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
+import { parseProgress } from "../server/update-progress.ts";
 
 const UPDATE_SH = new URL("./update.sh", import.meta.url).pathname;
 
@@ -353,6 +354,7 @@ interface Progress {
   started?: number;
   phases?: [string, number][];
   ended?: number;
+  message?: string;
 }
 
 // The phases this run's log entered ("--- <phase>" lines), in order.
@@ -464,6 +466,8 @@ describe("update.sh happy path", () => {
     expect(at("systemctl --user stop")?.progress.phase).toBe("stop");
     expect(at("systemctl --user start")?.progress.phase).toBe("start");
     for (const s of seen) expect(s.progress.result).toBe("running");
+    // Only a failed record carries the updater's message.
+    for (const s of seen) expect(s.progress).not.toHaveProperty("message");
     const attempts = new Set(seen.map((s) => s.progress.attempt));
     expect(attempts.size).toBe(1);
 
@@ -945,6 +949,118 @@ describe("update.sh validation", () => {
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("unknown key");
+  });
+});
+
+// The failure message on the progress file (task 0cee48c9): the office
+// reads it and shows it on the failed update screen, so a member can report
+// the failure without a shell. The file goes to every session of the office,
+// so the updater cleans the message here: it is the boundary.
+describe("update.sh failure message on the progress file", () => {
+  beforeEach(async () => {
+    fx = await buildFixture({});
+  });
+
+  function useRepoDir(dir: string): void {
+    const conf = readFileSync(fx.conf, "utf8");
+    expect(conf).toContain(`REPO_DIR=${fx.repo}\n`);
+    renameSync(fx.repo, dir);
+    writeFileSync(
+      fx.conf,
+      conf.replace(`REPO_DIR=${fx.repo}\n`, `REPO_DIR=${dir}\n`),
+    );
+    fx.repo = dir;
+  }
+
+  it("a dirty checkout fails in validate with a message that names the first changed files", async () => {
+    // Letters, not digits, so the count of the rest is the only number. The
+    // non-ASCII letter must stay readable (no octal quoting).
+    const names = [..."abcdefgh"].map((c) => `zz-local-${c}é.txt`);
+    for (const n of names) writeFileSync(join(fx.repo, n), "x\n");
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    const p = progress();
+    expect([p.result, p.phase]).toEqual(["failed", "validate"]);
+    const m = p.message ?? "";
+    // The updater's own message, as the root-only status.json keeps it
+    // (nothing in it needs cleaning).
+    expect(m).toBe(status().message);
+    expect(m).toContain(fx.repo);
+    // git lists untracked files sorted: the first five by name, then how
+    // many more.
+    expect(names.filter((n) => m.includes(n))).toEqual(names.slice(0, 5));
+    expect(m.replaceAll(fx.repo, "").match(/\d+/g)).toEqual(["3"]);
+  });
+
+  it("control characters in the message never break the progress file", async () => {
+    // ESC, DEL, CR, a quote and a backslash in the checkout's path reach the
+    // message through REPO_DIR. A raw control character in a JSON string
+    // makes the whole file unreadable, which would hide the failure.
+    useRepoDir(join(fx.base, 're\x1bpo\x7f\rq"x\\y'));
+    writeFileSync(join(fx.repo, "app.txt"), "local edit\n");
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    const raw = readFileSync(progressPath(), "utf8");
+    const p = JSON.parse(raw) as Progress;
+    expect([p.result, p.phase]).toEqual(["failed", "validate"]);
+    const m = p.message ?? "";
+    expect(m).toContain("app.txt");
+    expect(m).toContain(join(fx.base, "re"));
+    const unsafe = [...m].filter((c) => {
+      const code = c.charCodeAt(0);
+      return code < 0x20 || code === 0x7f || c === '"' || c === "\\";
+    });
+    expect(unsafe).toEqual([]);
+    // The office reads the same record, message included.
+    expect(parseProgress(raw)?.message).toBe(m);
+  });
+
+  it("a URL's credentials never reach the progress file", async () => {
+    // A token that holds an @ itself: everything up to the last @ before the
+    // host goes.
+    const secretUrl = "https://isomux-user:s3cr3t@part2@127.0.0.1:9/isomux.git";
+    const conf = readFileSync(fx.conf, "utf8");
+    expect(conf).toMatch(/^REPO_URL=/m);
+    writeFileSync(
+      fx.conf,
+      conf.replace(/^REPO_URL=.*$/m, `REPO_URL=${secretUrl}`),
+    );
+    fx.env.GIT_TERMINAL_PROMPT = "0";
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    const p = progress();
+    expect([p.result, p.phase]).toEqual(["failed", "fetch"]);
+    expect(p.message ?? "").toContain("https://127.0.0.1:9/isomux.git");
+    const raw = readFileSync(progressPath(), "utf8");
+    for (const secret of ["isomux-user", "s3cr3t", "part2"]) {
+      expect([secret, raw.includes(secret)]).toEqual([secret, false]);
+    }
+  });
+
+  it("a long message is cut to 1000 bytes, and the office keeps it", async () => {
+    // In a UTF-8 locale a cut by characters keeps this message whole (about
+    // 350 characters, 1300 bytes); the cut must count bytes.
+    fx.env.LC_ALL = "C.UTF-8";
+    for (const c of "abcde") {
+      writeFileSync(join(fx.repo, `${c}${"😀".repeat(60)}.txt`), "x\n");
+    }
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    const bytes = readFileSync(progressPath());
+    const key = Buffer.from('"message":"');
+    const at = bytes.indexOf(key);
+    expect(at).toBeGreaterThan(-1);
+    const start = at + key.length;
+    const length = bytes.indexOf('"', start) - start;
+    expect(length).toBeLessThanOrEqual(1000);
+    // Cut, not dropped.
+    expect(length).toBeGreaterThan(900);
+    const raw = bytes.toString("utf8");
+    const p = JSON.parse(raw) as Progress;
+    expect(p.result).toBe("failed");
+    expect(p.message ?? "").toContain(fx.repo);
+    // A cut inside a character still leaves a message the office keeps.
+    expect(parseProgress(raw)?.message).toBe(p.message!);
   });
 });
 

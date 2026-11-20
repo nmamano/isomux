@@ -3,9 +3,14 @@
 // into the `progress` field of the update_status event, and broadcasts each
 // change.
 //
-// The file holds only fields the updater generates: a random attempt id, a
-// phase name, the result, and the updater's process identity (pid, its start
-// ticks and the boot id). The identity never goes on the wire. It lets the
+// The file holds fields the updater generates: a random attempt id, a phase
+// name, the result, and the updater's process identity (pid, its start ticks
+// and the boot id). A failed record also holds the updater's message (task
+// 0cee48c9), which can quote paths, file names and URLs. The event goes to
+// every session of the office, agents included, so the updater's cleanup is
+// the boundary: no control characters, no URL userinfo, at most 1000 bytes
+// (scripts/update.sh public_message). The owner-only display in the UI is
+// not. The identity never goes on the wire. It lets the
 // server tell a dead updater (killed, or the box rebooted) from a running one,
 // so a stale "running" record cannot hold an update screen open. Missing or
 // mismatched identity proves death; a read the server is not allowed to make
@@ -75,6 +80,9 @@ export interface ProgressRecord {
   started?: number;
   phases?: [UpdatePhase, number][];
   ended?: number;
+  // Failed records only: the updater's message, sanitized and with URL
+  // userinfo removed by the updater.
+  message?: string;
 }
 
 export interface WatcherOptions {
@@ -169,7 +177,22 @@ export function parseProgress(raw: string): ProgressRecord | null {
     }
     rec.phases = phases;
   }
+  // The message alone is lenient: a bad one is dropped and the record stays,
+  // so a malformed message never hides a failure.
+  if (rec.result === "failed" && isMessage(r.message)) rec.message = r.message;
   return rec;
+}
+
+// What the updater writes (public_message): at most 1000 bytes, which is
+// never more than 1000 UTF-16 units, and no control characters.
+const MAX_MESSAGE = 1000;
+function isMessage(v: unknown): v is string {
+  return (
+    typeof v === "string" &&
+    v.length <= MAX_MESSAGE &&
+    // eslint-disable-next-line no-control-regex
+    !/[\u0000-\u001f\u007f]/.test(v)
+  );
 }
 
 function isSeconds(v: unknown): v is number {
@@ -243,11 +266,17 @@ function progressWire(
     return { attempt: null, phase: null, result: "requested", started: null };
   }
   if (!rec) return null;
+  const result = resultOf(rec, liveness);
   return {
     attempt: rec.attempt,
     phase: rec.phase,
-    result: resultOf(rec, liveness),
+    result,
     started: rec.started === undefined ? null : rec.started * 1000,
+    ...(rec.target === undefined ? {} : { target: rec.target }),
+    // A dead updater's record says running and has no message.
+    ...(result === "failed" && rec.message !== undefined
+      ? { message: rec.message }
+      : {}),
   };
 }
 

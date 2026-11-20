@@ -154,7 +154,13 @@ describe("the launching tab on an updater-managed box", () => {
       status(OLD, run("readiness")),
       status(OLD, run("readiness", "failed")),
     ]);
-    expect(updateScreen(w, s, true)).toEqual({ kind: "failed", version: OLD });
+    expect(updateScreen(w, s, true)).toEqual({
+      kind: "failed",
+      version: OLD,
+      phase: "readiness",
+      target: null,
+      message: null,
+    });
   });
 
   it("an attempt that ends ok on the version already loaded shows nothing", () => {
@@ -240,7 +246,57 @@ describe("a container office (no progress reaches it)", () => {
   it("a return on the old version is a failed update", () => {
     const { w, s } = feed([status(OLD), status(OLD, requested), status(OLD)]);
     expect(w.key).toBe(REQUESTED);
-    expect(updateScreen(w, s, true)).toEqual({ kind: "failed", version: OLD });
+    // No record names a step, a target or a message.
+    expect(updateScreen(w, s, true)).toEqual({
+      kind: "failed",
+      version: OLD,
+      phase: null,
+      target: null,
+      message: null,
+    });
+  });
+});
+
+// The failed screen's details (task 0cee48c9) come from the record the
+// screen itself reads: the live one, or the last one seen while the server
+// sends none.
+describe("the failed screen's details", () => {
+  const MESSAGE = "checkout is dirty: /opt/isomux (changed: a.txt)";
+  const failedRun = (phase: string): UpdateProgressWire => ({
+    ...run(phase, "failed"),
+    target: NEW,
+    message: MESSAGE,
+  });
+
+  it("carry the watched record's step, target and message", () => {
+    const { w, s } = feed([
+      status(OLD),
+      status(OLD, run("validate")),
+      status(OLD, failedRun("validate")),
+    ]);
+    expect(updateScreen(w, s, true)).toEqual({
+      kind: "failed",
+      version: OLD,
+      phase: "validate",
+      target: NEW,
+      message: MESSAGE,
+    });
+  });
+
+  it("stay when the server then sends no record", () => {
+    let { w, s } = feed([
+      status(OLD),
+      status(OLD, run("readiness")),
+      status(OLD, failedRun("readiness")),
+    ]);
+    ({ w, s } = feed([status(OLD)], w));
+    expect(updateScreen(w, s, true)).toEqual({
+      kind: "failed",
+      version: OLD,
+      phase: "readiness",
+      target: NEW,
+      message: MESSAGE,
+    });
   });
 });
 
@@ -321,7 +377,13 @@ function wired(initial: string | null) {
     screen: (w: UpdateWatch) => updateScreen(w, last, true),
   };
 }
-const record = (attempt: string, phase: string, result: string) =>
+const DIRTY = "checkout is dirty: /opt/isomux (changed: a.txt)";
+const record = (
+  attempt: string,
+  phase: string,
+  result: string,
+  extra: Record<string, unknown> = {},
+) =>
   JSON.stringify({
     attempt,
     phase,
@@ -329,6 +391,7 @@ const record = (attempt: string, phase: string, result: string) =>
     pid: 4242,
     pidStart: "777",
     boot: "0f0e0d0c-0b0a-0908-0706-050403020100",
+    ...extra,
   });
 
 describe("an updater that fails before the launch call returns", () => {
@@ -337,13 +400,20 @@ describe("an updater that fails before the launch call returns", () => {
       const r = wired(record(A1, "finalize", "ok"));
       r.tabs.a = watchOnLaunching(r.tabs.a);
       const before = r.server.beforeTrigger();
-      r.set(record(A2, "validate", "failed"));
+      r.set(record(A2, "validate", "failed", { target: NEW, message: DIRTY }));
       if (order === "answer first") r.tabs.a = watchOnClicked(r.tabs.a);
       r.server.triggerAccepted(before);
       if (order === "status first") r.tabs.a = watchOnClicked(r.tabs.a);
       for (const w of [r.tabs.a, r.tabs.b]) {
         expect(w.key).toBe(A2);
-        expect(r.screen(w)).toEqual({ kind: "failed", version: OLD });
+        // The updater's message reaches every tab through the server.
+        expect(r.screen(w)).toEqual({
+          kind: "failed",
+          version: OLD,
+          phase: "validate",
+          target: NEW,
+          message: DIRTY,
+        });
       }
       expect(r.tabs.a.clicked).toBe(true);
       expect(r.tabs.b.clicked).toBe(false);
@@ -446,6 +516,12 @@ describe("late-joining tabs", () => {
 
   it("an attempt that first appears while the page is open is adopted", () => {
     const { w, s } = feed([status(OLD), status(OLD, run("fetch", "failed"))]);
-    expect(updateScreen(w, s, true)).toEqual({ kind: "failed", version: OLD });
+    expect(updateScreen(w, s, true)).toEqual({
+      kind: "failed",
+      version: OLD,
+      phase: "fetch",
+      target: null,
+      message: null,
+    });
   });
 });

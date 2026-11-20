@@ -71,6 +71,8 @@ export interface UpdateAudit {
   // starts; the last lasts until ended, and its seconds are null when ended
   // is null.
   phases: { phase: string; seconds: number | null }[];
+  // A failed attempt only: the updater's message (server/update-progress.ts).
+  message?: string;
 }
 export interface AuditFilter {
   actorKind?: AuditActorKind;

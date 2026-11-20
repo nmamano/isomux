@@ -922,6 +922,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "update.screen.done": "This office now runs {version}.",
   "update.screen.failed":
     "The update did not finish. This office runs {version}.",
+  "update.screen.failedStep": "It stopped at the {step} step.",
   "update.screen.reload": "Reload",
   "update.screen.hide": "Hide",
   "update.outcome.title": "Notes from the update",

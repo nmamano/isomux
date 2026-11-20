@@ -9,10 +9,12 @@ import { useEffect, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { reloadBrowser } from "../reload-browser.ts";
+import { CopyButton } from "./CopyButton.tsx";
 import {
   updateScreen,
   visibleScreen,
   watchedStart,
+  type UpdateScreen,
   type UpdateStep,
 } from "../update-watch.ts";
 
@@ -104,6 +106,64 @@ export function UpdateOutcomeNotes({
   );
 }
 
+type FailedScreen = Extract<UpdateScreen, { kind: "failed" }>;
+
+// What the copy button puts on the clipboard for a report. Agents and the
+// Isomux team read it, so it stays English and out of the catalog, like the
+// Update pane's clipboard text.
+function failureReport(s: FailedScreen): string {
+  return [
+    "Isomux update failed",
+    `Running: ${s.version ?? "unknown"}`,
+    ...(s.target ? [`Target: ${s.target}`] : []),
+    `Step: ${s.phase}`,
+    ...(s.message ? [`Message: ${s.message}`] : []),
+  ].join("\n");
+}
+
+// The updater's step and own message, so an owner can report a failed
+// update without a shell.
+function FailureDetails({ screen }: { screen: FailedScreen }) {
+  const { t } = useI18n();
+  return (
+    <div style={{ marginTop: 12, width: "100%" }}>
+      <p
+        style={{
+          fontSize: 12,
+          color: "var(--text-dim)",
+          lineHeight: 1.6,
+          margin: 0,
+        }}
+      >
+        {t("update.screen.failedStep", { step: screen.phase ?? "" })}
+      </p>
+      {screen.message && (
+        <pre
+          style={{
+            margin: "8px 0 0",
+            padding: "8px 10px",
+            maxHeight: 160,
+            overflow: "auto",
+            textAlign: "left",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: "var(--text-primary)",
+            background: "var(--bg-code)",
+            border: "1px solid var(--border-light)",
+            borderRadius: 8,
+            userSelect: "text",
+          }}
+        >
+          {screen.message}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 export function UpdateOverlay() {
   const { updateWatch, updateInfo, connected, sessionContext } = useAppState();
   const dispatch = useDispatch();
@@ -116,6 +176,14 @@ export function UpdateOverlay() {
       ? screen.outcome
       : null;
   const reloadSelf = screen.kind === "done" && screen.clicked && !notes;
+  // The failure's step and message are for owners too; the requested path
+  // names no step and shows none.
+  const failure =
+    screen.kind === "failed" &&
+    screen.phase !== null &&
+    sessionContext?.role === "owner"
+      ? screen
+      : null;
 
   useEffect(() => {
     if (reloadSelf) reloadBrowser();
@@ -211,11 +279,17 @@ export function UpdateOverlay() {
             messages={notes.messages}
           />
         )}
+        {shown.kind === "failed" && failure && (
+          <FailureDetails screen={failure} />
+        )}
         <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
           {shown.kind === "done" && (
             <button onClick={() => reloadBrowser()} style={buttonStyle}>
               {t("update.screen.reload")}
             </button>
+          )}
+          {shown.kind === "failed" && failure && (
+            <CopyButton getText={() => failureReport(failure)} size={30} />
           )}
           <button
             onClick={() => dispatch({ type: "update_hide", screen: shown })}

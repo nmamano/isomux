@@ -141,11 +141,26 @@ add_deps_warning() {
 # JSON without jq: every value is either a fixed identifier or sanitized to a
 # quote/backslash/control-free string, so plain printf cannot produce broken
 # JSON.
-json_sanitize() { printf '%s' "$1" | tr -d '"\\' | tr '\n\t' '  '; }
+json_sanitize() {
+  printf '%s' "$1" | tr '\n\t' '  ' | LC_ALL=C tr -d '\000-\037\177"\\'
+}
+
+# The failure message as the office may show it: every session of the office
+# gets the progress file's message, so this is the boundary. URL userinfo
+# goes first (greedy to the last @ before the host, so a token holding an @
+# goes whole), then the JSON cleanup, then a cut to 1000 bytes. Bytes, not
+# characters: the office drops a message over 1000 UTF-16 units, and 1000
+# bytes are never more. A cut inside a character is a replacement character
+# to the office, never an unreadable file.
+public_message() {
+  local m
+  m=$(printf '%s' "$1" | LC_ALL=C sed -E 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/[:space:]]*@#\1#g')
+  json_sanitize "$m" | LC_ALL=C head -c 1000
+}
 
 write_status() {
   local result=$1 message=$2
-  publish_progress "$result"
+  publish_progress "$result" "$message"
   [[ -d ${STATUS_DIR:-} ]] || return 0
   printf '{"phase":"%s","result":"%s","target":"%s","from":"%s","message":"%s","at":"%s"}\n' \
     "$PHASE" "$result" "$(json_sanitize "$TARGET_TAG")" \
@@ -192,7 +207,7 @@ init_progress() {
 }
 
 publish_progress() {
-  local result=$1
+  local result=$1 message=${2:-}
   [[ -n $PROGRESS_FILE ]] || return 0
   (
     trap - ERR
@@ -204,14 +219,18 @@ publish_progress() {
       [[ -d $dir && ! -L $dir && $(stat -c %u "$dir") == 0 ]] || exit 0
       (((8#$(stat -c %a "$dir") & 8#022) == 0)) || exit 0
     fi
-    ended=""
+    extra=""
     if [[ $result != running ]]; then
-      printf -v ended ',"ended":%(%s)T' -1
+      printf -v extra ',"ended":%(%s)T' -1
+    fi
+    # Only a failed record carries the message.
+    if [[ $result == failed && -n $message ]]; then
+      extra+=",\"message\":\"$(public_message "$message")\""
     fi
     tmp=$(mktemp "$dir/.progress.XXXXXXXXXX") || exit 0
     if printf '{"attempt":"%s","phase":"%s","result":"%s","pid":%s,"pidStart":"%s","boot":"%s","target":"%s","started":%s,"phases":[%s]%s}\n' \
       "$ATTEMPT" "$PHASE" "$result" "$$" "$PROC_START" "$BOOT_ID" \
-      "$TARGET_TAG" "$PROGRESS_STARTED" "$PROGRESS_PHASES" "$ended" >"$tmp" &&
+      "$TARGET_TAG" "$PROGRESS_STARTED" "$PROGRESS_PHASES" "$extra" >"$tmp" &&
       chmod 644 "$tmp" && mv -f "$tmp" "$PROGRESS_FILE"; then
       exit 0
     fi
@@ -724,8 +743,18 @@ on_error() {
 
 git_validate() {
   [[ -d $REPO_DIR/.git ]] || die "not a git checkout: $REPO_DIR"
-  [[ -z $(as_repo_user git -C "$REPO_DIR" status --porcelain) ]] ||
-    die "checkout is dirty: $REPO_DIR - refusing to update over local changes"
+  local changes line shown="" count=0
+  # Unquoted non-ASCII names, so the message shows them as they are.
+  changes=$(as_repo_user git -c core.quotePath=false -C "$REPO_DIR" status --porcelain) || changes=""
+  if [[ -n $changes ]]; then
+    # The first five paths ("XY path" lines), then how many more.
+    while IFS= read -r line; do
+      count=$((count + 1))
+      if ((count <= 5)); then shown+="${shown:+, }${line:3}"; fi
+    done <<<"$changes"
+    if ((count > 5)); then shown+=" and $((count - 5)) more"; fi
+    die "checkout is dirty: $REPO_DIR (changed: $shown) - refusing to update over local changes; commit, stash or remove them, then update again"
+  fi
   OLD_COMMIT=$(as_repo_user git -C "$REPO_DIR" rev-parse HEAD)
   OLD_DESC=$(as_repo_user git -C "$REPO_DIR" describe --tags --always --match 'v*')
 

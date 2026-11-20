@@ -173,6 +173,94 @@ describe("update screen", () => {
   });
 });
 
+// The failed screen shows an owner the updater's step and message, and copies
+// them as a plain-text report, so nobody needs a shell to learn why an update
+// stopped (task 0cee48c9).
+describe("failed update details", () => {
+  const MESSAGE =
+    "checkout is dirty: /opt/isomux (changed: a.txt) - refusing to update over local changes";
+  const failedP = (over: Partial<Progress> = {}): Progress => ({
+    attempt: A1,
+    phase: "validate",
+    result: "failed",
+    target: NEW,
+    message: MESSAGE,
+    ...over,
+  });
+  // Clicks the copy button; returns what it put on the clipboard.
+  async function copyReport(view: ReturnType<typeof show>): Promise<string> {
+    let copied = "unset";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void (copied = text) },
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: t("common.copy") }));
+    });
+    return copied;
+  }
+  const copyButton = (view: ReturnType<typeof show>) =>
+    view.queryByRole("button", { name: t("common.copy") });
+
+  it("an owner reads the step and the message, and copies a report", async () => {
+    const view = show(watching(false), status(OLD, failedP()));
+    expect(
+      view.queryByText(t("update.screen.failed", { version: OLD })),
+    ).not.toBeNull();
+    // The message whole, in an element of its own.
+    expect(view.queryByText(MESSAGE)).not.toBeNull();
+    // The step by the updater's phase id.
+    expect(view.getByRole("dialog").textContent).toContain("validate");
+    const lines = (await copyReport(view)).split("\n");
+    // One fact per line: the version it runs, the target, the step, the
+    // message.
+    const lineWith = (s: string) => lines.filter((l) => l.includes(s));
+    expect(lineWith(MESSAGE)).toHaveLength(1);
+    expect(lineWith(OLD)).toHaveLength(1);
+    expect(lineWith(NEW)).toHaveLength(1);
+    expect(lineWith(OLD)[0]).not.toBe(lineWith(NEW)[0]);
+    expect(lines.filter((l) => /\bvalidate\b/.test(l))).toHaveLength(1);
+  });
+
+  it("a member sees the failure without the details", () => {
+    const view = show(watching(false), status(OLD, failedP()), "member");
+    expect(
+      view.queryByText(t("update.screen.failed", { version: OLD })),
+    ).not.toBeNull();
+    const text = view.getByRole("dialog").textContent ?? "";
+    expect(text.includes(MESSAGE)).toBe(false);
+    expect(text.includes("validate")).toBe(false);
+    expect(copyButton(view)).toBeNull();
+  });
+
+  it("with no message, the step and the report still show", async () => {
+    const view = show(
+      watching(false),
+      status(OLD, failedP({ message: undefined })),
+    );
+    expect(view.getByRole("dialog").textContent).toContain("validate");
+    const copied = await copyReport(view);
+    expect(copied).toMatch(/\bvalidate\b/);
+    expect(copied).toContain(NEW);
+  });
+
+  it("with no step, no details", () => {
+    // A container office: the server came back on the old version and no
+    // record names a step.
+    let w = watchOnStatus(initialUpdateWatch, status(OLD, null));
+    w = watchOnStatus(
+      w,
+      status(OLD, { attempt: null, phase: null, result: "requested" }),
+    );
+    w = watchOnStatus(w, status(OLD, null));
+    const view = show(w, status(OLD, null));
+    expect(
+      view.queryByText(t("update.screen.failed", { version: OLD })),
+    ).not.toBeNull();
+    expect(copyButton(view)).toBeNull();
+  });
+});
+
 // The busy screen counts the time since the updater started, from the
 // attempt's own start (the server sends it), so a member can see an update
 // that takes long.

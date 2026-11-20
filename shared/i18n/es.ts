@@ -934,6 +934,7 @@ Cosas que puedes hacer por él:
   "update.screen.done": "Esta oficina ahora ejecuta {version}.",
   "update.screen.failed":
     "La actualización no terminó. Esta oficina ejecuta {version}.",
+  "update.screen.failedStep": "Se detuvo en el paso {step}.",
   "update.screen.reload": "Recargar",
   "update.screen.hide": "Ocultar",
   "update.outcome.title": "Notas de la actualización",

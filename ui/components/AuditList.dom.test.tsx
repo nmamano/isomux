@@ -316,6 +316,39 @@ it("shows a finished update's phases with their seconds", async () => {
   );
   expect(hint?.textContent?.trim()).toMatch(/\breadiness[^\p{L}\p{N}]*$/u);
 });
+// A failed update keeps the updater's message, so the owner can still read
+// and report it after the update screen is gone (task 0cee48c9).
+it("shows a failed update's message", async () => {
+  const MESSAGE = "checkout is dirty: /opt/isomux (changed: a.txt)";
+  setApiShim(async () => ({
+    items: [
+      {
+        sequence: 1,
+        time: 1,
+        actor: { kind: "updater", id: "updater", name: "" },
+        operation: "office.update",
+        targets: ["v2026.11.5", `update:${"a".repeat(32)}`],
+        fields: [],
+        update: {
+          attempt: "a".repeat(32),
+          target: "v2026.11.5",
+          result: "failed",
+          started: 1_800_000_000_000,
+          ended: 1_800_000_003_000,
+          phases: [{ phase: "validate", seconds: 3 }],
+          message: MESSAGE,
+        },
+      },
+    ],
+    nextBefore: null,
+  }));
+  const view = render(<AuditPane />);
+  await act(async () => {});
+  const rows = view.container.querySelectorAll("li");
+  expect(rows).toHaveLength(1);
+  expect(rows[0].textContent).toContain(MESSAGE);
+  view.unmount();
+});
 // Member-memory rows were written as memory:boss:<id> before task f41c93e9 and
 // as memory:member:<id> after it: both read as the same member memory.
 it("labels member-memory rows of both target names alike", async () => {

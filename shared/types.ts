@@ -2913,6 +2913,12 @@ export interface UpdateProgressWire {
   // When the updater started this attempt, epoch ms. Null or absent while
   // requested, and for a record from an older updater.
   started?: number | null;
+  // The release tag the attempt goes to. Null or absent while requested and
+  // for a record from an older updater.
+  target?: string | null;
+  // A failed attempt only: the updater's own message. Every session gets
+  // this event, so the updater's sanitize and redaction is the boundary.
+  message?: string | null;
 }
 
 export type UpdateApply =

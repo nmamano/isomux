@@ -929,6 +929,7 @@ Coses que pots fer per ell:
   "update.screen.done": "Aquesta oficina ara executa {version}.",
   "update.screen.failed":
     "L'actualització no ha acabat. Aquesta oficina executa {version}.",
+  "update.screen.failedStep": "S'ha aturat al pas {step}.",
   "update.screen.reload": "Recarrega",
   "update.screen.hide": "Amaga",
   "update.outcome.title": "Notes de l'actualització",

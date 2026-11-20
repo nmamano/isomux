@@ -855,6 +855,21 @@ describe("auditFinishedUpdate", () => {
     expect(updates(audit).map((e) => e.update?.attempt)).toEqual([A2, A1]);
   });
 
+  // Durable for the owner after the update screen is gone (task 0cee48c9).
+  it("a failed attempt keeps the updater's message", () => {
+    const audit = store();
+    const message = "checkout is dirty: /opt/isomux (changed: a.txt)";
+    auditFinishedUpdate(
+      finished({ result: "failed", phase: "validate", message }),
+      audit,
+    );
+    expect(updates(audit)[0]?.update).toMatchObject({
+      attempt: A1,
+      result: "failed",
+      message,
+    });
+  });
+
   it("an updater that died before its end leaves the last phase open", () => {
     const audit = store();
     const rec = finished({ result: "failed", phase: "build" });

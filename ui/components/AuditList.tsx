@@ -183,6 +183,11 @@ function AuditRows({
                   .join(", ")}
               </div>
             )}
+            {typeof entry.update?.message === "string" && (
+              <div style={{ ...HINT, wordBreak: "break-word" }}>
+                {entry.update.message}
+              </div>
+            )}
             {/* Memory and instructions text: recording mode blurs it
                 until a click. */}
             {entry.memoryContent !== undefined && (

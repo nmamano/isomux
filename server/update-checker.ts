@@ -705,6 +705,9 @@ export function auditFinishedUpdate(
       const next = i + 1 < phases.length ? phases[i + 1][1] : ended;
       return { phase, seconds: next === null ? null : next - at };
     }),
+    ...(rec.result === "failed" && rec.message !== undefined
+      ? { message: rec.message }
+      : {}),
   };
   store.append({
     actor: { kind: "updater", id: "updater", name: "" },

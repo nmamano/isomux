@@ -65,7 +65,14 @@ export type UpdateScreen =
       clicked: boolean;
       outcome: UpdateOutcomeWire | null;
     }
-  | { kind: "failed"; version: string | null };
+  | {
+      kind: "failed";
+      version: string | null;
+      // From the watched record; null when no record names them.
+      phase: string | null;
+      target: string | null;
+      message: string | null;
+    };
 
 // The version a status names: what the server runs.
 export function statusVersion(s: UpdateStatusWire): string | null {
@@ -182,6 +189,15 @@ export function updateScreen(
     clicked: w.clicked && versionsKnown,
     outcome: s.mode === "release" ? (s.outcome ?? null) : null,
   });
+  // The details come from the record the screen follows; none on the
+  // requested path, where no record names a step.
+  const failed = (rec: UpdateProgressWire | null): UpdateScreen => ({
+    kind: "failed",
+    version,
+    phase: rec?.phase ?? null,
+    target: rec?.target ?? null,
+    message: rec?.message ?? null,
+  });
   if (p?.result === "requested") return { kind: "requested" };
   if (w.key === REQUESTED) {
     // The tab watches a request and a connected server reports no progress
@@ -191,14 +207,14 @@ export function updateScreen(
     // known new version is done, the same version is a failed update, and an
     // unknown one proves nothing.
     if (p === null && connected && versionsKnown) {
-      return version !== w.loadedVersion ? done() : { kind: "failed", version };
+      return version !== w.loadedVersion ? done() : failed(null);
     }
     return { kind: "requested" };
   }
   // A missing record keeps the last one seen.
   const rec = p === null ? w.last : p.attempt === w.key ? p : null;
   if (!rec) return { kind: "none" };
-  if (rec.result === "failed") return { kind: "failed", version };
+  if (rec.result === "failed") return failed(rec);
   if (rec.result === "ok") {
     // Finished with nothing new to load (already on the target).
     return versionsKnown && version === w.loadedVersion

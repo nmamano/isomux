@@ -161,6 +161,55 @@ describe("parseProgress", () => {
   });
 });
 
+// The updater's message on a failed record (task 0cee48c9). The record is
+// strict; the message alone is lenient: a bad one is dropped and the record
+// stays, because a malformed message must never hide the failure.
+describe("parseProgress message", () => {
+  const failed = rec({ phase: "validate", result: "failed" });
+
+  it("keeps a failed record's message, up to 1000 UTF-16 units", () => {
+    for (const message of [
+      "checkout is dirty: /opt/isomux - refusing to update over local changes",
+      // A cut inside a character reads back as U+FFFD.
+      "é😀\uFFFD",
+      "x".repeat(1000),
+      "😀".repeat(500),
+    ]) {
+      const r = { ...failed, message };
+      expect(parseProgress(JSON.stringify(r))).toEqual(r);
+    }
+  });
+
+  it("drops a bad message and keeps the record", () => {
+    const bad: unknown[] = [
+      42,
+      null,
+      { text: "x" },
+      ["x"],
+      "x".repeat(1001),
+      "😀".repeat(501),
+      "a\u0000b",
+      "a\nb",
+      "a\rb",
+      "a\u001bb",
+      "a\u007fb",
+    ];
+    for (const message of bad) {
+      const out = parseProgress(JSON.stringify({ ...failed, message }));
+      expect([message, out]).toEqual([message, failed]);
+      expect([message, out && "message" in out]).toEqual([message, false]);
+    }
+  });
+
+  it("drops a message on a running or ok record", () => {
+    for (const r of [rec(), rec({ phase: "finalize", result: "ok" })]) {
+      const out = parseProgress(JSON.stringify({ ...r, message: "m" }));
+      expect(out).toEqual(r);
+      expect(out && "message" in out).toBe(false);
+    }
+  });
+});
+
 describe("UpdateProgressWatcher", () => {
   function watcher(files: Record<string, string | { code: string }>) {
     const seen: (UpdateProgressWire | null)[] = [];
@@ -330,6 +379,7 @@ describe("UpdateProgressWatcher", () => {
       phase: "build",
       result: "running",
       started: 1_800_000_000_000,
+      target: "v2026.11.5",
     });
     // An older updater's finished record: no start.
     files[PATH] = JSON.stringify(
@@ -343,6 +393,29 @@ describe("UpdateProgressWatcher", () => {
     const requested = w.current();
     expect(requested?.result).toBe("requested");
     expect(requested?.started ?? null).toBeNull();
+  });
+
+  it("sends a failed attempt's target and message to the tabs", () => {
+    const message = "checkout is dirty: /opt/isomux (changed: a.txt)";
+    const files = liveFs(
+      JSON.stringify(
+        rec({
+          phase: "validate",
+          result: "failed",
+          target: "v2026.11.5",
+          message,
+        }),
+      ),
+    );
+    const { w } = watcher(files);
+    w.poll();
+    expect(w.current()).toMatchObject({
+      attempt: A1,
+      phase: "validate",
+      result: "failed",
+      target: "v2026.11.5",
+      message,
+    });
   });
 
   it("an unreadable or malformed file is no record", () => {
@@ -440,6 +513,7 @@ describe("UpdateProgressWatcher onFinished", () => {
       phase: "readiness",
       result: "failed",
       ended: T0 + 900,
+      message: "isomux did not answer within 90s",
     });
     files[PATH] = JSON.stringify(failed);
     w.poll();

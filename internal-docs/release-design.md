@@ -412,14 +412,19 @@ only full copy of the state. They are up to 24h stale and date-only-named.
 **Progress.** The lock holder writes `progress.json` at every phase: a
 random attempt id, the phase name, the result, its own pid, start ticks
 and boot id, the target tag, and epoch-second times (the start, each phase's
-start, and the end once finished). A container updater writes it to
+start, and the end once finished). A failed record also carries the
+updater's message, the same one status.json keeps, with URL userinfo removed,
+control characters stripped and cut to 1000 bytes (`public_message`): every
+session of the office gets it, so that cleanup is the boundary. The owner
+sees it on the failed update screen, with a copy button, and in the attempt's
+audit entry. A container updater writes it to
 `/run/isomux-update`, which the office container mounts read only; another
 system-kind updater to `/var/lib/isomux-update-public` (root-owned, readable
 by the office service); a user-kind one to `STATUS_DIR`. The office server
 polls it (`server/update-progress.ts`), turns a running record whose process
 is gone into a failure (in a container only a new boot id proves that: the
 host pid is in another pid namespace), and puts attempt, phase, result and
-start on `update_status`. After an accepted launch the server reports
+start (plus the target and a failure's message) on `update_status`. After an accepted launch the server reports
 "requested" until the file names a new attempt. Every open tab follows that
 to a full-screen update screen with the elapsed time (`ui/update-watch.ts`).
 An older container updater writes the file where the container cannot
