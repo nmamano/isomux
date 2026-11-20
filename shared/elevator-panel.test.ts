@@ -13,8 +13,10 @@
 //   - arrive: adds the departure office and this office, never bumps, and
 //     writes this office's snapshot from its live floors over anything that
 //     came in, even a forged future time.
-//   - panelButtons: one list in every office, each office followed by its
-//     floors; this office and its own floors are never hidden or cut.
+//   - panelButtons: one order in every office, by host, then by origin, in
+//     code units, so two copies with different histories agree; this office
+//     and its own floors are never hidden or cut, and the cap cuts the latest
+//     personal entries before the sort.
 //   - The fragment: round trip, only our key stripped, refusals, the size cap
 //     and the drop order (snapshots, then removals, then visits).
 
@@ -465,32 +467,32 @@ describe("arrive", () => {
 });
 
 describe("panelButtons", () => {
-  // A was visited first, then B, then this office (C), then D. Each visited
-  // office is followed by its floors; this office by its live floors, never
-  // by the stale snapshot of itself.
+  // Visited D, then B, then this office (C), then A: the visit order is not
+  // the address order. Each visit brings the floors of its snapshot; this
+  // office brings its live floors, never the stale snapshot of itself.
   const trip = panel({
-    visited: [v(A, 1), v(B, 2), v(C, 3), v(D, 4)],
+    visited: [v(D, 1), v(B, 2), v(C, 3), v(A, 4)],
     snapshots: [
-      s(A, 1, [F1, F2]),
+      s(A, 4, [F1, F2]),
       s(B, 2, [F3]),
       s(C, 3, ["https://stale.example.com"]),
-      s(D, 4, []),
+      s(D, 1, []),
     ],
   });
 
-  it("lists each visited office in visit order, each followed by its floors", () => {
+  it("lists every office and floor by address, whatever the visit order or the kind", () => {
     const buttons = panelButtons(trip, C, [floor(G1)]);
     expect(buttons.map((b) => [b.url, b.kind])).toEqual([
       [A, "visited"],
+      [B, "visited"],
+      [C, "here"],
+      [D, "visited"],
       [F1, "snapshot"],
       [F2, "snapshot"],
-      [B, "visited"],
       [F3, "snapshot"],
-      [C, "here"],
       [G1, "floor"],
-      [D, "visited"],
     ]);
-    expect(buttons[6].floor).toEqual(floor(G1));
+    expect(buttons[7].floor).toEqual(floor(G1));
   });
 
   it("is the same list in every office the panel rode through", () => {
@@ -505,20 +507,86 @@ describe("panelButtons", () => {
     );
   });
 
-  it("orders visits made at the same time by url", () => {
-    const p = panel({ visited: [v(E, 2), v(B, 2), v(A, 1)] });
-    expect(urls(p, A)).toEqual([A, B, E]);
+  // The report (task 7ac6ffb1): this browser loaded the other office first
+  // (an invite link), so that office's copy holds it as the older visit,
+  // while the member's own copy starts with their own office. Each copy
+  // keeps its own history; the list must not follow it.
+  it("keeps one order in two offices whose copies saw the offices in different orders", () => {
+    const MINE = "https://m.example.com";
+    const OTHER = "https://k.example.com";
+    const floorsOf: Record<string, Floor[]> = {
+      [MINE]: [floor(OTHER), floor(F1)],
+      [OTHER]: [floor(B)],
+    };
+    const copies: Record<string, Panel> = {};
+    let t = 0;
+    const load = (here: string, carried: Panel | null, from: string | null) => {
+      t += 10;
+      const kept = copies[here] ?? panel();
+      copies[here] = arrive(carried ? mergePanels(kept, carried, t) : kept, {
+        from,
+        here,
+        ownFloors: floorsOf[here].map((f) => f.url),
+        now: t,
+      });
+    };
+    const rideTo = (from: string, to: string) => {
+      const read = readPanelFragment(encodePanelFragment(copies[from], from));
+      expect(read?.from).toBe(from);
+      load(to, sanitisePanel(read?.panel, t + 10), from);
+    };
+    const list = (here: string) => urls(copies[here], here, floorsOf[here]);
+
+    load(OTHER, null, null);
+    load(MINE, null, null);
+    expect(list(MINE)).toEqual([F1, OTHER, MINE]);
+
+    rideTo(MINE, OTHER);
+    // The condition: the other office's copy holds itself as the older visit.
+    const atOther = copies[OTHER];
+    expect(visitOf(atOther, OTHER)!.addedAt).toBeLessThan(
+      visitOf(atOther, MINE)!.addedAt,
+    );
+    expect(list(OTHER)).toEqual([B, F1, OTHER, MINE]);
+
+    // And the ride back shows the same order, now with the other office's
+    // floor from its snapshot.
+    rideTo(OTHER, MINE);
+    expect(list(MINE)).toEqual([B, F1, OTHER, MINE]);
   });
 
-  it("shows an office once, at its first place, as this office's floor when it is one", () => {
+  it("orders by host, the same host by its whole origin, by code unit and not by locale", () => {
+    const PORT = "https://x.example.com:81";
+    const AU = "https://x.example.com.au";
+    const SECURE_HERE = "https://here.example.org:4000";
+    const p = panel({
+      visited: [v(PORT, 1), v(AU, 2), v(SECURE_HERE, 3), v(HERE, 4), v(G1, 5)],
+    });
+    expect(urls(p, A)).toEqual([
+      A,
+      G1,
+      // One host: http before https.
+      HERE,
+      SECURE_HERE,
+      // "." is before ":" in code units; localeCompare puts ":" first.
+      AU,
+      PORT,
+    ]);
+  });
+
+  it("shows an office once, as this office's floor when it is one", () => {
     const p = panel({
       visited: [v(G1, 1), v(A, 2), v(C, 3)],
       snapshots: [s(A, 2, [G1, F1])],
     });
     const buttons = panelButtons(p, C, [floor(G1)]);
-    expect(buttons.map((b) => b.url)).toEqual([G1, A, F1, C]);
-    expect(buttons[0].kind).toBe("floor");
-    expect(buttons[0].floor?.id).toBe(`id-${G1}`);
+    expect(buttons.map((b) => [b.url, b.kind])).toEqual([
+      [A, "visited"],
+      [C, "here"],
+      [F1, "snapshot"],
+      [G1, "floor"],
+    ]);
+    expect(buttons[3].floor?.id).toBe(`id-${G1}`);
   });
 
   it("hides a removed office and its floors, and a removed floor of another office", () => {
@@ -530,7 +598,7 @@ describe("panelButtons", () => {
       }),
       NOW,
     );
-    expect(urls(p, C)).toEqual([A, F2, C]);
+    expect(urls(p, C)).toEqual([A, C, F2]);
   });
 
   it("never hides this office or its own floors, removed or not visited", () => {
@@ -546,15 +614,29 @@ describe("panelButtons", () => {
     ]);
   });
 
-  it("caps the list at MAX_PANEL_BUTTONS, and the cap never drops this office or its floors", () => {
+  it("cuts the latest personal entries at MAX_PANEL_BUTTONS, never this office or its floors, then sorts what is left", () => {
     const many = Array.from({ length: MAX_PANEL_BUTTONS }, (_, i) =>
       v(`https://o${i}.example.com`, i + 1),
     );
-    const p = panel({ visited: [...many, v(C, MAX_PANEL_BUTTONS + 5)] });
+    // The latest visit, and the first by address: a cut after the sort
+    // would keep it.
+    const LATEST = "https://a0.example.com";
+    const p = panel({ visited: [...many, v(LATEST, MAX_PANEL_BUTTONS + 10)] });
     const buttons = panelButtons(p, C, [floor(G1)]);
     expect(buttons).toHaveLength(MAX_PANEL_BUTTONS);
     expect(buttons.find((b) => b.url === C)?.kind).toBe("here");
     expect(buttons.find((b) => b.url === G1)?.kind).toBe("floor");
+    // Room for MAX_PANEL_BUTTONS - 2 personal entries: the oldest visits.
+    const kept = buttons.map((b) => b.url);
+    expect(new Set(kept)).toEqual(
+      new Set([
+        ...many.slice(0, MAX_PANEL_BUTTONS - 2).map((x) => x.url),
+        C,
+        G1,
+      ]),
+    );
+    // Every url here is https, so the address order is the string order.
+    expect(kept).toEqual([...kept].sort());
   });
 });
 

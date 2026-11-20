@@ -272,9 +272,9 @@ describe("the glue", () => {
     const carried = sanitisePanel(read?.panel, NOW);
     expect(visited(carried)).toEqual([HERE]);
     expect(panelButtons(carried, B, []).map((b) => b.url)).toEqual([
-      HERE,
-      C,
       B,
+      C,
+      HERE,
     ]);
   });
 

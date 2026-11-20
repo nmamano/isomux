@@ -77,6 +77,10 @@ function fieldsOf(raw: unknown): Record<string, unknown> {
 const byUrl = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const visitOrder = (a: PanelVisit, b: PanelVisit) =>
   a.addedAt - b.addedAt || byUrl(a.url, b.url);
+// By host, then by the whole origin (http and https of one host), by code
+// unit so that every browser and locale gives one order.
+const addressOrder = (a: { url: string }, b: { url: string }) =>
+  byUrl(new URL(a.url).host, new URL(b.url).host) || byUrl(a.url, b.url);
 const removalOrder = (a: PanelRemoval, b: PanelRemoval) =>
   a.at - b.at || byUrl(a.url, b.url);
 // Two snapshots of one office with one rev: the result must not depend on
@@ -227,11 +231,15 @@ export function removeFromPanel(panel: Panel, url: string, now: number): Panel {
   );
 }
 
-// The buttons, the same list in every office the panel rode through: each
-// visited office in visit order, followed by the floors of its snapshot (for
-// this office, its live floors). An origin shows once, at its first place.
-// A removed origin is hidden unless it is this office or one of its floors.
-// When this office is not a visit, it comes last, then its floors.
+// The buttons, in the same order in every office the panel rode through: by
+// address (host, then the whole origin), never by visit order. Each office's
+// copy of the panel saw the offices in its own order, and an office can be a
+// visit in one copy and only another office's floor in a second copy, so only
+// an order from the address itself is the same in all copies.
+// The set: each visited office and the floors of its snapshot (for this
+// office, its live floors), each origin once. A removed origin is hidden
+// unless it is this office or one of its floors. The cap is applied on visit
+// order, before the sort.
 export function panelButtons(
   panel: Panel,
   here: string,
@@ -271,16 +279,18 @@ export function panelButtons(
     show(here, false);
     for (const url of floorsOf(here)) show(url, true);
   }
-  if (out.length <= MAX_PANEL_BUTTONS) return out;
+  if (out.length <= MAX_PANEL_BUTTONS) return out.sort(addressOrder);
   // The cap cuts personal entries, latest first; never this office or its
   // own floors.
   let room =
     MAX_PANEL_BUTTONS -
     out.filter((b) => b.kind === "here" || b.kind === "floor").length;
-  return out.filter((b) => {
-    if (b.kind === "here" || b.kind === "floor") return true;
-    return room-- > 0;
-  });
+  return out
+    .filter((b) => {
+      if (b.kind === "here" || b.kind === "floor") return true;
+      return room-- > 0;
+    })
+    .sort(addressOrder);
 }
 
 // UTF-8 JSON as base64url without padding, in a browser and in Bun alike.

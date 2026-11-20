@@ -352,14 +352,14 @@ const shape = (view: ReturnType<typeof render>) =>
   ]);
 
 describe("ElevatorDialog panel", () => {
-  it("lists the offices this browser rode through, each followed by its floors, with this office lit and not a ride", async () => {
+  it("lists the offices this browser rode through and their floors by address, with this office lit and not a ride", async () => {
     seed(trip);
     const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
     expect(shape(d.view)).toEqual([
       [ATLAS, "visited"],
       [COVE, "snapshot"],
-      [OWN, "here"],
       [named.url, "floor"],
+      [OWN, "here"],
     ]);
     const here = rowFor(d.view, OWN);
     expect(d.action(here, "open")).toBeNull();
@@ -387,13 +387,13 @@ describe("ElevatorDialog panel", () => {
     expect(notNameAsks(d.calls)).toEqual([]);
     expect(d.opened).toEqual([]);
     expect(shape(d.view)).toEqual([
-      [OWN, "here"],
       [named.url, "floor"],
+      [OWN, "here"],
     ]);
     const kept = readPanel();
     expect(panelButtons(kept, OWN, [named]).map((b) => b.url)).toEqual([
-      OWN,
       named.url,
+      OWN,
     ]);
     d.view.unmount();
   });
