@@ -7,6 +7,10 @@
 // environment, its cwd, its pid and what its stdin is. The environment is
 // passed exactly, so the test talks to the script only through files in its
 // directory. /bin/sh (dash) exports PWD itself; env() leaves it out.
+//
+// setCommand swaps the command the runner's wrapper runs for a script of
+// the test's, after argv is recorded, so a test never runs a host binary
+// such as the installed root command.
 
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,6 +40,9 @@ export interface FakeSudo {
   // A PAM module whose prompt sudo shows in place of -p (sudoers
   // passprompt: only "Password: " is replaced). null shows -p's prompt.
   setPamPrompt(prompt: string | null): void;
+  // A script run in place of the command (argv() still shows the command).
+  // null runs the command.
+  setCommand(script: string | null): void;
   // The probe: the output and exit code of `sudo -n -l`, and the exit code
   // of `sudo -n -k true`. Without -k the stand-in answers 0 (a cached
   // timestamp); without LC_ALL=C it answers in Spanish.
@@ -86,6 +93,9 @@ prompt=$4
 if [ -e "$d/no-password" ]; then
   [ -s "$d/no-password" ] && cat "$d/no-password" >&2
   shift 5
+  if [ -e "$d/command" ]; then
+    set -- "$1" "$2" "$3" "$4" "$5" "$(cat "$d/command")" "$7"
+  fi
   exec "$@"
 fi
 [ -e "$d/pam-prompt" ] && prompt=$(cat "$d/pam-prompt")
@@ -101,6 +111,9 @@ if [ "$pw" != "$(cat "$d/password")" ]; then
   exit 1
 fi
 shift 5
+if [ -e "$d/command" ]; then
+  set -- "$1" "$2" "$3" "$4" "$5" "$(cat "$d/command")" "$7"
+fi
 if [ -e "$d/split" ]; then
   marker=$5
   half=$((\${#marker} / 2))
@@ -146,6 +159,10 @@ export function createFakeSudo(): FakeSudo {
     setPamPrompt: (prompt) => {
       if (prompt !== null) write("pam-prompt", prompt);
       else Bun.spawnSync(["rm", "-f", join(dir, "pam-prompt")]);
+    },
+    setCommand: (script) => {
+      if (script !== null) write("command", script);
+      else Bun.spawnSync(["rm", "-f", join(dir, "command")]);
     },
     setProbe: (list, trueCode) => {
       write("probe-list-out", list.output);

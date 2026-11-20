@@ -11,6 +11,8 @@
 // - the end of a failed run shows the command's own output, never sudo's
 //   prompt (a PAM prompt in place of -p included);
 // - the password is in no answer and no file under the state root.
+// The stand-in sudo runs a script of this file in place of the root command,
+// so no case runs the host's installed command (/usr/local/sbin).
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -30,12 +32,15 @@ import type { MemberOsUserWire } from "../../shared/contract-shapes.ts";
 
 const PASSWORD = "Run-route-pa55-b94dfd25";
 const ODD_NAME = "Eve O'Neil --user root .";
+// The stand-in root command's only output.
+const STAND_IN_LINE = "stand-in root command: nothing changed";
 const sudo = createFakeSudo();
 sudo.setPassword(PASSWORD);
 
 let server: TestServer | null = null;
 beforeAll(() => {
   setMemberUserAdminDeps({ support: { ok: true, shape: "installer" } });
+  sudo.setCommand(`printf '%s\\n' '${STAND_IN_LINE}' >&2; exit 1`);
 });
 afterEach(async () => {
   await server?.stop();
@@ -46,6 +51,7 @@ afterEach(async () => {
 });
 afterAll(() => {
   setMemberUserAdminDeps(null);
+  sudo.setCommand(null);
   rmSync(sudo.dir, { recursive: true, force: true });
 });
 
@@ -239,14 +245,13 @@ describe("POST /api/users/:username/os-user/run", () => {
         { action: "enable", password: PASSWORD },
       );
       expect(ran.status).toBe(202);
-      // The root command is not installed here: the shell's line about it
-      // is the command's own output.
+      // The stand-in root command fails with a line of its own.
       const attempt = await endedAttempt(o.srv, o.callers.ownerSession, "Mia");
       expect({ pam, status: attempt.status }).toEqual({
         pam,
         status: "failed",
       });
-      expect(attempt.message).toContain(MEMBER_USER_COMMAND_PATH);
+      expect(attempt.message).toContain(STAND_IN_LINE);
       for (const text of [PROMPT, "password", "[sudo]", "Sorry"])
         expect({ pam, text, in: attempt.message?.includes(text) }).toEqual({
           pam,
