@@ -15,7 +15,8 @@ import { setUpDomTestFile } from "../ui/test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { rootShown, snapshot } = await import("./loading-check-snapshot.ts");
+const { clickPoint, rootShown, snapshot } =
+  await import("./loading-check-snapshot.ts");
 const { layoutChanges } = await import("./loading-check-diff.ts");
 
 type Rect = [x: number, y: number, w: number, h: number];
@@ -252,5 +253,53 @@ describe("snapshot: plainText", () => {
     svg.getBoundingClientRect = host.getBoundingClientRect;
     host.replaceWith(svg);
     expect(plainTextOf(svg)).not.toBe(true);
+  });
+});
+
+// Task 6801e903: the click of scripts/loading-check.mjs. The lobby's scene
+// controls sit in a layer that takes no pointer events (a mouse click lands
+// on the drawn prop under it), so a locator click never succeeds on them:
+// the check clicks with the mouse at the center of such a control. Any
+// element that takes pointer events gets a normal click (null), which keeps
+// playwright's checks, so a covered button still fails the check.
+//
+// happy-dom does not inherit pointer-events (a child of a none layer
+// computes ""), so these cases set it on the element, from a style sheet so
+// that only the computed value sees it. Chrome inherits it: the proof that a
+// control under the lobby layer gets the mouse is a loading-check run.
+describe("clickPoint", () => {
+  const sheet = (css: string) => {
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.body.appendChild(style);
+  };
+
+  it("is the center of an element that takes no pointer events", () => {
+    sheet(".lc-layer, .lc-control { pointer-events: none; }");
+    const layer = makeRoot([0, 0, 800, 600]);
+    layer.classList.add("lc-layer");
+    const control = box(layer, [100, 200, 40, 60], { class: "lc-control" });
+    // The condition this case needs: only the sheet sets it.
+    expect(control.style.pointerEvents).toBe("");
+    expect(getComputedStyle(control).pointerEvents).toBe("none");
+    expect(clickPoint(control)).toEqual({ x: 120, y: 230 });
+  });
+
+  it("is null for an element that takes pointer events", () => {
+    const root = makeRoot([0, 0, 800, 600]);
+    const button = box(root, [100, 200, 40, 60], {}, "", "button");
+    expect(clickPoint(button)).toBeNull();
+  });
+
+  it("is null for an element that turns pointer events back on under a layer with none", () => {
+    // The drawn props do this: pointer-events auto under the layer's none.
+    sheet(
+      ".lc-layer { pointer-events: none; } .lc-prop { pointer-events: auto; }",
+    );
+    const layer = makeRoot([0, 0, 800, 600]);
+    layer.classList.add("lc-layer");
+    const prop = box(layer, [100, 200, 40, 60], { class: "lc-prop" });
+    expect(getComputedStyle(layer).pointerEvents).toBe("none");
+    expect(clickPoint(prop)).toBeNull();
   });
 });

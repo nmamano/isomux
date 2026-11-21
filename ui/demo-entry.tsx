@@ -15,6 +15,7 @@ import {
   handleCommand,
   seedDemoHeldLayouts,
   sendInitialState,
+  setDemoFloors,
   setDemoStill,
   setEmbedMode,
 } from "./demo-server.ts";
@@ -31,13 +32,16 @@ if (isEmbed) setEmbedMode();
 // loads: from boot when it sets __isomuxDemoHoldAtBoot, and later through
 // window.__isomuxDemoHold. The shipped demo never holds. It also sets
 // __isomuxDemoStill, so no demo timer (Stephen's ghost) changes the view
-// between its snapshots.
+// between its snapshots, and __isomuxDemoFloors, so the elevator has floors
+// whose names load.
 const demoHold = { hold, release };
 Object.assign(window, { __isomuxDemoHold: demoHold });
 if ((window as { __isomuxDemoHoldAtBoot?: unknown }).__isomuxDemoHoldAtBoot)
   hold();
 if ((window as { __isomuxDemoStill?: unknown }).__isomuxDemoStill)
   setDemoStill(true);
+if ((window as { __isomuxDemoFloors?: unknown }).__isomuxDemoFloors)
+  setDemoFloors(true);
 
 const heldCommand = held(handleCommand);
 const heldInitialState = held(sendInitialState);

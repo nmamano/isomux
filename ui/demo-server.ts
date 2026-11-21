@@ -70,7 +70,9 @@ import type {
   AccessSettings,
   AccountUsageRowWire,
   EnterpriseViewRes,
+  FloorNameRes,
 } from "../shared/contract-shapes.ts";
+import type { Floor } from "../shared/floors.ts";
 import {
   accountUsageOrder,
   accountUsageRowShape,
@@ -1296,6 +1298,29 @@ function startStephenGhostCycle() {
     emitStephenPresence();
   }, 4000);
 }
+
+// The loading check (scripts/loading-check.mjs) gives the elevator floors:
+// with floors on, the demo has two floors with fixed ids, reset at each call.
+export function setDemoFloors(on: boolean): void {
+  const at = Date.now();
+  demoFloors = on
+    ? [
+        {
+          id: "demo-floor-design",
+          url: "https://design.example.com",
+          name: "Design studio",
+          addedAt: at,
+        },
+        {
+          id: "demo-floor-ops",
+          url: "https://ops.example.com",
+          name: "Ops",
+          addedAt: at,
+        },
+      ]
+    : null;
+}
+let demoFloors: Floor[] | null = null;
 
 // The loading check (scripts/loading-check.mjs) keeps the demo still: with
 // still set, Stephen's ghost stays at its stop and no timer moves it.
@@ -3431,12 +3456,25 @@ export async function demoApi(
     return demoWebhookRoute(method, pathname, path, body);
   }
   // The demo is one office with no server to reach another, so its elevator
-  // has no floors and every address answers as unreachable.
-  if (route === "GET /api/floors") return { floors: [] };
+  // has no floors and every address answers as unreachable. With the loading
+  // check's floors (setDemoFloors), those floors answer their names.
+  if (route === "GET /api/floors") return { floors: demoFloors ?? [] };
+  if (route === "GET /api/floors/name") {
+    const url = new URLSearchParams(path.split("?")[1] ?? "").get("url");
+    const floor = demoFloors?.find((f) => f.url === url);
+    if (floor) return { name: floor.name } satisfies FloorNameRes;
+  }
   if (route === "POST /api/floors" || route === "GET /api/floors/name")
     throw new ApiError(422, "office_unreachable", "office unreachable");
-  if (method === "DELETE" && pathname.startsWith("/api/floors/"))
-    throw new ApiError(404, "floor_not_found", "no such floor");
+  if (method === "DELETE" && pathname.startsWith("/api/floors/")) {
+    const id = decodeURIComponent(pathname.slice("/api/floors/".length));
+    const rest = demoFloors?.filter((f) => f.id !== id);
+    if (!demoFloors || !rest || rest.length === demoFloors.length)
+      throw new ApiError(404, "floor_not_found", "no such floor");
+    demoFloors = rest;
+    shimEmit({ type: "floors_updated", floors: rest });
+    return undefined;
+  }
   switch (route) {
     // validate.cwd / validate.env - the demo has no filesystem, so every probe
     // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
@@ -5233,6 +5271,7 @@ export function sendInitialState() {
       }),
     ),
     memberDms: demoDmSummaries(),
+    ...(demoFloors ? { floors: demoFloors } : {}),
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({

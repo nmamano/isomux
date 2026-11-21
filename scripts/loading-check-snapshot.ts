@@ -117,3 +117,15 @@ export function snapshot(sel: string): Snapshot | null {
     boxes,
   };
 }
+
+/**
+ * In the page: where scripts/loading-check.mjs clicks an element with the
+ * mouse. Null when the element takes pointer events (a normal click); else
+ * the center of its box, so the click lands on what is drawn under it (the
+ * lobby's keyboard controls over their props).
+ */
+export function clickPoint(el: Element): { x: number; y: number } | null {
+  if (getComputedStyle(el).pointerEvents !== "none") return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+}

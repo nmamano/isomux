@@ -25,8 +25,10 @@ import {
   DEMO_ROOM_NAMES,
   demoApi,
   sendInitialState,
+  setDemoFloors,
   setDemoStill,
 } from "./demo-server.ts";
+import type { Floor } from "../shared/floors.ts";
 import {
   discordPlacesMatching,
   type DiscordGuildSeen,
@@ -811,4 +813,94 @@ it("stores a member's Pinned list on PUT /api/users/:username/pinned and sends t
   await expect(
     demoApi("PUT", "/api/users/Stephen/pinned", { pinned: "x" }),
   ).rejects.toMatchObject({ status: 422, code: "invalid_pinned" });
+});
+
+// Task 6801e903: the loading check turns the demo elevator's floors on, so a
+// check of the elevator dialog holds its rows' name lookups and then shows
+// them. The shipped demo keeps none: a ride would send a visitor to a made-up
+// address.
+describe("demo floors", () => {
+  const DESIGN = "https://design.example.com";
+  const OPS = "https://ops.example.com";
+  const nameOf = (url: string) =>
+    demoApi("GET", `/api/floors/name?url=${encodeURIComponent(url)}`);
+  const initialFloors = () => {
+    const seen: ServerMessage[] = [];
+    const listen = (data: string) => seen.push(JSON.parse(data));
+    addRawListener(listen);
+    try {
+      sendInitialState();
+    } finally {
+      removeRawListener(listen);
+    }
+    const full = seen.find((m) => m.type === "full_state");
+    if (full?.type !== "full_state") throw new Error("no full_state sent");
+    return full.floors ?? [];
+  };
+  const urls = (floors: Floor[]) => floors.map((f) => f.url).sort();
+
+  it("off (the shipped demo): no floors, and every address is unreachable", async () => {
+    setDemoFloors(false);
+    expect(initialFloors().length).toBe(0);
+    const { floors } = (await demoApi("GET", "/api/floors")) as {
+      floors: Floor[];
+    };
+    expect(floors.length).toBe(0);
+    for (const url of [DESIGN, OPS, "https://other.example.com"])
+      await expect(nameOf(url)).rejects.toMatchObject({
+        code: "office_unreachable",
+      });
+  });
+
+  it("on: two floors with names, removable, and reset by the next call", async () => {
+    const seen: ServerMessage[] = [];
+    const listen = (data: string) => seen.push(JSON.parse(data));
+    try {
+      setDemoFloors(true);
+      expect(urls(initialFloors())).toEqual([DESIGN, OPS]);
+      const { floors } = (await demoApi("GET", "/api/floors")) as {
+        floors: Floor[];
+      };
+      expect(urls(floors)).toEqual([DESIGN, OPS]);
+      // Each floor has its own id, so a remove names one.
+      expect(new Set(floors.map((f) => f.id)).size).toBe(2);
+      for (const url of [DESIGN, OPS]) {
+        const { name } = (await nameOf(url)) as { name: string | null };
+        expect(name).toBeTruthy();
+      }
+      await expect(nameOf("https://other.example.com")).rejects.toMatchObject({
+        code: "office_unreachable",
+      });
+      // Adding a floor still needs another office to answer.
+      await expect(
+        demoApi("POST", "/api/floors", { url: "https://other.example.com" }),
+      ).rejects.toMatchObject({ code: "office_unreachable" });
+
+      const gone = floors.find((f) => f.url === DESIGN)!;
+      addRawListener(listen);
+      await demoApi("DELETE", `/api/floors/${gone.id}`);
+      removeRawListener(listen);
+      const updates = seen.flatMap((m) =>
+        m.type === "floors_updated" ? [m.floors] : [],
+      );
+      expect(updates.length).toBe(1);
+      expect(urls(updates[0]!)).toEqual([OPS]);
+      const after = (await demoApi("GET", "/api/floors")) as {
+        floors: Floor[];
+      };
+      expect(urls(after.floors)).toEqual([OPS]);
+      await expect(
+        demoApi("DELETE", `/api/floors/${gone.id}`),
+      ).rejects.toMatchObject({ code: "floor_not_found" });
+
+      // The next call starts again from both floors.
+      setDemoFloors(true);
+      expect(urls(initialFloors())).toEqual([DESIGN, OPS]);
+    } finally {
+      removeRawListener(listen);
+      setDemoFloors(false);
+    }
+    // Off again: today's demo.
+    expect(initialFloors().length).toBe(0);
+  });
 });

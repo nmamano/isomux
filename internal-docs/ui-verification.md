@@ -26,13 +26,16 @@ files before committing.
 view of the demo while its data is held, then loaded, and lists what jumped.
 With no selectors the demo is held from boot (the office state and every
 fetch); with selectors, the hold starts before the last click, the one that
-opens the view. Views that draw placeholders in the shape this device last
+opens the view. An element that takes no pointer events (a lobby control
+over its prop) is clicked with the mouse at its center. Views that draw placeholders in the shape this device last
 drew (the sidebar, the office) need `--warm`: the demo loads once and is left
 before the checked load. Without it a boot check is a first visit, and only
 the default shape can draw.
 `ui/demo-hold.ts` holds every answer of the demo server until release.
 The check also keeps the demo still (`setDemoStill` in `ui/demo-server.ts`):
 Stephen's ghost stays at its first stop. A new demo timer must stop there too.
+It also gives the elevator two floors (`setDemoFloors`), whose name lookups
+wait for the hold; the shipped demo has none.
 An endless animation that only moves its element (a bob, a shake) is paused
 at its start before each snapshot.
 

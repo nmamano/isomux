@@ -8,7 +8,9 @@
 // With no selectors, the demo is held from boot (the office state and every
 // fetch): for the office, the sidebar, the lobby. With selectors, they are
 // clicked in order with nothing held, and the hold starts just before the
-// last click, the one that opens the view under test.
+// last click, the one that opens the view under test. An element that takes
+// no pointer events (a lobby control) is clicked with the mouse at its
+// center, so the click lands on the prop drawn under it.
 //
 // With --warm, the demo first loads once with nothing held and then leaves
 // the page, so the shapes the views store on this device for their
@@ -29,7 +31,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { layoutChanges, unstableIds } from "./loading-check-diff.ts";
-import { rootShown, snapshot } from "./loading-check-snapshot.ts";
+import { clickPoint, rootShown, snapshot } from "./loading-check-snapshot.ts";
 
 const repo = resolve(dirname(new URL(import.meta.url).pathname), "..");
 
@@ -224,8 +226,10 @@ try {
   });
   // The demo's timers (Stephen's ghost) stay still, so only the held data
   // changes the view between the snapshots.
+  // The elevator gets two floors whose names wait for the hold.
   await context.addInitScript(() => {
     window.__isomuxDemoStill = true;
+    window.__isomuxDemoFloors = true;
   });
   await context.addInitScript((mode) => {
     localStorage.setItem("isomux-theme", mode);
@@ -257,7 +261,21 @@ try {
         .catch(() => die(`no element matches click ${i + 1}: ${sel}`));
       if (i === clicks.length - 1)
         await page.evaluate(() => window.__isomuxDemoHold.hold());
-      await target.click();
+      await target.scrollIntoViewIfNeeded();
+      const point = await target.evaluate(clickPoint);
+      if (point === null) await target.click();
+      else {
+        // An element that takes no pointer events: a mouse click at its
+        // center lands on what is drawn under it, as a person's would.
+        if (
+          point.x < 0 ||
+          point.y < 0 ||
+          point.x >= viewport.width ||
+          point.y >= viewport.height
+        )
+          die(`click ${i + 1} is outside the window: ${sel}`);
+        await page.mouse.click(point.x, point.y);
+      }
       if (i < clicks.length - 1)
         await page.evaluate(quiet, ["body", 500, 10000]);
     }
