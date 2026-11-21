@@ -83,7 +83,7 @@ describe("a closed ask", () => {
     const { store, ask, at } = storeWith(history);
     const a = ask("a1", "u1", "Ship it?");
     const b = ask("a1", "u2", "Rename it?");
-    const c = ask("a1", "u1", "File it?");
+    const c = ask("a1", "u1", "Put it off?");
     const d = ask("a2", "u1", "Other agent's?");
 
     at(10);
@@ -92,9 +92,8 @@ describe("a closed ask", () => {
     store.remove(b.id, { outcome: "dismissed", byUserId: "u2" });
     at(30);
     store.remove(c.id, {
-      outcome: "filed",
+      outcome: "postponed",
       byUserId: "u1",
-      taskId: "t1",
       answer: "later",
     });
 
@@ -113,9 +112,8 @@ describe("a closed ask", () => {
       at: 20,
     });
     expect(history.get("a1", c.id)!.closure).toEqual({
-      outcome: "filed",
+      outcome: "postponed",
       byUserId: "u1",
-      taskId: "t1",
       answer: "later",
       at: 30,
     });
@@ -129,6 +127,34 @@ describe("a closed ask", () => {
     expect(page.items.map((r) => r.entry.id)).toEqual([c.id, b.id, a.id]);
     expect(page.nextBefore).toBeNull();
     expect(history.list("a2", { limit: 50 }).items).toEqual([]);
+  });
+
+  // Nothing files an ask as a task since task e7728a51; a record written
+  // before keeps its task id.
+  it("reads back an older filed record with its task id", () => {
+    const { history } = open();
+    const entry: AskEntry = {
+      id: "f1",
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "File it?",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    history.record(entry, {
+      outcome: "filed",
+      byUserId: "u1",
+      answer: "later",
+      taskId: "t1",
+      at: 30,
+    });
+    expect(history.get("a1", "f1")!.closure).toEqual({
+      outcome: "filed",
+      byUserId: "u1",
+      answer: "later",
+      taskId: "t1",
+      at: 30,
+    });
   });
 
   it("is recorded as agent_removed for each open ask of a removed agent", () => {

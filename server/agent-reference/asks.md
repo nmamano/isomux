@@ -24,7 +24,7 @@ Every card also has the tags Dismiss, Postpone and Rewrite, each with the reply 
 
 An ask can carry at most 10 chat affordances: `commands` for the member to run (`ask-commands` page), `editFiles` to open in the editor and `readFiles` to show in the card. Paths resolve against your cwd. A read file is copied when you create or edit the ask, except a video or audio file, which the card plays from its path with no size limit: keep it there until the member answers. In the query, add one `command=`, `editFile=` or `readFile=` per item, percent-encoded (a `+` stays a plus). A command is easier in JSON: `{"text": "Sign in to the GitHub CLI?", "commands": ["gh auth login"]}`. `readFiles` lists each copy's `originalName`; a prompt line of only `![](<that name>)` shows the file there.
 
-The answer arrives as a message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member files it as a task for later, the bracket says `Your ask <id> is now task <taskId>`: go on without an answer, do not ask again, and do not start the task until someone assigns it.
+The answer arrives as a message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`.
 
 When the member dismisses, postpones or automates your ask, asks a question about it, or asks you to rewrite it, fetch the `ask-replies` page.
 

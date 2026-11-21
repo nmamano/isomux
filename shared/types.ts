@@ -1776,9 +1776,11 @@ export type AskMemberWire = Omit<AskEntry, "sessionId" | "page"> & {
 // How an ask closed (task ff590b5e). The record of each closed ask is kept in
 // office.sqlite (server/ask-history.ts).
 export const ASK_OUTCOMES = [
-  // The member's reply, a dismiss and a filed task.
+  // The member's reply and a dismiss.
   "replied",
   "dismissed",
+  // An ask filed as a task: older records only (the route went in task
+  // e7728a51).
   "filed",
   // The member put the ask off (task 1466ea8b); the agent asks again later.
   "postponed",
@@ -1801,13 +1803,11 @@ export type AskOutcome = (typeof ASK_OUTCOMES)[number];
 // The close as a store caller gives it; the store stamps the time.
 export interface AskCloseInput {
   outcome: AskOutcome;
-  // The member who answered: a reply, dismiss, filed task, save or decline.
+  // The member who answered: a reply, dismiss, postpone, save or decline.
   byUserId?: string;
   // The member's words as the agent got them: the reply text, or the reason
-  // or note typed with a dismiss or a filed task.
+  // or note typed with a dismiss or a postpone.
   answer?: string;
-  // The task a filed ask became.
-  taskId?: string;
   // The app that withdrew the ask; absent when the agent did.
   app?: string;
   // The member also asked the agent to automate asks like this one (task
@@ -1816,6 +1816,9 @@ export interface AskCloseInput {
 }
 export interface AskClosure extends AskCloseInput {
   at: number;
+  // The task a filed ask became, in older records only: nothing files an
+  // ask as a task any more (task e7728a51).
+  taskId?: string;
 }
 
 // The fields an ask's edit can change (task 62aa552f).
@@ -1877,8 +1880,8 @@ export type AskLogEvent = AskEvent | ({ kind: "closed" } & AskClosure);
 export const ASK_DISMISSED_TEXT = "Dismissed";
 
 // The member message text of an ask filed as a task without a typed note.
-// The chat shows it translated from the entry's metadata; the agent reads
-// these words, and the reply note names the task.
+// Nothing sends it any more (task e7728a51); it stays so the chat still
+// shows older entries translated.
 export const ASK_FILED_TEXT = "Not now; filed as a task";
 
 // The member message text of a simplify request. The chat shows it
@@ -1933,7 +1936,8 @@ export interface AskRef {
   simplifyUndone?: boolean;
   // The member put the ask off; it is closed (task 1466ea8b).
   postponed?: boolean;
-  // The task the member filed the ask as, instead of an answer.
+  // The task the member filed the ask as, instead of an answer: older chat
+  // entries only (task e7728a51).
   taskId?: string;
   sessionId?: string;
   // The ask's options and the one the agent recommended, when it had them,

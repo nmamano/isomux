@@ -1195,15 +1195,6 @@ export interface AskPostponeReq {
   automate?: string;
   device?: string;
 }
-export interface AskFileTaskReq {
-  // What the member typed, sent to the agent and added to the task. Blank or
-  // absent: the agent reads "Not now; filed as a task".
-  text?: string;
-  // "... and automate" (task 33891b5b): the member's words for the rule;
-  // "" asks the agent to propose it. Absent: no automate.
-  automate?: string;
-  device?: string;
-}
 // What an agent reads back: the member wire plus the target's username.
 // member is null for an office secret request, which is for every owner.
 // member is the first of `members` (task 9461c464), for older readers.

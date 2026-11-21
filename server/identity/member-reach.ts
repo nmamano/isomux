@@ -199,7 +199,6 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
   "asks.ack": ASKS,
   "asks.simplifyUndo": ASKS,
   "asks.getFile": ASKS,
-  "asks.fileTask": ASKS,
   "asks.appCreate": ASKS,
   "asks.appList": ASKS,
   "asks.appGet": ASKS,

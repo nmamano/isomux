@@ -177,7 +177,6 @@ describe("an answer with automate (task 33891b5b)", () => {
       {},
       { dismissed: true },
       { postponed: true },
-      { taskId: "t1" },
       { simplify: true },
     ]) {
       const plain = askReplyNote({ ...ref, ...flags });
@@ -193,13 +192,12 @@ describe("an answer with automate (task 33891b5b)", () => {
     }
   });
 
-  it("reply, dismiss, postpone and file-task send the automate note, keep the words on the ref and on the closure, and still close with the tag's outcome", async () => {
+  it("reply, dismiss and postpone send the automate note, keep the words on the ref and on the closure, and still close with the tag's outcome", async () => {
     const w = await world();
     const cases = [
       { verb: "reply", json: { text: "Ship now" }, outcome: "replied" },
       { verb: "dismiss", json: {}, outcome: "dismissed" },
       { verb: "postpone", json: { text: "Monday" }, outcome: "postponed" },
-      { verb: "file-task", json: {}, outcome: "filed" },
     ];
     let n = 0;
     for (const c of cases)
@@ -272,10 +270,10 @@ describe("an answer with automate (task 33891b5b)", () => {
     ]);
   });
 
-  it(`takes words up to ASK_PROMPT_MAX; longer words or a non-string are 400 invalid_automate on every route, with nothing sent, filed or closed`, async () => {
+  it(`takes words up to ASK_PROMPT_MAX; longer words or a non-string are 400 invalid_automate on every route, with nothing sent or closed`, async () => {
     const w = await world();
     const created = await w.open("Rotate the key?");
-    for (const verb of ["reply", "dismiss", "postpone", "file-task", "rewrite"])
+    for (const verb of ["reply", "dismiss", "postpone", "rewrite"])
       for (const automate of ["x".repeat(ASK_PROMPT_MAX + 1), 5, null, ["x"]]) {
         const r = await w.answer(created.id, verb, { text: "Yes", automate });
         expect(`${verb} ${r.status} ${r.code}`).toBe(

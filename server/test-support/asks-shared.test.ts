@@ -342,7 +342,7 @@ describe("an ask for named members", () => {
     ]);
   });
 
-  it("closes for all at the first answer: a later reply, dismiss or filed task is 409 ask_closed naming who answered, and the agent gets one answer", async () => {
+  it("closes for all at the first answer: a later reply, dismiss or postpone is 409 ask_closed naming who answered, and the agent gets one answer", async () => {
     const w = await world();
     const made = await opened(w, {
       text: "Ship it?",
@@ -360,7 +360,7 @@ describe("an ask for named members", () => {
     for (const [who, verb, json] of [
       [w.nil, "reply", { text: "no, wait" }],
       [w.kim, "dismiss", {}],
-      [w.nil, "file-task", {}],
+      [w.nil, "postpone", {}],
     ] as const) {
       const r = await answer(w, who, made.id, verb, json);
       late.push(`${verb} ${r.status} ${r.code} ${String(r.by)}`);
@@ -368,12 +368,11 @@ describe("an ask for named members", () => {
     expect(late).toEqual([
       `reply 409 ask_closed ${w.pat.username}`,
       `dismiss 409 ask_closed ${w.pat.username}`,
-      `file-task 409 ask_closed ${w.pat.username}`,
+      `postpone 409 ask_closed ${w.pat.username}`,
     ]);
     const texts = sentTexts(w.srv, w.asker.id);
     expect(texts.filter((t) => t.includes("yes, ship"))).toHaveLength(1);
     expect(texts.some((t) => t.includes("no, wait"))).toBe(false);
-    expect(w.srv.agentManager.getTasks()).toEqual([]);
     // Every member's sockets drop the card; the other members are told who
     // answered, and the answerer's own tab is not (it would read "<you>
     // answered first" while its own answer was in flight).

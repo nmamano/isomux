@@ -918,29 +918,6 @@ describe("tasks and asks from a limited API token", () => {
     expect(limitedOf(fromFull.body)).toBe(false);
   });
 
-  it("a task it files from an ask is marked limited", async () => {
-    const o = await office();
-    const token = await mint(o, { areas: { asks: "write" } });
-    const standard = await spawn(o, "Standard");
-    const ask = await asBearer(
-      o,
-      tokenOf(standard.id),
-      "POST",
-      `/api/agents/${standard.id}/asks`,
-      { prompt: "Archive the old logs?" },
-    );
-    expect(ask.status).toBe(201);
-    const filed = await asBearer(
-      o,
-      token.bearer,
-      "POST",
-      `/api/asks/${(ask.body as { id: string }).id}/file-task`,
-      { text: "delete everything instead" },
-    );
-    expect(filed.status).toBe(201);
-    expect(limitedOf(filed.body)).toBe(true);
-  });
-
   it("its answer to an ask is marked replies only when the asking agent does not fit it", async () => {
     const o = await office();
     const token = await mint(o, { areas: FIXED_AREAS });

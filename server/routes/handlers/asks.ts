@@ -9,9 +9,9 @@
 // still reach the agent's room; anyone else gets the same 404 as an unknown
 // id. An office owner also reads and answers other members' open asks
 // (askShownToOwnerAsOther). A secret request is answered on its own routes
-// (secret-requests.ts), never with a reply, a dismiss or a filed task.
+// (secret-requests.ts), never with a reply, a dismiss or a postpone.
 //
-// A reply, a dismiss or a filed task is a member message to the agent through
+// A reply, a dismiss or a postpone is a member message to the agent through
 // the path a typed message takes, so it wakes or resumes the agent the same
 // way and is refused only where a typed message would be. The ask closes after
 // the message is accepted; a refused message leaves it open.
@@ -57,11 +57,9 @@ import { randomUUID } from "crypto";
 import { basename, extname } from "path";
 import { downloadHeader, mimeTypeForFilename } from "../../mime-types.ts";
 import { actsForAgent, type Identity } from "../../identity/index.ts";
-import { packSenderOf } from "../../identity/agent-fit.ts";
 import { RUN_NOT_YOURS } from "../../identity/member-reach.ts";
 import {
   ASK_DISMISSED_TEXT,
-  ASK_FILED_TEXT,
   ASK_POSTPONED_TEXT,
   ASK_SIMPLIFY_TEXT,
   ASK_TAGS,
@@ -75,7 +73,6 @@ import {
   type AskEvent,
   type AskReadFile,
   type AskStep,
-  type TaskItem,
   type TaskPriority,
 } from "../../../shared/types.ts";
 import {
@@ -98,7 +95,6 @@ import {
   askAgentWire,
   askAgentId,
   askMemberWire,
-  askTaskFields,
   askAudienceFor,
   askMemberIds,
   askRoomAudience,
@@ -253,9 +249,8 @@ export interface AsksDeps {
   // The served file's headers, as agents.getFile sends them.
   contentTypeFor(filename: string): string;
   untrustedFileHeaders(): Record<string, string>;
-  // Deliver the member's message to the agent, carrying the ask (and the
-  // task it was filed as). Resolves at the acceptance decision, as a typed
-  // member message does.
+  // Deliver the member's message to the agent, carrying the ask. Resolves
+  // at the acceptance decision, as a typed member message does.
   deliver(
     identity: Identity,
     entry: AskEntry,
@@ -268,36 +263,15 @@ export interface AsksDeps {
       simplifyUndone?: boolean;
       // The member put the ask off (task 1466ea8b): it closes.
       postponed?: boolean;
-      taskId?: string;
       device: string | undefined;
       // "... and automate" (task 33891b5b): the member's words for the rule.
       automate?: string;
     },
   ): Promise<UserSendAcceptance>;
-  // The agent's display name, for the filed task's description.
-  agentName(agentId: string): string | null;
   // Messaging reply drafts (WhatsApp, task d03a61d8; Discord, task
   // 7fd44c30): only the route's member, signed in, answers one, and a Send
   // answer sends it before the agent is told. Absent in leaf tests.
   messaging?: Pick<MessagingAppReplies, "answer">;
-  // File a task on the board, and take it back when the agent refuses the
-  // message that names it.
-  createTask(input: {
-    title: string;
-    description: string;
-    createdBy: string;
-    username: string | undefined;
-    roomId: string;
-    priority?: TaskPriority;
-    // An answer from a sender with a pack: the task text is data.
-    limited?: true;
-  }): TaskItem;
-  deleteTask(id: string): boolean;
-  // Who the caller is on the board, as tasks.create records it.
-  attributionFor(identity: Identity): {
-    createdBy: string;
-    username: string | undefined;
-  };
 }
 
 type HandlerResult = Awaited<ReturnType<RouteHandler>>;
@@ -514,7 +488,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     automate !== undefined ? { automate } : {};
 
   // Who answered and their words, for the closed ask's record. A bare
-  // dismiss or filed task has no words.
+  // dismiss or postpone has no words.
   const answeredBy = (identity: Identity, text: string | undefined) => ({
     ...(identity.userId ? { byUserId: identity.userId } : {}),
     ...(text !== undefined ? { answer: text } : {}),
@@ -806,7 +780,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
   // The checks every answer shares: the body's device and text, the open
   // ask the caller may answer, not a secret request, not already being
-  // answered. A reply needs text; a dismiss, a postpone or a filed task may
+  // answered. A reply needs text; a dismiss or a postpone may
   // carry the member's note, and a blank one counts as none; a rewrite
   // request may carry what to change, as a note but bounded; a bare simplify
   // request takes none.
@@ -1035,63 +1009,6 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         delivering.delete(entry.id);
       }
     };
-
-  // File the ask as a task in the agent's room, then tell the agent the task
-  // id in place of an answer. The task goes first so the message can name
-  // it; a refused or failed message takes it back and leaves the ask open,
-  // so a retry files one task, not two.
-  const fileTask: RouteHandler = async (ctx) => {
-    const checked = answerable(ctx, "note");
-    if (!checked.ok) return checked.result;
-    const { entry, text: note, device } = checked;
-    const automate = automateOf(checked.automate);
-    if (entry.messaging) return messagingDraft();
-    const agent = deps.agent(entry.agentId);
-    if (!agent) return notFound();
-    const { title, description } = askTaskFields(
-      entry,
-      deps.agentName(entry.agentId) ?? entry.agentId,
-      note,
-    );
-    const { createdBy, username } = deps.attributionFor(ctx.identity);
-    delivering.add(entry.id);
-    try {
-      const task = deps.createTask({
-        title,
-        description,
-        createdBy,
-        username,
-        roomId: agent.roomId,
-        ...(entry.priority ? { priority: entry.priority } : {}),
-        ...(packSenderOf(ctx.identity) ? { limited: true as const } : {}),
-      });
-      let result: UserSendAcceptance;
-      try {
-        result = await deps.deliver(
-          ctx.identity,
-          entry,
-          note ?? ASK_FILED_TEXT,
-          { dismissed: false, taskId: task.id, device, ...automate },
-        );
-      } catch (err) {
-        deps.deleteTask(task.id);
-        throw err;
-      }
-      if (!result.ok) {
-        deps.deleteTask(task.id);
-        return fail(result.status, result.code, result.message);
-      }
-      close(entry, {
-        outcome: "filed",
-        taskId: task.id,
-        ...answeredBy(ctx.identity, note),
-        ...automate,
-      });
-      return created(task);
-    } finally {
-      delivering.delete(entry.id);
-    }
-  };
 
   // Ack a paged ask (task 74e8fc07): its alarm stops for every member it is
   // for, and it stays open. Whoever may answer it may ack it.
@@ -2141,7 +2058,6 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
     "asks.reply": guarded(answer(false)),
     "asks.dismiss": guarded(answer(true)),
-    "asks.fileTask": guarded(fileTask),
     "asks.simplify": guarded(simplify),
     "asks.rewrite": guarded(rewrite),
     "asks.postpone": guarded(postpone),

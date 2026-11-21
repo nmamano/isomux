@@ -10,7 +10,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
-import type { AskEntry, TaskItem } from "../../shared/types.ts";
+import type { AskEntry } from "../../shared/types.ts";
 import type {
   AskClosedWire,
   AskEventsRes,
@@ -147,7 +147,7 @@ describe("a closed ask", () => {
 
     const replied = await open(w, "Pull the spend breakdown?");
     const reasoned = await open(w, "Rename the room?");
-    const filed = await open(w, "Rotate the keys?");
+    const postponed = await open(w, "Rotate the keys?");
     const withdrawn = await open(w, "Still need this?");
     const bare = await open(w, "Ping the team?");
     const before = Date.now();
@@ -174,15 +174,17 @@ describe("a closed ask", () => {
         )
       ).status,
     ).toBe(204);
-    const fileRes = await call(
-      w.srv,
-      "POST",
-      `/api/asks/${filed.id}/file-task`,
-      w.ownerAuth,
-      { json: { text: "after the launch" } },
-    );
-    expect(fileRes.status).toBe(201);
-    const task = fileRes.body as TaskItem;
+    expect(
+      (
+        await call(
+          w.srv,
+          "POST",
+          `/api/asks/${postponed.id}/postpone`,
+          w.ownerAuth,
+          { json: { text: "after the launch" } },
+        )
+      ).status,
+    ).toBe(204);
     expect(
       (
         await call(
@@ -234,11 +236,10 @@ describe("a closed ask", () => {
       by: w.owner.username,
       answer: "not now",
     });
-    expect(await closedOf(filed)).toEqual({
-      outcome: "filed",
+    expect(await closedOf(postponed)).toEqual({
+      outcome: "postponed",
       by: w.owner.username,
       answer: "after the launch",
-      taskId: task.id,
     });
     expect(await closedOf(withdrawn)).toEqual({
       outcome: "withdrawn",
@@ -252,7 +253,7 @@ describe("a closed ask", () => {
     const listed = await history(w, w.as(w.asker.id));
     expect(listed.status).toBe(200);
     expect(ids(listed)).toEqual(
-      [bare, withdrawn, filed, reasoned, replied].map((e) => e.id),
+      [bare, withdrawn, postponed, reasoned, replied].map((e) => e.id),
     );
     expect((listed.body as AskHistoryRes).nextBefore).toBeNull();
     // The list carries the same closed ask as the read by id.

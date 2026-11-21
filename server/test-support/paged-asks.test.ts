@@ -661,7 +661,7 @@ describe("an office page", () => {
     expect(fresh?.page?.state).toBe("ringing");
   });
 
-  it("nobody can answer it: reply, simplify, rewrite, postpone and file-task are 409 no_agent; dismiss closes it, and its member reads the close", async () => {
+  it("nobody can answer it: reply, simplify, rewrite and postpone are 409 no_agent; dismiss closes it, and its member reads the close", async () => {
     const w = await world();
     raise("whatsapp", w.pat.id, waKey(w.pat.id), "WhatsApp stopped", "Gone.");
     const ask = await patsOnly(w);
@@ -671,7 +671,6 @@ describe("an office page", () => {
       ["simplify", {}],
       ["rewrite", { text: "More context" }],
       ["postpone", {}],
-      ["file-task", {}],
     ] as const) {
       const r = await answer(w, w.pat, ask.id, verb, json);
       outcomes.push(`${verb}: ${r.status} ${r.code}`);
@@ -681,7 +680,6 @@ describe("an office page", () => {
       "simplify: 409 no_agent",
       "rewrite: 409 no_agent",
       "postpone: 409 no_agent",
-      "file-task: 409 no_agent",
     ]);
     expect((await patsOnly(w)).id).toBe(ask.id);
     // Not another member's to dismiss.

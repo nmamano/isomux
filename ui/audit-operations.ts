@@ -5,7 +5,6 @@ export const AUDIT_OPERATIONS = [
   "asks.appDelete",
   "asks.appEdit",
   "asks.dismiss",
-  "asks.fileTask",
   "asks.postpone",
   "asks.reply",
   "asks.rewrite",

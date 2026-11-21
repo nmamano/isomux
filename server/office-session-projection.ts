@@ -884,7 +884,6 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       simplify?: boolean;
       simplifyUndone?: boolean;
       postponed?: boolean;
-      taskId?: string;
       device: string | undefined;
       automate?: string;
     },
@@ -897,7 +896,6 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       ...(opts.simplify ? { simplify: true } : {}),
       ...(opts.simplifyUndone ? { simplifyUndone: true } : {}),
       ...(opts.postponed ? { postponed: true } : {}),
-      ...(opts.taskId ? { taskId: opts.taskId } : {}),
       ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
       ...(entry.app ? { app: { name: entry.app.name } } : {}),
       // The chat shows the answered ask in full (ui/log-view/ask-link.tsx).

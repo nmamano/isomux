@@ -1458,17 +1458,6 @@ const SPEC_ROUTE_CONTRACT: Record<
       "agent_updated",
     ],
   },
-  "asks.fileTask": {
-    caps: ["agent:converse", "api:send-message"],
-    emits: [
-      "ask_removed",
-      "others_ask_removed",
-      "log_entry",
-      "interaction_added",
-      "agent_updated",
-      "tasks",
-    ],
-  },
   // The member runs the step's own route from the card (task e3d1bc63); the
   // run's change closes the ask.
   "asks.runAction": {
@@ -2159,7 +2148,6 @@ const SPEC_PRECONDITIONS: Record<string, RoutePrecondition[]> = {
   "asks.rewrite": ["officeNotEnterpriseLocked"],
   "asks.postpone": ["officeNotEnterpriseLocked"],
   "asks.simplifyUndo": ["officeNotEnterpriseLocked"],
-  "asks.fileTask": ["officeNotEnterpriseLocked"],
   "asks.runCommand": ["officeNotEnterpriseLocked"],
   "agents.runDeniedCommand": ["officeNotEnterpriseLocked"],
   "cron.runNow": ["officeNotEnterpriseLocked"],
@@ -2702,7 +2690,6 @@ const API_REACHABLE_OPIDS = [
   "asks.ack",
   "asks.simplifyUndo",
   "asks.getFile",
-  "asks.fileTask",
   "agents.contextUsage",
   "agents.subscriptionUsage",
   "agents.logs",

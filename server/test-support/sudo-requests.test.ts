@@ -199,12 +199,12 @@ describe("a sudo request through the routes", () => {
         command: "echo SUDO-RAN-43a28eed",
       });
 
-      // The ask is answered by its form only: a reply, a dismiss, a task, a
-      // simplify and the agent's edit are refused, and it stays open.
+      // The ask is answered by its form only: a reply, a dismiss, a
+      // simplify, a rewrite, a postpone and the agent's edit are refused, and
+      // it stays open.
       for (const verb of [
         "reply",
         "dismiss",
-        "file-task",
         "simplify",
         "rewrite",
         "postpone",

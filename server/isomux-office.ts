@@ -4283,25 +4283,6 @@ function buildExecutorDeps(
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
       untrustedFileHeaders,
       deliver: deliverAskAnswer,
-      agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,
-      createTask: ({
-        title,
-        description,
-        createdBy,
-        username,
-        roomId,
-        priority,
-        limited,
-      }) =>
-        agentManager.addTask(title, createdBy, {
-          description,
-          username,
-          roomId,
-          priority,
-          ...(limited ? { limited } : {}),
-        }),
-      deleteTask: (id) => agentManager.deleteTask(id),
-      attributionFor,
       messaging: messagingReplies,
     }),
   );

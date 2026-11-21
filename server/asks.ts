@@ -21,7 +21,6 @@ import { defuseFileMentions } from "../shared/identity.ts";
 import { readFileSync, renameSync } from "fs";
 import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
-import { askSubject } from "../ui/members-chat/one-line-text.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   tokenRooms,
@@ -1549,56 +1548,6 @@ export function askAgentWire(
   };
 }
 
-// The task a member files an ask as: the title is the ask's subject line in
-// plain text (askSubject), or the ask's id and source for a prompt with no
-// text, cut to ASK_TASK_TITLE_MAX code points; the description
-// holds the whole prompt, the options (the recommended one marked), the link,
-// the commands and files, the member's note when they typed one, and the
-// agent and ask it came from.
-export const ASK_TASK_TITLE_MAX = 120;
-export function askTaskFields(
-  entry: AskEntry,
-  agentName: string,
-  note?: string,
-): { title: string; description: string } {
-  const line = Array.from(
-    askSubject(entry.prompt) ||
-      (entry.app
-        ? `Ask ${entry.id} from app ${entry.app.name}`
-        : `Ask ${entry.id} from ${agentName}`),
-  );
-  const title =
-    line.length > ASK_TASK_TITLE_MAX
-      ? `${line.slice(0, ASK_TASK_TITLE_MAX - 1).join("")}…`
-      : line.join("");
-  const parts = [entry.prompt.trim()];
-  if (entry.options)
-    parts.push(
-      `Options:\n${entry.options
-        .map((o) => `- ${o}${o === entry.recommended ? " (recommended)" : ""}`)
-        .join("\n")}`,
-    );
-  if (entry.link) parts.push(`Link: ${entry.link}`);
-  if (entry.commands)
-    parts.push(`Commands:\n${entry.commands.map((c) => `- ${c}`).join("\n")}`);
-  const files = [
-    ...(entry.editFiles ?? []).map((f) => f.path),
-    // A reference by its path: the task outlives the ask, and the path is
-    // the way back to the file.
-    ...(entry.readFiles ?? []).map((f) => f.path ?? f.originalName),
-  ];
-  if (files.length > 0)
-    parts.push(`Files:\n${files.map((f) => `- ${f}`).join("\n")}`);
-  if (note !== undefined && note.trim() !== "")
-    parts.push(`Note: ${note.trim()}`);
-  parts.push(
-    entry.app
-      ? `From app ${entry.app.name}'s ask ${entry.id} to ${agentName}.`
-      : `From ${agentName}'s ask ${entry.id}.`,
-  );
-  return { title, description: parts.join("\n\n") };
-}
-
 // The bracket the agent reads before the member's words. The reply can reach a
 // later session (after a clear, a handoff or /wrap-session) that never saw the
 // question, so the note quotes the whole prompt and, when the session that
@@ -1633,10 +1582,6 @@ function answerNoteText(ref: AskRef, currentSessionId: string | null): string {
       : "";
   const quoted = JSON.stringify(ref.prompt.trim());
   const whose = ref.app ? `app ${ref.app.name}'s` : "your";
-  if (ref.taskId) {
-    const subject = ref.app ? `App ${ref.app.name}'s` : "Your";
-    return `[${subject} ask ${ref.id}${from} is now task ${ref.taskId}: ${quoted}] `;
-  }
   // A rewrite request, bare or in the member's words (task 1466ea8b): the
   // note asks for an edit, so typed words are not read as an answer.
   if (ref.simplify)

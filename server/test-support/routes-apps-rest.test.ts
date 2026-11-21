@@ -2640,7 +2640,6 @@ describe("routes/apps REST: a record with the retired inboxAccess key", () => {
       for (const [verb, answer] of [
         ["reply", { text: "Yes" }],
         ["dismiss", {}],
-        ["file-task", {}],
       ] as const) {
         const r = await api(srv, `/api/asks/${askId}/${verb}`, {
           method: "POST",

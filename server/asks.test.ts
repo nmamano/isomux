@@ -22,14 +22,12 @@ import { openOfficeDatabase } from "./audit-store.ts";
 import { API_CAPABILITIES, type Identity } from "./identity/index.ts";
 import {
   ASK_PAGES_MAX_OPEN_PER_SOURCE,
-  ASK_TASK_TITLE_MAX,
   askAgentWire,
   askMemberWire,
   askAudienceFor,
   askMemberIds,
   askReplyNote,
   askShownToOwnerAsOther,
-  askTaskFields,
   askVisibleTo,
   checkOptions,
   type AskAudienceDeps,
@@ -1151,7 +1149,7 @@ describe("the note before the member's words", () => {
   });
 
   // And its withdrawal (task fc2021b7).
-  it("tells a simplify request and its withdrawal from each other and from a reply, a dismiss and a filed task, for an app's ask too", () => {
+  it("tells a simplify request and its withdrawal from each other and from a reply and a dismiss, for an app's ask too", () => {
     const ask = { id: "abcd1234", prompt: "Ship it?" };
     const app = { name: "triage-bot" };
     const notes = (flag: { simplify: true } | { simplifyUndone: true }) => {
@@ -1161,7 +1159,6 @@ describe("the note before the member's words", () => {
       for (const other of [
         askReplyNote(ask),
         askReplyNote({ ...ask, dismissed: true }),
-        askReplyNote({ ...ask, taskId: "feed0001" }),
       ])
         expect(note).not.toBe(other);
       const appNote = askReplyNote({ ...ask, ...flag, app });
@@ -1179,227 +1176,29 @@ describe("the note before the member's words", () => {
     expect(appUndone).not.toBe(appSimplify);
   });
 
-  it("names the task an ask was filed as, apart from a reply and a dismiss", () => {
-    const filed = askReplyNote({
-      id: "abcd1234",
-      prompt: "Ship it?",
-      taskId: "feed0001",
-    });
-    expect(filed).toContain("abcd1234");
-    expect(filed).toContain("feed0001");
-    expect(filed).toContain(JSON.stringify("Ship it?"));
-    expect(filed).not.toBe(
-      askReplyNote({ id: "abcd1234", prompt: "Ship it?" }),
-    );
-    expect(filed).not.toBe(
-      askReplyNote({ id: "abcd1234", prompt: "Ship it?", dismissed: true }),
-    );
-    // The opening session is still named when the note reaches a later one.
-    expect(
-      askReplyNote(
-        { id: "abcd1234", prompt: "x", taskId: "feed0001", sessionId: "s-1" },
+  // The file-task route is gone (task e7728a51). A ref that still carries
+  // a task id (a message queued before the upgrade) reads as the plain
+  // note, naming no task.
+  it("reads a ref with a task id as the plain reply or dismiss note, naming no task", () => {
+    const ask = { id: "abcd1234", prompt: "Ship it?" };
+    const app = { name: "triage-bot" };
+    for (const flags of [
+      {},
+      { dismissed: true },
+      { app },
+      { sessionId: "s-1" },
+    ]) {
+      const plain = askReplyNote({ ...ask, ...flags }, "s-2");
+      const stray = askReplyNote(
+        { ...ask, ...flags, taskId: "feed0001" },
         "s-2",
-      ),
-    ).toContain("s-1");
-  });
-});
-
-describe("the task an ask is filed as", () => {
-  const ask = (over: Partial<AskEntry>): AskEntry => ({
-    id: "abcd1234",
-    agentId: "a1",
-    memberUserId: "u1",
-    prompt: "Ship it?",
-    createdAt: 1,
-    updatedAt: 1,
-    ...over,
-  });
-  const codePoints = (s: string) => Array.from(s).length;
-  const loneSurrogate =
-    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-
-  it("takes the title from the prompt's first non-blank line, whitespace collapsed", () => {
-    const { title } = askTaskFields(
-      ask({ prompt: "\n  \n  Ship   the\tbuild?  \nThe tests are green." }),
-      "Asker",
-    );
-    expect(title).toBe("Ship the build?");
-  });
-
-  // Task 3f5ce667: the title is plain text from the first line that says
-  // what the ask is about. A colour span that leads a line is a label, known
-  // from the markup alone (no label words): a line of only a label is
-  // skipped, and a label before text on its line gives way to that text.
-  it("takes a plain-text title past a leading colour label", () => {
-    const titleOf = (prompt: string) =>
-      askTaskFields(ask({ prompt }), "Asker").title;
-    const cases: [string, string][] = [
-      // A line of only a label is skipped, its inner markup too.
-      [
-        ":green[**Quick stamp**]\nShip the build?\nCI is green.",
-        "Ship the build?",
-      ],
-      [":green[A]\n\n:orange[B]\nShip the build?", "Ship the build?"],
-      // A retired colour name is markup too, so it is a label.
-      [":blue[Decide]\nShip the build?", "Ship the build?"],
-      // A label before text on its line: the text, past the separators.
-      [":green[Quick stamp] Ship X?", "Ship X?"],
-      [":green[Quick stamp] - Ship X?", "Ship X?"],
-      [":green[Quick stamp] — Ship X?", "Ship X?"],
-      [":red[Decide]: Ship X?", "Ship X?"],
-      [":purple[Decide] · Ship X?", "Ship X?"],
-      [":purple[Decide] | Ship X?", "Ship X?"],
-      ["  :green[Decide] Ship X?", "Ship X?"],
-      // A colour span later on the line is part of the subject.
-      ["The build is :red[broken] on main", "The build is broken on main"],
-      ["Ship :green[now]", "Ship now"],
-      // Other inline markup gives its text.
-      [
-        "**Merge** `t-3f5ce667` into [main](https://example.com)?",
-        "Merge t-3f5ce667 into main?",
-      ],
-      // A name that is no colour is not markup: it stays as typed, and its
-      // line is the subject (a second line shows it was not skipped).
-      [":foo[Quick stamp] Ship X?\nCI is green.", ":foo[Quick stamp] Ship X?"],
-      // With no label, a line's leading marks are its own text.
-      [
-        "-5 degrees on the box. Ship anyway?",
-        "-5 degrees on the box. Ship anyway?",
-      ],
-      ["...and then it hung?", "...and then it hung?"],
-      // A prompt of only labels: the first label's text, never its markup.
-      [":green[**Quick stamp**]\n\n:red[Decide]", "Quick stamp"],
-    ];
-    expect(cases.map(([prompt]) => [prompt, titleOf(prompt)])).toEqual(cases);
-  });
-
-  it("gives a prompt with no text a plain title that names the ask", () => {
-    const markup = /[[\]()*`!:]/;
-    const fromAgent = askTaskFields(
-      ask({ prompt: "![chart](/api/files/x.png)" }),
-      "Asker",
-    ).title;
-    const fromApp = askTaskFields(
-      ask({
-        prompt: "\n![chart](/api/files/x.png)\n",
-        app: { name: "deploy-bot", createdAt: 1 },
-      }),
-      "Asker",
-    ).title;
-    expect({
-      agent: [fromAgent.includes("abcd1234"), fromAgent.includes("Asker")],
-      app: [fromApp.includes("abcd1234"), fromApp.includes("deploy-bot")],
-      markup: [markup.test(fromAgent), markup.test(fromApp)],
-    }).toEqual({
-      agent: [true, true],
-      app: [true, true],
-      markup: [false, false],
-    });
-  });
-
-  it("cuts the plain text, not the markup", () => {
-    // The markup takes the line past the limit; its text fits, so it is
-    // whole.
-    const fits = "a".repeat(ASK_TASK_TITLE_MAX - 2);
-    expect(
-      askTaskFields(ask({ prompt: `:green[Label] **${fits}**` }), "Asker")
-        .title,
-    ).toBe(fits);
-    // Text past the limit is cut to it, with no markup left.
-    const long = "a".repeat(ASK_TASK_TITLE_MAX + 5);
-    const { title } = askTaskFields(
-      ask({ prompt: `:green[Label] **${long}**` }),
-      "Asker",
-    );
-    expect({
-      points: codePoints(title),
-      head: title.startsWith("a".repeat(ASK_TASK_TITLE_MAX - 1)),
-      markup: /[*:[\]]/.test(title),
-    }).toEqual({ points: ASK_TASK_TITLE_MAX, head: true, markup: false });
-  });
-
-  it("cuts a long first line by code points, never through a character", () => {
-    // An exact fit stays whole.
-    const fits = "a".repeat(ASK_TASK_TITLE_MAX);
-    expect(askTaskFields(ask({ prompt: fits }), "Asker").title).toBe(fits);
-    // An emoji (two UTF-16 units) sits across the cut: a cut by units would
-    // split it.
-    const line = `${"a".repeat(ASK_TASK_TITLE_MAX - 2)}${"😀".repeat(20)}`;
-    const { title } = askTaskFields(ask({ prompt: line }), "Asker");
-    expect(loneSurrogate.test(title)).toBe(false);
-    expect(codePoints(title)).toBeLessThanOrEqual(ASK_TASK_TITLE_MAX);
-    // A visible cut: the title is shorter than the line and ends with a mark
-    // that is not the line's own text.
-    const kept = Array.from(title).slice(0, -1).join("");
-    expect(line.startsWith(kept)).toBe(true);
-    expect(codePoints(kept)).toBeGreaterThanOrEqual(ASK_TASK_TITLE_MAX - 2);
-    expect(line.startsWith(title)).toBe(false);
-  });
-
-  it("holds the whole prompt first, then what the card showed, then where it came from", () => {
-    const prompt = "Merge the branch?\n\nCI is green on 807b5ad5.";
-    const full = ask({
-      prompt,
-      options: ["Merge now", "Wait for Nil"],
-      recommended: "Wait for Nil",
-      link: "/tasks",
-      commands: ["git log --oneline -3"],
-      editFiles: [{ cwd: "/w", path: "/w/notes.md" }],
-      readFiles: [
-        {
-          filename: "ab12.png",
-          originalName: "plot.png",
-          mediaType: "image/png",
-          size: 7,
-        },
-        REFERENCE,
-      ],
-    });
-    const { description } = askTaskFields(full, "Asker");
-    expect(description.startsWith(prompt)).toBe(true);
-    const lines = description.split("\n");
-    for (const part of [
-      "Merge now",
-      "Wait for Nil",
-      "/tasks",
-      "git log --oneline -3",
-      "/w/notes.md",
-      "plot.png",
-      // A reference by its path: the task outlives the ask, and the path is
-      // the way back to the file.
-      REFERENCE.path,
-    ])
-      expect([part, lines.filter((l) => l.includes(part)).length]).toEqual([
-        part,
-        1,
+      );
+      expect([JSON.stringify(flags), stray]).toEqual([
+        JSON.stringify(flags),
+        plain,
       ]);
-    // The recommended option is marked: its line changes with the mark, the
-    // other option's line does not.
-    const unmarked = askTaskFields(
-      { ...full, recommended: undefined },
-      "Asker",
-    ).description.split("\n");
-    const lineOf = (ls: string[], part: string) =>
-      ls.find((l) => l.includes(part));
-    expect(lineOf(lines, "Merge now")).toBe(lineOf(unmarked, "Merge now"));
-    expect(lineOf(lines, "Wait for Nil")).not.toBe(
-      lineOf(unmarked, "Wait for Nil"),
-    );
-    // The last line names the agent and the ask.
-    const last = lines[lines.length - 1];
-    expect(last).toContain("Asker");
-    expect(last).toContain("abcd1234");
-  });
-
-  it("adds the member's note when there is one, and nothing for a bare ask", () => {
-    const bare = askTaskFields(ask({}), "Asker").description;
-    const noted = askTaskFields(ask({}), "Asker", "After the launch.");
-    expect(noted.description).toContain("After the launch.");
-    expect(bare).not.toContain("After the launch.");
-    // A bare ask is the prompt and the line it came from, nothing else.
-    expect(bare.split("\n").filter((l) => l.trim() !== "")).toHaveLength(2);
-    // The note does not change the title.
-    expect(noted.title).toBe("Ship it?");
+      expect(stray).not.toContain("feed0001");
+    }
   });
 });
 

@@ -266,12 +266,14 @@ describe("GET /api/asks/others", () => {
 });
 
 describe("an owner answers another member's ask", () => {
-  it("replies, dismisses and files a task as the owner: the agent reads the owner's name, the ask closes for the member, and the record names the owner", async () => {
+  it("replies, dismisses and postpones as the owner: the agent reads the owner's name, the ask closes for the member, and the record names the owner", async () => {
     const w = await world();
     const replied = await open(w, "Ship it?", { member: w.pat.username });
     const dismissed = await open(w, "Rename it?", { member: w.pat.username });
-    const filed = await open(w, "Refactor it?", { member: w.pat.username });
-    const all = [replied.id, dismissed.id, filed.id].sort();
+    const postponed = await open(w, "Refactor it?", {
+      member: w.pat.username,
+    });
+    const all = [replied.id, dismissed.id, postponed.id].sort();
     // Enabling: the three are Pat's, and Nil lists them as another member's.
     expect((await mine(w, w.pat)).map((e) => e.id).sort()).toEqual(all);
     expect(
@@ -283,7 +285,7 @@ describe("an owner answers another member's ask", () => {
     const answers = [
       [replied.id, "reply", { text: "Nil says yes" }, 204],
       [dismissed.id, "dismiss", {}, 204],
-      [filed.id, "file-task", { text: "After the launch." }, 201],
+      [postponed.id, "postpone", { text: "After the launch." }, 204],
     ] as const;
     for (const [id, verb, json, status] of answers) {
       const r = await call(
@@ -295,8 +297,6 @@ describe("an owner answers another member's ask", () => {
       );
       expect(`${verb} ${r.status}`).toBe(`${verb} ${status}`);
     }
-    const [task] = w.srv.agentManager.getTasks();
-    expect(task?.roomId).toBe(w.room.id);
     await waitUntil(
       () => sentTexts(w.srv, w.asker.id).length === 3,
       "the three answers delivered",
@@ -306,14 +306,14 @@ describe("an owner answers another member's ask", () => {
     expect(sentTexts(w.srv, w.asker.id)).toEqual([
       `${by}${askReplyNote(replied)}Nil says yes`,
       `${by}${askReplyNote({ ...dismissed, dismissed: true })}${ASK_DISMISSED_TEXT}`,
-      `${by}${askReplyNote({ ...filed, taskId: task.id })}After the launch.`,
+      `${by}${askReplyNote({ ...postponed, postponed: true })}After the launch.`,
     ]);
     expect(await mine(w, w.pat)).toEqual([]);
     expect((await others(w, w.owner)).body).toEqual([]);
     for (const [id, outcome] of [
       [replied.id, "replied"],
       [dismissed.id, "dismissed"],
-      [filed.id, "filed"],
+      [postponed.id, "postponed"],
     ]) {
       const r = await call(
         w.srv,
@@ -374,7 +374,6 @@ describe("an owner answers another member's ask", () => {
     for (const [verb, json] of [
       ["reply", { text: "s3cret" }],
       ["dismiss", {}],
-      ["file-task", {}],
       ["simplify", {}],
     ] as const) {
       const r = await call(

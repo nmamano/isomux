@@ -1,8 +1,7 @@
-// The asks.reply, asks.dismiss and asks.fileTask handlers against a delivery
-// the test holds open. The office's own delivery reaches its acceptance
-// decision without a step a test can hold, so the double-send guard and the
-// filed task's rollback are proven here, where the second request can land
-// while the first is still in flight.
+// The asks.reply and asks.dismiss handlers against a delivery the test holds
+// open. The office's own delivery reaches its acceptance decision without a
+// step a test can hold, so the double-send guard is proven here, where the
+// second request can land while the first is still in flight.
 
 import { describe, expect, it } from "bun:test";
 
@@ -23,7 +22,6 @@ import {
   ASK_SIMPLIFY_TEXT,
   ASK_SIMPLIFY_UNDO_TEXT,
   type AskEntry,
-  type TaskItem,
 } from "../../../shared/types.ts";
 
 const member: Identity = {
@@ -46,15 +44,10 @@ function rig(over: Partial<AsksDeps> = {}) {
     reject: (err: Error) => void;
   }> = [];
   const delivered: string[] = [];
-  // The task id each delivery named, and the board as the handler left it.
-  const deliveredTaskIds: Array<string | undefined> = [];
   // Each delivery's dismiss and simplify flags.
   const deliveredFlags: Array<{ dismissed: boolean; simplify: boolean }> = [];
   // Each delivery's simplify-withdrawn flag.
   const deliveredUndone: boolean[] = [];
-  const board = new Map<string, TaskItem>();
-  const filed: string[] = [];
-  const deleted: string[] = [];
   const deps: AsksDeps = {
     store,
     history: {
@@ -99,7 +92,6 @@ function rig(over: Partial<AsksDeps> = {}) {
     untrustedFileHeaders: () => ({}),
     deliver: (_identity, _entry, text, opts) => {
       delivered.push(text);
-      deliveredTaskIds.push(opts.taskId);
       deliveredFlags.push({
         dismissed: opts.dismissed,
         simplify: opts.simplify === true,
@@ -107,28 +99,6 @@ function rig(over: Partial<AsksDeps> = {}) {
       deliveredUndone.push(opts.simplifyUndone === true);
       return new Promise((resolve, reject) => held.push({ resolve, reject }));
     },
-    agentName: () => "Asker",
-    createTask: (input) => {
-      const task: TaskItem = {
-        id: `task${filed.length + 1}`,
-        title: input.title,
-        description: input.description,
-        status: "open",
-        createdBy: input.createdBy,
-        username: input.username,
-        roomId: input.roomId,
-        createdAt: 1,
-        version: "v",
-      };
-      filed.push(task.id);
-      board.set(task.id, task);
-      return task;
-    },
-    deleteTask: (id) => {
-      deleted.push(id);
-      return board.delete(id);
-    },
-    attributionFor: () => ({ createdBy: "pat", username: "pat" }),
     ...over,
   };
   const handlers = askHandlers(deps);
@@ -159,12 +129,8 @@ function rig(over: Partial<AsksDeps> = {}) {
     ctx,
     held,
     delivered,
-    deliveredTaskIds,
     deliveredFlags,
     deliveredUndone,
-    board,
-    filed,
-    deleted,
     outcome,
   };
 }
@@ -266,14 +232,12 @@ describe("a simplify request (task 30915188)", () => {
       outcome(handlers["asks.simplify"](ctx())),
       outcome(handlers["asks.reply"](ctx("Dwight"))),
       outcome(handlers["asks.dismiss"](ctx())),
-      outcome(handlers["asks.fileTask"](ctx())),
     ];
     await Promise.resolve();
     // Checked before awaiting them: a second delivery would wait forever on
     // the held promise.
     expect(delivered).toHaveLength(1);
     expect(await Promise.all(busy)).toEqual([
-      "409 ask_busy",
       "409 ask_busy",
       "409 ask_busy",
       "409 ask_busy",
@@ -491,117 +455,6 @@ describe("a simplify request withdrawn (task fc2021b7)", () => {
     }
     expect(delivered).toEqual([ASK_SIMPLIFY_UNDO_TEXT]);
     expect(logged.map((args) => args.join(" ")).join("\n")).toContain(entry.id);
-  });
-});
-
-describe("an ask filed as a task", () => {
-  it("files one task in the agent's room, names it to the agent, and closes the ask", async () => {
-    const { store, entry, handlers, ctx, held, deliveredTaskIds, board } =
-      rig();
-    const pending = handlers["asks.fileTask"](ctx());
-    await Promise.resolve();
-    // The task is on the board before the agent hears of it, and the
-    // delivery names that task.
-    expect([...board.keys()]).toEqual(["task1"]);
-    expect(deliveredTaskIds).toEqual(["task1"]);
-    expect(board.get("task1")).toMatchObject({
-      roomId: "r1",
-      createdBy: "pat",
-      username: "pat",
-    });
-    expect(board.get("task1")!.priority).toBeUndefined();
-    held[0].resolve({ ok: true });
-    const r = await pending;
-    expect(r.kind === "json" ? [r.status, (r.body as TaskItem).id] : r).toEqual(
-      [201, "task1"],
-    );
-    expect(store.get(entry.id)).toBeNull();
-    expect([...board.keys()]).toEqual(["task1"]);
-  });
-
-  it("takes the task back when the agent refuses the message, and the ask stays open for a retry", async () => {
-    const {
-      store,
-      entry,
-      handlers,
-      ctx,
-      held,
-      board,
-      filed,
-      deleted,
-      outcome,
-    } = rig();
-    const first = outcome(handlers["asks.fileTask"](ctx()));
-    await Promise.resolve();
-    held[0].resolve({
-      ok: false,
-      status: 429,
-      code: "usage_cap",
-      message: "capped",
-    });
-    expect(await first).toBe("429 usage_cap");
-    expect(deleted).toEqual(["task1"]);
-    expect(board.size).toBe(0);
-    expect(store.get(entry.id)).not.toBeNull();
-
-    // The retry files one task and keeps it.
-    const retry = outcome(handlers["asks.fileTask"](ctx()));
-    await Promise.resolve();
-    held[1].resolve({ ok: true });
-    expect(await retry).toBe("json 201");
-    expect(filed).toEqual(["task1", "task2"]);
-    expect([...board.keys()]).toEqual(["task2"]);
-    expect(store.get(entry.id)).toBeNull();
-  });
-
-  it("takes the task back when the delivery throws, and the ask stays open", async () => {
-    const { store, entry, handlers, ctx, held, board, deleted } = rig();
-    const pending = Promise.resolve(handlers["asks.fileTask"](ctx())).then(
-      () => "resolved",
-      (err: Error) => `rejected ${err.message}`,
-    );
-    await Promise.resolve();
-    expect(board.size).toBe(1);
-    held[0].reject(new Error("send blew up"));
-    expect(await pending).toBe("rejected send blew up");
-    expect(deleted).toEqual(["task1"]);
-    expect(board.size).toBe(0);
-    expect(store.get(entry.id)).not.toBeNull();
-  });
-
-  it("is refused while a reply is in flight, and refuses a reply or dismiss while it is, filing nothing twice", async () => {
-    const { handlers, ctx, held, delivered, filed, outcome } = rig();
-    // A reply in flight: filing it now would answer it twice.
-    const reply = outcome(handlers["asks.reply"](ctx("Dwight")));
-    await Promise.resolve();
-    expect(await outcome(handlers["asks.fileTask"](ctx()))).toBe(
-      "409 ask_busy",
-    );
-    expect(filed).toEqual([]);
-    held[0].resolve({ ok: false, status: 429, code: "usage_cap", message: "" });
-    expect(await reply).toBe("429 usage_cap");
-
-    // A file-task in flight: the other answers wait for it.
-    const file = outcome(handlers["asks.fileTask"](ctx()));
-    await Promise.resolve();
-    expect(filed).toEqual(["task1"]);
-    const again = [
-      outcome(handlers["asks.reply"](ctx("Jim"))),
-      outcome(handlers["asks.dismiss"](ctx())),
-      outcome(handlers["asks.fileTask"](ctx())),
-    ];
-    await Promise.resolve();
-    // Checked before awaiting them: a second delivery would wait forever on
-    // the held promise.
-    expect(delivered).toHaveLength(2);
-    expect(filed).toEqual(["task1"]);
-    expect(await Promise.all(again)).toEqual([
-      "409 ask_busy",
-      "409 ask_busy",
-      "409 ask_busy",
-    ]);
-    held[1].resolve({ ok: true });
-    expect(await file).toBe("json 201");
   });
 });
 
@@ -1004,10 +857,9 @@ describe("a WhatsApp reply draft", () => {
     expect(t.calls).toHaveLength(1);
   });
 
-  it("filing it as a task, a simplify or rewrite request, its withdrawal and a postpone are 409 messaging_draft: nothing filed, sent or told", async () => {
+  it("a simplify or rewrite request, its withdrawal and a postpone are 409 messaging_draft: nothing sent or told", async () => {
     const t = draftRig();
     for (const opId of [
-      "asks.fileTask",
       "asks.simplify",
       "asks.rewrite",
       "asks.postpone",
@@ -1016,7 +868,7 @@ describe("a WhatsApp reply draft", () => {
       expect(
         `${opId} ${await quick(t.outcome(t.handlers[opId](as(member, t, t.draft.id))))}`,
       ).toBe(`${opId} 409 messaging_draft`);
-    expect([t.filed, t.delivered, t.calls]).toEqual([[], [], []]);
+    expect([t.delivered, t.calls]).toEqual([[], []]);
     expect(t.store.get(t.draft.id)).not.toBeNull();
   });
 
@@ -1506,7 +1358,7 @@ describe("a command run from the card (task c3b91695)", () => {
 // "... and automate" (task 33891b5b): only an ask the agent could decide
 // alone next time takes it. Everywhere else every answer route refuses
 // `automate` before anything happens: nothing sent to a contact or the
-// agent, no task filed, the ask still open. Without `automate` the same
+// agent, the ask still open. Without `automate` the same
 // answers keep working as before (the dismiss of an ask with no agent).
 describe("an answer with automate on an ask that cannot be automated", () => {
   const DRAFT = { app: "whatsapp", routeId: "r1", text: "see you at 5" };
@@ -1517,7 +1369,6 @@ describe("an answer with automate on an ask that cannot be automated", () => {
     ["asks.reply", { text: "Yes" }],
     ["asks.dismiss", {}],
     ["asks.postpone", {}],
-    ["asks.fileTask", {}],
     ["asks.rewrite", {}],
   ] as const;
 
@@ -1564,7 +1415,7 @@ describe("an answer with automate on an ask that cannot be automated", () => {
     return { ...t, asks, contactSends, send };
   }
 
-  it("every answer route is 409 automate_not_offered on an app's ask, a messaging draft, a step ask and an ask with no agent, words or blank; nothing sent, filed or closed", async () => {
+  it("every answer route is 409 automate_not_offered on an app's ask, a messaging draft, a step ask and an ask with no agent, words or blank; nothing sent or closed", async () => {
     const t = automateRig();
     for (const [kind, entry] of Object.entries(t.asks))
       for (const [opId, body] of ROUTES)
@@ -1572,7 +1423,7 @@ describe("an answer with automate on an ask that cannot be automated", () => {
           expect(
             `${kind} ${opId} ${await t.send(opId, entry.id, { ...body, automate })}`,
           ).toBe(`${kind} ${opId} 409 automate_not_offered`);
-    expect([t.delivered, t.filed, t.contactSends]).toEqual([[], [], []]);
+    expect([t.delivered, t.contactSends]).toEqual([[], []]);
     for (const entry of Object.values(t.asks))
       expect(t.store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
     expect(

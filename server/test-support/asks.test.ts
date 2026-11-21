@@ -23,13 +23,11 @@ import { getUserByName, updateUserById } from "../users.ts";
 import { askReplyNote } from "../asks.ts";
 import {
   ASK_DISMISSED_TEXT,
-  ASK_FILED_TEXT,
   ASK_SIMPLIFY_TEXT,
   ASK_SIMPLIFY_UNDO_TEXT,
   type AskEntry,
   type AskMemberWire,
   type AgentInfo,
-  type TaskItem,
 } from "../../shared/types.ts";
 import { ASK_LINK_PREFIX } from "../../shared/office-links.ts";
 import type {
@@ -1902,13 +1900,7 @@ describe("the member's answer", () => {
       { json: {} },
     );
     expect(asked.status).toBe(204);
-    for (const verb of [
-      "reply",
-      "dismiss",
-      "file-task",
-      "simplify",
-      "simplify/undo",
-    ]) {
+    for (const verb of ["reply", "dismiss", "simplify", "simplify/undo"]) {
       const r = await call(
         w.srv,
         "POST",
@@ -2315,188 +2307,44 @@ describe("a simplify request withdrawn (task fc2021b7)", () => {
   });
 });
 
-describe("an ask filed as a task", () => {
-  const fileTask = (
-    w: Awaited<ReturnType<typeof world>>,
-    id: string,
-    json: unknown = {},
-  ) =>
-    call(
+describe("the removed file-task route (task e7728a51)", () => {
+  it("is not found, files no task, sends the agent nothing and leaves the ask open", async () => {
+    const w = await world();
+    const created = await open(w, "Rotate the staging keys?");
+    const r = await call(
       w.srv,
       "POST",
-      `/api/asks/${id}/file-task`,
+      `/api/asks/${created.id}/file-task`,
       { rawSessionId: w.owner.rawSessionId },
-      { json },
+      { json: { text: "After the launch." } },
     );
-
-  it("files one task in the agent's room by the member, closes the ask, and tells the agent the task", async () => {
-    const w = await world();
-    // The other agent's room: the task follows the asking agent, not the
-    // first room.
-    const room2 = w.srv.agentManager.createRoom("Second");
-    expect(w.srv.agentManager.moveAgent(w.asker.id, room2)).toBe(true);
-    expect(agentOf(w.srv, w.asker.id).roomId).toBe(room2);
-    const created = await open(w, "Rotate the staging keys?");
-    const r = await fileTask(w, created.id);
-    expect(r.status).toBe(201);
-    const task = r.body as TaskItem;
-    expect(w.srv.agentManager.getTasks().map((t) => t.id)).toEqual([task.id]);
-    expect(task).toMatchObject({
-      title: "Rotate the staging keys?",
-      status: "open",
-      roomId: room2,
-      createdBy: w.owner.username,
-      username: w.owner.username,
-    });
-    expect(task.description).toContain("Rotate the staging keys?");
-    expect(task.priority).toBeUndefined();
-    expect(task.assignee).toBeUndefined();
-    expect(task.createdByAgentId).toBeUndefined();
-
-    // The ask is closed.
-    const after = await call(
+    expect(r.status).toBe(404);
+    expect(w.srv.agentManager.getTasks()).toEqual([]);
+    const still = await call(
       w.srv,
       "GET",
       `/api/agents/${w.asker.id}/asks/${created.id}`,
       w.as(w.asker.id),
     );
-    expect([
-      after.status,
-      (after.body as AskClosedWire).closed?.outcome,
-    ]).toEqual([200, "filed"]);
-
-    // The agent reads the task id in the note, then the bare words.
-    await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(created.id)),
-      "file-task delivered",
+    expect([still.status, (still.body as { closed?: unknown }).closed]).toEqual(
+      [200, undefined],
     );
-    const sent = sentTexts(w.srv, w.asker.id).find((t) =>
-      t.includes(created.id),
-    )!;
-    expect(sent).toContain(task.id);
-    expect(sent).toBe(
-      `[${w.owner.username}] ${askReplyNote({ ...created, taskId: task.id })}${ASK_FILED_TEXT}`,
-    );
-    const entry = w.srv.agentManager
-      .getAgentLogs(w.asker.id)
-      .find((e) => e.kind === "user_message")!;
-    expect(entry.content).toBe(ASK_FILED_TEXT);
-    // Not a dismiss: the chat draws its own line from the task id.
-    expect(entry.metadata?.ask).toEqual({
-      id: created.id,
-      prompt: "Rotate the staging keys?",
-      taskId: task.id,
-    });
-  });
-
-  it("gives the task the ask's priority", async () => {
-    const w = await world();
-    const made = await call(
+    // The same ask still takes an answer: the 404 is the route, not the ask.
+    const replied = await call(
       w.srv,
       "POST",
-      `/api/agents/${w.asker.id}/asks?priority=P1`,
-      w.as(w.asker.id),
-      { text: "Move the backups?" },
+      `/api/asks/${created.id}/reply`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: { text: "go ahead" } },
     );
-    expect(made.status).toBe(201);
-    const r = await fileTask(w, (made.body as AskEntry).id);
-    expect(r.status).toBe(201);
-    const task = r.body as TaskItem;
-    expect(task.priority).toBe("P1");
-    expect(
-      w.srv.agentManager.getTasks().map((t) => [t.id, t.priority]),
-    ).toEqual([[task.id, "P1"]]);
-  });
-
-  it("sends the member's typed note to the agent and puts it on the task; a blank one is bare", async () => {
-    const w = await world();
-    const noted = await open(w, "Book the room?");
-    const r = await fileTask(w, noted.id, { text: "After the launch." });
-    expect(r.status).toBe(201);
-    const task = r.body as TaskItem;
-    expect(task.description).toContain("After the launch.");
+    expect(replied.status).toBe(204);
     await waitUntil(
       () => sentTexts(w.srv, w.asker.id).length === 1,
-      "noted file-task delivered",
+      "reply delivered",
     );
     expect(sentTexts(w.srv, w.asker.id)).toEqual([
-      `[${w.owner.username}] ${askReplyNote({ ...noted, taskId: task.id })}After the launch.`,
+      `[${w.owner.username}] ${askReplyNote(created)}go ahead`,
     ]);
-
-    const blank = await open(w, "Book the hall?");
-    const second = await fileTask(w, blank.id, { text: " \n " });
-    expect(second.status).toBe(201);
-    const secondTask = second.body as TaskItem;
-    await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).length === 2,
-      "blank file-task delivered",
-    );
-    expect(sentTexts(w.srv, w.asker.id)[1]).toBe(
-      `[${w.owner.username}] ${askReplyNote({ ...blank, taskId: secondTask.id })}${ASK_FILED_TEXT}`,
-    );
-    expect(w.srv.agentManager.getTasks()).toHaveLength(2);
-  });
-
-  it("refuses a note that is not a string, and files nothing", async () => {
-    const w = await world();
-    const created = await open(w, "Book the room?");
-    const r = await fileTask(w, created.id, { text: 5 });
-    expect([r.status, r.code]).toEqual([400, "invalid_text"]);
-    expect(w.srv.agentManager.getTasks()).toEqual([]);
-    const still = await call(
-      w.srv,
-      "GET",
-      `/api/agents/${w.asker.id}/asks/${created.id}`,
-      w.as(w.asker.id),
-    );
-    expect(still.status).toBe(200);
-    expect(sentTexts(w.srv, w.asker.id)).toEqual([]);
-  });
-
-  it("is refused where a typed message is, with the same reason, and leaves no task and the ask open", async () => {
-    const w = await world();
-    const created = await open(w, "Full?");
-    await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/messages`,
-      { rawSessionId: w.owner.rawSessionId },
-      { json: { text: "hold on" } },
-    );
-    await waitUntil(
-      () => agentOf(w.srv, w.asker.id).state === "thinking",
-      "busy",
-    );
-    for (let i = 0; ; i++) {
-      const r = w.srv.agentManager.enqueueMessage(w.asker.id, {
-        sender: {
-          kind: "agent",
-          agentId: w.other.id,
-          agentName: "Other",
-          roomName: "r",
-        },
-        text: `filler ${i}`,
-      });
-      if (!r.ok) break;
-    }
-    const typed = await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/messages`,
-      { rawSessionId: w.owner.rawSessionId },
-      { json: { text: "typed" } },
-    );
-    expect(typed.status).toBe(429);
-    const r = await fileTask(w, created.id);
-    expect([r.status, r.code]).toEqual([typed.status, typed.code]);
-    expect(w.srv.agentManager.getTasks()).toEqual([]);
-    const still = await call(
-      w.srv,
-      "GET",
-      `/api/agents/${w.asker.id}/asks/${created.id}`,
-      w.as(w.asker.id),
-    );
-    expect(still.status).toBe(200);
   });
 });
 
@@ -2643,7 +2491,6 @@ describe("a secret request is an ask", () => {
     for (const [verb, json] of [
       ["reply", { text: VALUE }],
       ["dismiss", {}],
-      ["file-task", { text: VALUE }],
       ["simplify", {}],
       ["simplify/undo", {}],
       // Task 1466ea8b: a rewrite or a postpone would carry typed words too.
@@ -3982,44 +3829,25 @@ describe("an ask an app opens", () => {
     expect((await asApp(w, app.token, "GET", `/${made.id}`)).status).toBe(404);
   });
 
-  it("names the app in a dismiss and in a filed task, which also names the agent", async () => {
+  it("names the app in a dismiss", async () => {
     const w = await world();
     const app = await register(w, APP, w.as(w.asker.id));
     const dropped = await opened(w, app.token, "Drop the flaky test?");
-    const filed = await opened(w, app.token, "Rotate the keys?");
-    const sentFor = async (id: string) => {
-      await waitUntil(
-        () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(id)),
-        `answer to ${id} delivered`,
-      );
-      return sentTexts(w.srv, w.asker.id).find((t) => t.includes(id))!;
-    };
-    const owner = { rawSessionId: w.owner.rawSessionId };
-
     const dismissed = await call(
       w.srv,
       "POST",
       `/api/asks/${dropped.id}/dismiss`,
-      owner,
+      { rawSessionId: w.owner.rawSessionId },
       { json: {} },
     );
     expect(dismissed.status).toBe(204);
-    expect(await sentFor(dropped.id)).toContain(APP);
-
-    const r = await call(
-      w.srv,
-      "POST",
-      `/api/asks/${filed.id}/file-task`,
-      owner,
-      { json: {} },
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(dropped.id)),
+      "dismiss delivered",
     );
-    expect(r.status).toBe(201);
-    const task = r.body as TaskItem;
-    expect(task.description).toContain(APP);
-    expect(task.description).toContain(w.asker.name);
-    const note = await sentFor(filed.id);
-    expect(note).toContain(APP);
-    expect(note).toContain(task.id);
+    expect(
+      sentTexts(w.srv, w.asker.id).find((t) => t.includes(dropped.id)),
+    ).toContain(APP);
   });
 
   it("sends a simplify request naming the app, which reads the mark, and the app's rewrite clears it and keeps the original", async () => {
