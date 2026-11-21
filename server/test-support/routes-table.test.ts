@@ -1169,12 +1169,26 @@ describe("route table: agent reference coverage", () => {
     for (const opId of [
       "agents.spawn",
       "agents.kill",
+      "backends.listModels",
       "agents.readInstructions",
       "users.readInstructions",
     ]) {
       expect(reached.has(opId), `${opId} not reached`).toBe(true);
     }
     expect(unreadable).toEqual([]);
+  });
+
+  // Task e340753f: an agent that spawns reads the models route on the page
+  // that teaches the spawn, so it gives modelFamily a listed value and never
+  // guesses from the models running agents use.
+  it("teaches the models route on the spawn's page to an ordinary agent", () => {
+    const topics = AGENT_ROUTE_REFERENCE_TOPICS as Record<string, string>;
+    expect("backends.listModels" in AGENT_ROUTE_REFERENCE_EXEMPTIONS).toBe(
+      false,
+    );
+    expect(topics["backends.listModels"]).toBe(topics["agents.spawn"]);
+    const page = agentReferenceContent(identities[0], topics["agents.spawn"]);
+    expect(page).toContain("`POST /api/backends/:agentType/models`");
   });
 
   it("pins each mapped route's exact method and path in its topic", () => {
@@ -1933,7 +1947,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "office.enterprise.check": { caps: ["office:settings"], emits: [] },
   "validate.cwd": { caps: ["agent:manage"], emits: [] },
   "validate.env": { caps: ["office:read"], emits: [] },
-  "backends.listModels": { caps: ["agent:manage"], emits: [] },
+  // Any-of, like agents.spawn: an agent picks a model for the agents it
+  // spawns, inside its own folder (task e340753f).
+  "backends.listModels": { caps: ["agent:manage", "agent:spawn"], emits: [] },
   // Tasks
   "audit.list": { caps: ["audit:read"], emits: [] },
   "terminalRecordings.list": { caps: ["audit:read"], emits: [] },
@@ -2452,6 +2468,8 @@ const APP_REFUSED_SELF_ONLY_OPIDS = [
   "agents.newConversation",
   "agents.cancelQueued",
   "agents.spawn",
+  // Nor its model listing, which agent:spawn opens (task e340753f).
+  "backends.listModels",
 ];
 
 describe("route table: an APP has its live owner agent's reach", () => {

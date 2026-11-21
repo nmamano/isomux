@@ -2550,6 +2550,7 @@ Coses que pots fer per ell:
   "apiCall.tasks.claimOne": "Reclamar la tasca {task}",
   "apiCall.tasks.markDone": "Marcar la tasca {task} com a feta",
   "apiCall.agents.list": "Llistar els agents de l'oficina",
+  "apiCall.backends.listModels": "Llistar els models d'un motor",
   "apiCall.agents.listKilled": "Llistar els agents eliminats",
   "apiCall.agents.listWithBackRooms":
     "Llistar els agents de l'oficina, rebotigues incloses",

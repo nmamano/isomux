@@ -2547,6 +2547,7 @@ Cosas que puedes hacer por él:
   "apiCall.tasks.claimOne": "Reclamar la tarea {task}",
   "apiCall.tasks.markDone": "Marcar la tarea {task} como hecha",
   "apiCall.agents.list": "Listar los agentes de la oficina",
+  "apiCall.backends.listModels": "Listar los modelos de un motor",
   "apiCall.agents.listKilled": "Listar los agentes eliminados",
   "apiCall.agents.listWithBackRooms":
     "Listar los agentes de la oficina, trastiendas incluidas",

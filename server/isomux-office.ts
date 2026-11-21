@@ -742,7 +742,10 @@ import {
   type Identity,
 } from "./identity/index.ts";
 import { hidesManagerData } from "./system-prompt.ts";
-import { scheduleExceedsAgentFor } from "./cron-agent-limits.ts";
+import {
+  folderInsideFor,
+  scheduleExceedsAgentFor,
+} from "./cron-agent-limits.ts";
 import { appVisibleTo } from "./app-visibility.ts";
 import {
   agentHostMoving,
@@ -6450,6 +6453,8 @@ function buildExecutorDeps(
   register(
     backendsHandlers({
       listModels: (input) => listBackendModels(input),
+      getAgent: (agentId) => agentManager.getAgent(agentId) ?? undefined,
+      folderInsideFor,
     }),
   );
   // System backup status maps the internal BackupStatus to the normalized

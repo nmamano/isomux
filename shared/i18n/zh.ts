@@ -2255,6 +2255,7 @@ export const zh: Catalog = {
   "apiCall.tasks.claimOne": "领取任务 {task}",
   "apiCall.tasks.markDone": "将任务 {task} 标为已完成",
   "apiCall.agents.list": "列出办公室智能体",
+  "apiCall.backends.listModels": "列出引擎的模型",
   "apiCall.agents.listKilled": "列出已终止的智能体",
   "apiCall.agents.listWithBackRooms": "列出办公室智能体（含后屋）",
   "apiCall.agents.listInvalidBack": "列出智能体（后屋筛选条件无效）",

@@ -3724,7 +3724,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "POST",
     path: "/api/backends/:agentType/models",
-    auth: cap("agent:manage", operationalAuthenticated),
+    // Every agent spawns (agent:spawn), so it may read the models it can
+    // spawn with; the handler applies the spawn folder rule.
+    auth: cap(["agent:manage", "agent:spawn"], operationalAuthenticated),
     tokenArea: { area: "agentManagement", level: "read" },
     emits: [],
   }),

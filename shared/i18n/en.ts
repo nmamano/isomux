@@ -2482,6 +2482,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.tasks.claimOne": "Claim task {task}",
   "apiCall.tasks.markDone": "Mark task {task} done",
   "apiCall.agents.list": "List office agents",
+  "apiCall.backends.listModels": "List an engine's models",
   "apiCall.agents.listKilled": "List killed agents",
   "apiCall.agents.listWithBackRooms": "List office agents, back rooms included",
   "apiCall.agents.listInvalidBack": "List agents (invalid back filter)",

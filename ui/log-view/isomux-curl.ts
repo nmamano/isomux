@@ -838,6 +838,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/agents", "apiCall.agents.list"],
   ["GET", "/api/agents", "apiCall.agents.list"],
   ["GET", "/api/agents/*/avatar.svg", "apiCall.agents.avatar"],
+  ["POST", "/api/backends/*/models", "apiCall.backends.listModels"],
   ["POST", "/api/agents/*/messages", "apiCall.agents.sendMessage"],
   ["POST", "/api/agents/*/asks", "apiCall.asks.create"],
   ["GET", "/api/agents/*/asks", "apiCall.asks.list"],
