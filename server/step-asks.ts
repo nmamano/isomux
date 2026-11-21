@@ -71,9 +71,11 @@ import type { StorageApplied } from "./office-storage-routes.ts";
 import {
   WHATSAPP_PREFIX_MAX,
   WHATSAPP_ROUTE_NAME_MAX,
-  chatNameMatches,
+  normaliseWhatsAppPhone,
   normaliseWhatsAppPrefix,
   normaliseWhatsAppRouteName,
+  whatsappChatMatches,
+  whatsappPhoneChat,
   type WhatsAppChatSeen,
   type WhatsAppRoute,
   type WhatsAppRouteDead,
@@ -339,6 +341,7 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "whatsapp-route": [
     "kind",
     "chatName",
+    "phone",
     "agentId",
     "trigger",
     "sendDirect",
@@ -475,18 +478,16 @@ function doneLine(step: AskStep, target: string): LogMessage {
 
 type WhatsAppRouteStep = Extract<AskStep, { kind: "whatsapp-route" }>;
 
-// Whether a row's chat matches the step's name: by the row's name or by the
-// name the bridge saw for its chat.
+// Whether a row's chat matches the step: by the row's name, by the name the
+// bridge saw for its chat, or by the step's number.
 function rowMatches(
   row: WhatsAppRoute,
   step: WhatsAppRouteStep,
   seen: readonly WhatsAppChatSeen[],
 ): boolean {
   return (
-    chatNameMatches(row.name, step.chatName) ||
-    seen.some(
-      (c) => c.chat === row.chat && chatNameMatches(c.name, step.chatName),
-    )
+    whatsappChatMatches(row, step) ||
+    seen.some((c) => c.chat === row.chat && whatsappChatMatches(c, step))
   );
 }
 
@@ -524,8 +525,15 @@ function rowIsStep(row: WhatsAppRoute, step: WhatsAppRouteStep): boolean {
 
 // The name a new row takes: the chat's name as the bridge saw it, cut to the
 // row name's length, else the name the agent gave.
-function newRowName(seenName: string | undefined, chatName: string): string {
-  if (seenName === undefined) return chatName;
+function newRowName(
+  chat: string,
+  seenName: string | undefined,
+  chatName: string,
+): string {
+  // A contact with no saved name is seen as its bare number: the agent's
+  // name for it says more.
+  if (seenName === undefined || chat === whatsappPhoneChat(seenName))
+    return chatName;
   return cutRouteName(seenName) ?? chatName;
 }
 
@@ -1036,7 +1044,8 @@ export function createStepAsks(deps: StepAskDeps) {
   }
 
   // The run of a whatsapp-route step on the picked chat: a chat that matches
-  // the step's name, seen by the bridge or already a row. A chat with a row
+  // the step's name or number, seen by the bridge or already a row, or the
+  // chat of the step's number. A chat with a row
   // moves to the agent with the step's settings (the row keeps its name); a
   // chat with none gets a row.
   function whatsappRouteRun(
@@ -1052,9 +1061,11 @@ export function createStepAsks(deps: StepAskDeps) {
     const seen = wa.chatsSeen(memberUserId);
     const seenChat = seen.find((c) => c.chat === chat);
     const row = wa.rows(memberUserId).find((r) => r.chat === chat);
+    // The step's number routes even when no chat for it was seen.
     const matches =
-      (!!seenChat && chatNameMatches(seenChat.name, step.chatName)) ||
-      (!!row && rowMatches(row, step, seen));
+      (!!seenChat && whatsappChatMatches(seenChat, step)) ||
+      (!!row && rowMatches(row, step, seen)) ||
+      (step.phone !== undefined && chat === whatsappPhoneChat(step.phone));
     if (!matches)
       return {
         ok: false,
@@ -1077,7 +1088,7 @@ export function createStepAsks(deps: StepAskDeps) {
               path: "/api/whatsapp/routes",
               body: {
                 chat,
-                name: newRowName(seenChat?.name, step.chatName),
+                name: newRowName(chat, seenChat?.name, step.chatName),
                 agentId: step.agentId,
                 ...settings,
               },
@@ -1978,6 +1989,16 @@ export function createStepAsks(deps: StepAskDeps) {
           return invalid(
             "step.chatName is a part of the chat's name: 1 to 60 characters on one line",
           );
+        const phone =
+          body.phone === undefined
+            ? undefined
+            : typeof body.phone === "string"
+              ? normaliseWhatsAppPhone(body.phone)
+              : null;
+        if (phone === null)
+          return invalid(
+            "step.phone is the contact's full number with the country code",
+          );
         if (typeof body.agentId !== "string" || body.agentId === "")
           return invalid("step.agentId is an agent id");
         const trigger = body.trigger;
@@ -1990,6 +2011,7 @@ export function createStepAsks(deps: StepAskDeps) {
           step: {
             kind,
             chatName,
+            ...(phone === undefined ? {} : { phone }),
             agentId: body.agentId,
             ...(trigger === undefined ? {} : { trigger }),
             ...settings.set,

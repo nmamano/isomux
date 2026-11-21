@@ -2335,7 +2335,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.self": "This is the agent that asks.",
   "asks.action.gone": "You can no longer reach this agent.",
   "asks.action.whatsappNoMatch":
-    "No WhatsApp chat matches {name} yet. A chat shows here after its next message.",
+    "No WhatsApp chat matches {name}. Tell the agent the contact's phone number.",
   "asks.action.whatsappMoves": "This chat goes to {agent} now. Apply moves it.",
   "asks.action.whatsappManager":
     "{member} manages this agent. Members who can open it can read this chat.",

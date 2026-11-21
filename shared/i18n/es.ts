@@ -2389,7 +2389,7 @@ Cosas que puedes hacer por él:
   "asks.action.self": "Es el agente que lo pide.",
   "asks.action.gone": "Ya no puedes acceder a este agente.",
   "asks.action.whatsappNoMatch":
-    "Aún no hay ningún chat de WhatsApp que coincida con {name}. Un chat aparece aquí después de su siguiente mensaje.",
+    "Ningún chat de WhatsApp coincide con {name}. Dile al agente el número de teléfono del contacto.",
   "asks.action.whatsappMoves":
     "Ahora este chat va a {agent}. Aplicar lo mueve.",
   "asks.action.whatsappManager":

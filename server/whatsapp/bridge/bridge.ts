@@ -12,8 +12,8 @@
 // What it writes to stdout is all the server sees: no message text and no
 // contact number goes into a log line. Of a chat that is not routed, only its
 // id, its name and the time of its messages leave this process. Of the
-// history WhatsApp sends after a link, only each chat's time and the names
-// the member saved leave it.
+// history WhatsApp sends after a link, only each chat's id and time and the
+// names the member saved leave it.
 
 import { randomBytes } from "crypto";
 import { createInterface } from "readline";
@@ -370,12 +370,16 @@ async function pnOf(
 // last message, for the Add picker's order, and the member's saved names.
 // Its messages are never read. A contact's name passes only when it is none
 // of its chat's names in the sync: then the member's saved name replaced it.
+// A contact with a PN and no saved name shows as its number (task a23a66d3),
+// as after a live message.
 async function onHistory(
   chats: HistoryChat[],
   contacts: Contact[],
   s: Socket,
 ): Promise<void> {
   const chatNames = new Map<string, (string | null | undefined)[]>();
+  // Each contact chat with a PN: its id, then its PN.
+  const contactChats: [string, string][] = [];
   for (const c of chats) {
     if (!c.id) continue;
     chatNames.set(c.id, [c.displayName, c.name, c.username]);
@@ -384,6 +388,8 @@ async function onHistory(
     const chat = baileys.jidNormalizedUser(raw);
     if (!group && !chat.endsWith("@s.whatsapp.net") && !chat.endsWith("@lid"))
       continue;
+    const pn = group ? null : await pnOf(chat, c.pnJid ?? undefined, s);
+    if (pn) contactChats.push([chat, pn]);
     const t = c.conversationTimestamp;
     const seconds =
       typeof t === "number"
@@ -392,10 +398,10 @@ async function onHistory(
           ? t.toNumber()
           : 0;
     if (!(seconds > 0)) continue;
-    const pn = group ? null : await pnOf(chat, c.pnJid ?? undefined, s);
     for (const id of new Set([chat, pn ?? chat]))
       send({ ev: "activity", chat: id, at: seconds * 1000 });
   }
+  // The saved names first: a contact that has one never shows as its number.
   onContacts(
     contacts.filter(
       (c) =>
@@ -404,6 +410,9 @@ async function onHistory(
         !(chatNames.get(c.id) ?? []).includes(c.name),
     ),
   );
+  for (const [chat, pn] of contactChats)
+    if (!names.has(pn) && !names.has(chat))
+      announceChat(pn, phoneOf(pn), false);
 }
 
 const timestampMs = (t: WAMessage["messageTimestamp"]): number => {

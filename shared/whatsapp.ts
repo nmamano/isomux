@@ -149,3 +149,21 @@ export function chatNameMatches(name: string, query: string): boolean {
   const q = query.trim().toLowerCase();
   return q.length > 0 && name.trim().toLowerCase().includes(q);
 }
+
+// The chat id of a contact's number (normaliseWhatsAppPhone digits).
+export function whatsappPhoneChat(phone: string): string {
+  return `${phone}@s.whatsapp.net`;
+}
+
+// Whether a chat matches a whatsapp-route step (task a23a66d3): its name
+// holds the step's chatName (chatNameMatches), or its id is the chat of the
+// step's phone. A group never matches by number.
+export function whatsappChatMatches(
+  chat: { chat: string; name: string },
+  step: { chatName: string; phone?: string },
+): boolean {
+  return (
+    chatNameMatches(chat.name, step.chatName) ||
+    (step.phone !== undefined && chat.chat === whatsappPhoneChat(step.phone))
+  );
+}

@@ -467,7 +467,8 @@ describe("whatsapp bridge", () => {
     });
     const { events, seen } = await run(
       {
-        steps: ["history"],
+        // The linked account first: its own chat is never announced.
+        steps: ["me", "history"],
         versionLatest: true,
         routes: ["routed@g.us", "447700900444@s.whatsapp.net"],
         lids: { "222@lid": "447700900222@s.whatsapp.net" },
@@ -490,6 +491,10 @@ describe("whatsapp bridge", () => {
             chat("g4@g.us", 0),
             // A routed chat: its time goes, its history does not.
             chat("routed@g.us", T + 8),
+            // The linked account's own chat.
+            chat("447700900123@s.whatsapp.net", T + 9),
+            // A LID chat with no PN known.
+            chat("333@lid", T + 10),
           ],
           contacts: [],
           messages: [
@@ -517,13 +522,27 @@ describe("whatsapp bridge", () => {
           ["447700900222@s.whatsapp.net", ms(4)],
           ["g2@g.us", ms(5)],
           ["routed@g.us", ms(8)],
+          ["447700900123@s.whatsapp.net", ms(9)],
+          ["333@lid", ms(10)],
         ] as [string, number][]
       ).sort(([a], [b]) => a.localeCompare(b)),
     );
-    // Only times: no message, routed or not, and no text anywhere.
+    // No message, routed or not, and no text anywhere.
+    expect(events.filter((e) => e.ev === "message")).toStrictEqual([]);
+    // Task a23a66d3: each contact with a PN and no saved name, by its PN and
+    // named by its number, so a member can route it before its next message.
+    // Never a group (the sync gives no subject), the account's own chat, or
+    // a LID with no PN.
     expect(
-      events.filter((e) => e.ev === "message" || e.ev === "chat"),
-    ).toStrictEqual([]);
+      events
+        .filter((e) => e.ev === "chat")
+        .map((e) => [e.chat, e.name, e.group])
+        .sort(([a], [b]) => String(a).localeCompare(String(b))),
+    ).toStrictEqual([
+      ["447700900111@s.whatsapp.net", "447700900111", false],
+      ["447700900222@s.whatsapp.net", "447700900222", false],
+      ["447700900444@s.whatsapp.net", "447700900444", false],
+    ]);
     expect(events.map((e) => JSON.stringify(e)).join("\n")).not.toContain(
       "history secret",
     );
@@ -634,8 +653,13 @@ describe("whatsapp bridge", () => {
       chats: chatsOf(history.events),
       senders: sendersOf(history.events),
     }).toStrictEqual({
+      // Task a23a66d3: a contact with no saved name is announced by its
+      // number, never by a name of the sync's; a saved one only by its name.
       chats: [
         [ANA, "Ana Saved", false],
+        [BO, "447700900666", false],
+        [CY, "447700900777", false],
+        [DEE, "447700900888", false],
         [EVE, "Eve Saved", false],
       ],
       senders: [

@@ -333,3 +333,65 @@ it("the moves, manager, other-member and no-match lines show their names as data
   expect(dataChips(line(none, "none"))).toEqual(["book club"]);
   none.view.unmount();
 });
+
+// Task a23a66d3: the agent can give the chat's number. A chat matches by its
+// name or by its number, and with no chat for the number, the number itself
+// is a choice. The member sees the number before Apply.
+const LAURA_PHONE = "447700900456";
+const LAURA = `${LAURA_PHONE}@s.whatsapp.net`;
+const lauraStep = () => step({ chatName: "Laura", phone: LAURA_PHONE });
+
+it("with a number and no chat for it, the number is the choice, shown, and Apply sends its chat id", async () => {
+  chats = [{ chat: BOOK, name: "Book club", group: true }];
+  const m = await mount(lauraStep());
+  await waitFor(() => expect(m.picked()).toBe(LAURA));
+  const text = m.block()!.textContent ?? "";
+  expect(text.includes(LAURA_PHONE)).toBe(true);
+  expect(text.includes("Book club")).toBe(false);
+  fireEvent.click(m.apply()!);
+  await waitFor(() => expect(posts.length).toBe(1));
+  expect([posts[0], postBodies[0]]).toEqual([
+    "/api/asks/wa000001/action",
+    { chat: LAURA },
+  ]);
+});
+
+it("a chat seen under another name matches by its number and shows it, with no second choice for the number; a name match is still a choice", async () => {
+  const OTHER_LAURA = "447700900789@s.whatsapp.net";
+  chats = [
+    { chat: LAURA, name: "Lolo", group: false },
+    { chat: OTHER_LAURA, name: "Laura Smith", group: false },
+    { chat: BOOK, name: "Book club", group: true },
+  ];
+  const m = await mount(lauraStep());
+  await waitFor(() => expect(m.radios().length).toBe(2));
+  expect(
+    m
+      .radios()
+      .map((r) => r.value)
+      .sort(),
+  ).toEqual([LAURA, OTHER_LAURA].sort());
+  const text = m.block()!.textContent ?? "";
+  expect(text.includes("Lolo")).toBe(true);
+  expect(text.includes(LAURA_PHONE)).toBe(true);
+  expect(posts.length).toBe(0);
+});
+
+it("a row on the number's chat under another name is the choice, and the card names the agent it moves from", async () => {
+  routes = [
+    {
+      id: "r1",
+      chat: LAURA,
+      group: false,
+      name: "Mum",
+      agentId: "a3",
+      createdAt: 1,
+    },
+  ];
+  const m = await mount(lauraStep());
+  await waitFor(() => expect(m.picked()).toBe(LAURA));
+  expect(m.radios().length).toBeLessThan(2);
+  expect(m.block()!.querySelectorAll("[data-ask-action-wa-moves]").length).toBe(
+    1,
+  );
+});

@@ -2113,7 +2113,7 @@ export const zh: Catalog = {
   "asks.action.self": "这就是发出请示的智能体。",
   "asks.action.gone": "你已无法访问这个智能体。",
   "asks.action.whatsappNoMatch":
-    "还没有与 {name} 匹配的 WhatsApp 聊天。聊天收到下一条消息后会显示在这里。",
+    "没有与 {name} 匹配的 WhatsApp 聊天。请把联系人的电话号码告诉智能体。",
   "asks.action.whatsappMoves":
     "此聊天现在发给 {agent}。点击应用后将改为发给此智能体。",
   "asks.action.whatsappManager":

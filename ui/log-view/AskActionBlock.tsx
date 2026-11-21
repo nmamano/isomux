@@ -39,7 +39,8 @@ import { Data } from "../components/Data.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
 import {
-  chatNameMatches,
+  whatsappChatMatches,
+  whatsappPhoneChat,
   type WhatsAppChatSeen,
   type WhatsAppRoute,
 } from "../../shared/whatsapp.ts";
@@ -138,43 +139,59 @@ interface ActionView {
 }
 
 // A chat a whatsapp-route step may route: its name as the bridge saw it (else
-// the row's), and its row when it has one.
+// the row's), and its row when it has one. `phone`: the chat is the step's
+// number, shown so the member sees what the agent named (absent when the
+// name is that number).
 interface WhatsAppCandidate {
   chat: string;
   name: string;
   group: boolean;
   row?: WhatsAppRoute;
+  phone?: string;
 }
 
-// The member's chats that match the step's name: those the bridge saw, and
-// those with a row, matched by the seen name or the row's name (the server's
-// rule, step-asks.ts).
+// The member's chats that match the step's name or number: those the bridge
+// saw, and those with a row, matched by the seen name, the row's name or the
+// chat's number (the server's rule, step-asks.ts). With a number that no such
+// chat has, the number's chat itself, under the step's name (task a23a66d3).
 export function whatsappCandidates(
-  chatName: string,
+  step: { chatName: string; phone?: string },
   seen: readonly WhatsAppChatSeen[],
   rows: readonly WhatsAppRoute[],
 ): WhatsAppCandidate[] {
   const out = new Map<string, WhatsAppCandidate>();
   for (const c of seen)
-    if (chatNameMatches(c.name, chatName))
+    if (whatsappChatMatches(c, step))
       out.set(c.chat, { chat: c.chat, name: c.name, group: c.group });
   for (const row of rows) {
-    const seenName = seen.find((c) => c.chat === row.chat)?.name;
+    const seenChat = seen.find((c) => c.chat === row.chat);
     if (
-      chatNameMatches(row.name, chatName) ||
-      (seenName !== undefined && chatNameMatches(seenName, chatName))
+      whatsappChatMatches(row, step) ||
+      (seenChat !== undefined && whatsappChatMatches(seenChat, step))
     )
       out.set(row.chat, {
         chat: row.chat,
-        name: seenName ?? row.name,
+        name: seenChat?.name ?? row.name,
         group: row.group,
       });
   }
+  const phone = step.phone;
+  const phoneChat = phone === undefined ? null : whatsappPhoneChat(phone);
+  if (phoneChat !== null && !out.has(phoneChat))
+    out.set(phoneChat, { chat: phoneChat, name: step.chatName, group: false });
   return [...out.values()].map((c) => {
     const row = rows.find((r) => r.chat === c.chat);
-    return row ? { ...c, row } : c;
+    const shown =
+      phone !== undefined && c.chat === phoneChat && c.name !== phone
+        ? { phone }
+        : {};
+    return row ? { ...c, ...shown, row } : { ...c, ...shown };
   });
 }
+
+// A candidate's name, with the number when it has one to show.
+const candidateLabel = (c: WhatsAppCandidate): string =>
+  c.phone === undefined ? c.name : `${c.name} (+${c.phone})`;
 
 // A Discord place as one key: its bot, scope and target.
 const placeKey = (p: { botId: string; scope: string; targetId: string }) =>
@@ -347,7 +364,7 @@ export function AskActionBlock({
   const [waPick, setWaPick] = useState<string | null>(null);
   const waCandidates =
     step.kind === "whatsapp-route" && waChats && waRows
-      ? whatsappCandidates(step.chatName, waChats, waRows)
+      ? whatsappCandidates(step, waChats, waRows)
       : [];
   // One match is picked for the member; several wait for their choice.
   const waChosen =
@@ -1548,7 +1565,7 @@ export function AskActionBlock({
                 checked={waChosen === c.chat}
                 onChange={() => setWaPick(c.chat)}
               />
-              <span {...noTranslate()}>{c.name}</span>
+              <span {...noTranslate()}>{candidateLabel(c)}</span>
               {c.group && (
                 <span style={muted}>
                   {t("integrations.whatsapp.rows.group")}
@@ -1567,7 +1584,7 @@ export function AskActionBlock({
         </div>,
       );
     return {
-      name: `WhatsApp: ${picked?.name ?? s.chatName}`,
+      name: `WhatsApp: ${picked ? candidateLabel(picked) : s.chatName}`,
       loading: waMember && waChats === null,
       rows,
       lines,

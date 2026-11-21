@@ -611,6 +611,145 @@ describe("a whatsapp-route ask at run", () => {
   });
 });
 
+// Task a23a66d3: the agent can give the chat's number too. A chat then
+// matches by its name or by its number, and the number's chat can be routed
+// before the bridge saw it (no message since the link, or a restart).
+describe("a whatsapp-route ask with the chat's number", () => {
+  const LAURA_PHONE = "447700900456";
+  const LAURA = `${LAURA_PHONE}@s.whatsapp.net`;
+
+  it("keeps the number in its normal form, and refuses one that is not a full number", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const helper = await spawn(o, "Helper");
+    link(o, o.morganId, SEEN);
+    const entry = await opened(
+      o,
+      asker.id,
+      routeStep(helper.id, "Laura", { phone: "+44 7700-900456" }),
+    );
+    expect(entry.step as unknown).toEqual({
+      kind: "whatsapp-route",
+      chatName: "Laura",
+      agentId: helper.id,
+      phone: LAURA_PHONE,
+    });
+    for (const phone of ["1234567", "not a number", "", 447700900456, LAURA])
+      expect({
+        phone,
+        ...outcome(
+          await ask(o, asker.id, routeStep(helper.id, "Laura", { phone })),
+        ),
+      }).toEqual({ phone, status: 400, code: "invalid_request" });
+  });
+
+  it("routes the number's chat that the bridge did not see and no row has, and only that chat", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const pm = await spawn(o, "PM", "Casey");
+    link(o, o.morganId, SEEN);
+    // With no number, the unseen chat does not match.
+    const byName = await opened(o, asker.id, routeStep(pm.id, "Laura"));
+    expect(
+      outcome(await apply(o, o.morgan, byName.id, { chat: LAURA })),
+    ).toEqual({ status: 409, code: "chat_not_matching" });
+    const entry = await opened(
+      o,
+      asker.id,
+      routeStep(pm.id, "Laura", { phone: LAURA_PHONE }),
+    );
+    // Another unseen contact, the same digits as a LID, a seen chat that
+    // matches neither the name nor the number.
+    for (const chat of [
+      "447700900457@s.whatsapp.net",
+      `${LAURA_PHONE}@lid`,
+      CONTACT,
+    ])
+      expect({
+        chat,
+        ...outcome(await apply(o, o.morgan, entry.id, { chat })),
+      }).toEqual({ chat, status: 409, code: "chat_not_matching" });
+    expect(rowsOf(o, o.morganId)).toEqual([]);
+    expect(
+      (await apply(o, o.morgan, entry.id, { chat: LAURA })).status,
+    ).toBeLessThan(300);
+    const rows = rowsOf(o, o.morganId);
+    expect(rows.map((r) => [r.chat, r.group, r.name, r.agentId])).toEqual([
+      [LAURA, false, "Laura", pm.id],
+    ]);
+    await waitUntil(
+      async () => (await askStatus(o, asker.id, entry.id)) === "done",
+      "the ask closes as done",
+    );
+  });
+
+  // A contact with no saved name is seen as its bare number: the new row
+  // takes the agent's name for it. A saved name stays the row's name.
+  for (const [seenName, rowName] of [
+    ["Lolo", "Lolo"],
+    [LAURA_PHONE, "Laura"],
+  ])
+    it(`matches a seen chat by its number when its name does not match, and names the new row ${rowName} (seen as ${seenName})`, async () => {
+      const o = await office();
+      const asker = await spawn(o, "Asker");
+      const helper = await spawn(o, "Helper");
+      link(o, o.morganId, [
+        ...SEEN,
+        { chat: LAURA, name: seenName, group: false },
+      ]);
+      const entry = await opened(
+        o,
+        asker.id,
+        routeStep(helper.id, "Laura", { phone: LAURA_PHONE }),
+      );
+      expect(
+        (await apply(o, o.morgan, entry.id, { chat: LAURA })).status,
+      ).toBeLessThan(300);
+      expect(
+        rowsOf(o, o.morganId).map((r) => [r.chat, r.name, r.agentId]),
+      ).toEqual([[LAURA, rowName, helper.id]]);
+      await waitUntil(
+        async () => (await askStatus(o, asker.id, entry.id)) === "done",
+        "the ask closes as done",
+      );
+    });
+
+  it("a row on the number's chat under another name counts: the step is done when it goes to the agent, and the run moves it when it does not", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const helper = await spawn(o, "Helper");
+    const pm = await spawn(o, "PM", "Casey");
+    // Not in the seen list: after a restart.
+    link(o, o.morganId, [], [row("r1", LAURA, "Mum", helper.id)]);
+    expect(
+      outcome(
+        await ask(
+          o,
+          asker.id,
+          routeStep(helper.id, "Laura", { phone: LAURA_PHONE }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: "step_done" });
+    // Without the number, the row does not match the name.
+    await opened(o, asker.id, routeStep(helper.id, "Laura"));
+    const entry = await opened(
+      o,
+      asker.id,
+      routeStep(pm.id, "Laura", { phone: LAURA_PHONE }),
+    );
+    expect(
+      (await apply(o, o.morgan, entry.id, { chat: LAURA })).status,
+    ).toBeLessThan(300);
+    expect(
+      rowsOf(o, o.morganId).map((r) => [r.id, r.chat, r.name, r.agentId]),
+    ).toEqual([["r1", LAURA, "Mum", pm.id]]);
+    await waitUntil(
+      async () => (await askStatus(o, asker.id, entry.id)) === "done",
+      "the ask closes as done",
+    );
+  });
+});
+
 describe("a whatsapp-route ask from /mcp", () => {
   it("open_ask keeps every field of the step", async () => {
     const o = await office();
@@ -640,6 +779,8 @@ describe("a whatsapp-route ask from /mcp", () => {
       sendDirect: true,
       prefix: "[bot]",
       ownMessages: true,
+      // zod strips a key its schema lacks (task a23a66d3).
+      phone: "447700900456",
     });
     const result = (await client.callTool({
       name: "open_ask",

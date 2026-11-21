@@ -94,6 +94,10 @@ export type ActionStepRequest =
   | {
       kind: "whatsapp-route";
       chatName: string;
+      // The contact's number (normaliseWhatsAppPhone digits), when the agent
+      // knows it: a chat matches by it too, and the card offers the number
+      // when no chat has it.
+      phone?: string;
       agentId: string;
       trigger?: WhatsAppRouteTrigger;
       sendDirect?: boolean;

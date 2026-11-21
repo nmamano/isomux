@@ -2393,7 +2393,7 @@ Coses que pots fer per ell:
   "asks.action.self": "És l'agent que ho demana.",
   "asks.action.gone": "Ja no pots accedir a aquest agent.",
   "asks.action.whatsappNoMatch":
-    "Encara no hi ha cap xat de WhatsApp que coincideixi amb {name}. Un xat apareix aquí després del seu missatge següent.",
+    "Cap xat de WhatsApp no coincideix amb {name}. Digues a l'agent el número de telèfon del contacte.",
   "asks.action.whatsappMoves": "Ara aquest xat va a {agent}. Aplica el mou.",
   "asks.action.whatsappManager":
     "{member} gestiona aquest agent. Els membres que el poden obrir poden llegir aquest xat.",
