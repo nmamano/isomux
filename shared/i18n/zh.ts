@@ -4063,7 +4063,7 @@ export const zh: Catalog = {
   "systemEntries.memberFolderUnreachable":
     "此智能体以系统用户 {user} 运行，该用户无法打开其文件夹 {path}。要授予它读取权限，请以 root 或这些文件夹的所有者身份运行以下命令：{commands}。这些命令还会让该用户打开上层文件夹中所有用户都能打开的任何文件夹。为避免这种情况，请使用任何主目录之外的文件夹，或用 `chmod o-rwx` 关闭这些文件夹。或点击日志视图标题栏中的智能体名称选择其他文件夹。",
   "systemEntries.memberFolderOfficeOnly":
-    "此智能体以系统用户 {user} 运行，该用户无法打开其文件夹 {path}。此文件夹位于办公室的主目录或数据文件夹中，或包含其中之一，因此 {user} 不能打开它。请点击日志视图标题栏中的智能体名称选择其他文件夹。",
+    "此智能体以系统用户 {user} 运行，该用户无法打开其文件夹 {path}。此文件夹位于办公室的主目录或数据文件夹中，或包含其中之一：共享它会让 {user} 读取办公室的文件。请点击日志视图标题栏中的智能体名称选择其他文件夹。",
   "systemEntries.memberSkillUnreadable":
     "无法从此智能体的文件夹读取项目技能 /{name}。",
   "systemEntries.folderNotAllowed": "此智能体无法在其文件夹中启动。{reason}",

@@ -4572,7 +4572,7 @@ Cosas que puedes hacer por él:
   "systemEntries.memberFolderUnreachable":
     "Este agente se ejecuta como el usuario del sistema {user}, que no puede abrir su carpeta {path}. Para darle acceso de lectura, ejecuta estas órdenes como root o como propietario de las carpetas: {commands}. Estas órdenes también permiten a ese usuario abrir cualquier carpeta que todos los usuarios pueden abrir dentro de las carpetas superiores. Para evitarlo, usa una carpeta fuera de cualquier carpeta personal, o cierra esas carpetas con `chmod o-rwx`. O haz clic en el nombre del agente en la cabecera de la vista del registro para elegir otra carpeta.",
   "systemEntries.memberFolderOfficeOnly":
-    "Este agente se ejecuta como el usuario del sistema {user}, que no puede abrir su carpeta {path}. Esta carpeta está dentro de la carpeta personal o de datos de la oficina, o contiene una de ellas, así que {user} no puede abrirla. Haz clic en el nombre del agente en la cabecera de la vista del registro para elegir otra carpeta.",
+    "Este agente se ejecuta como el usuario del sistema {user}, que no puede abrir su carpeta {path}. Esta carpeta está dentro de la carpeta personal o de datos de la oficina, o contiene una de ellas: compartirla permitiría a {user} leer los archivos de la oficina. Haz clic en el nombre del agente en la cabecera de la vista del registro para elegir otra carpeta.",
   "systemEntries.memberSkillUnreadable":
     "No se pudo leer la habilidad de proyecto /{name} de la carpeta de este agente.",
   "systemEntries.folderNotAllowed":
