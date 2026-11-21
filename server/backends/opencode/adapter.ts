@@ -657,7 +657,7 @@ export function createOpenCodeBackend(
     // An isolated member's profile is in their agent space, which this sync
     // check does not read: trusted. The server's 404 for the session then
     // drops the id (transport sessionNotFoundIn, agent-manager
-    // recoverGoneMemberSession). The rig cannot run OpenCode:
+    // recoverGoneSession). The rig cannot run OpenCode:
     // transport-session-gone.test.ts proves it. An empty session resumes.
     if (isMemberEnv(opts.env)) return "durable";
     const own = sessionState(sessionId, opts.environmentKey, opts.access);

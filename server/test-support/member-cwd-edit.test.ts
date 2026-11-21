@@ -2,9 +2,12 @@
 // conversation (task 6dbd3d4f). The member's runner moves the transcript and,
 // when it moved nothing, the edit asks whether the transcript is already at
 // the target. The properties: that question goes to the member's host, never
-// to the office's files; an edit that is refused (no transcript at either
-// end, or a host that cannot answer) leaves the agent's folder and the
-// session's stamp both at the old folder, and names the folders.
+// to the office's files; an edit that is refused (a host that cannot
+// answer) leaves the agent's folder and the session's stamp both at the old
+// folder, and names the folders. Since task 3a2de351 the member's runner is
+// first asked to put the transcript back from the member's own store, and
+// a transcript at neither end applies the folder and starts a new
+// conversation.
 //
 // The member host's fs here answers `exists` only from `present`, so a check
 // that read the office's disk, or asked about the wrong path, shows red.
@@ -23,6 +26,7 @@ import {
 } from "../persistence.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { createMember, deleteUserById } from "../users.ts";
+import { claudeBackend } from "../backends/claude.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
 
@@ -41,6 +45,8 @@ let asked: string[];
 let existsFails: Error | null;
 // The claude-cwd-move entries the member's runner got.
 let moves: Record<string, unknown>[];
+// The engine-session-prepare entries the member's runner got.
+let prepares: Record<string, unknown>[];
 
 beforeEach(async () => {
   const made = createMember(`CwdAlice${crypto.randomUUID().slice(0, 8)}`, {
@@ -58,6 +64,7 @@ beforeEach(async () => {
   asked = [];
   existsFails = null;
   moves = [];
+  prepares = [];
   const fs: AgentFs = {
     ...localAgentFs,
     exists: async (path) => {
@@ -73,6 +80,10 @@ beforeEach(async () => {
     name: string,
     input: Record<string, unknown>,
   ) => {
+    if (name === "engine-session-prepare") {
+      prepares.push(input);
+      return { restored: 0, touched: 0 };
+    }
     if (name !== "claude-cwd-move") throw new Error(`unexpected ${name}`);
     moves.push(input);
     return { ok: true, moved: false };
@@ -113,7 +124,10 @@ async function memberAgent() {
     username: null,
   } as unknown as PersistedAgent;
   const mgr = createAgentManager({
-    resolveBackend: () => new FakeBackend({ storedSessionState: "durable" }),
+    resolveBackend: () =>
+      Object.assign(new FakeBackend({ storedSessionState: "durable" }), {
+        sessionFiles: claudeBackend.sessionFiles,
+      }),
     officeState: new OfficeState({
       rooms: [{ id: "room-cwd-edit", name: "room-cwd-edit", prompt: null }],
     }),
@@ -171,18 +185,26 @@ describe("an isolated member's Claude agent with a conversation changes folder",
     }).toEqual({ mirror: newCwd, stamp: newCwd });
   });
 
-  it("is refused with nothing changed when the transcript is at neither end", async () => {
+  // MUTANTS: the put-back run on the office host (the office cannot link a
+  // member's file: protected_hardlinks) or with the office's agent root
+  // (the member's store is in their own agent space); no put-back before
+  // the move; the old refusal kept; the session id kept.
+  it("asks the member's runner to put the transcript back from the member's store, then applies the folder and starts fresh when it is at neither end", async () => {
     const { mgr, agentId } = await memberAgent();
-    const failure = await editFailure(mgr, agentId);
+    await mgr.editAgent(agentId, { cwd: newCwd });
+    expect(prepares).toHaveLength(1);
+    expect(prepares[0].root).toBe(
+      claudeProjectDir(oldCwd, buildEnvForUserId(alice)!),
+    );
+    expect(prepares[0].store).toBe(
+      join(iso.member.host.agentRoot(), "engine-sessions", agentId, SESSION),
+    );
     // The member's host was asked, and said no.
     expect(asked).toContain(transcriptAt(newCwd));
     expect({
       mirror: mgr.getAgent(agentId)?.cwd,
-      stamp: getSessionCwd(agentId, SESSION),
-    }).toEqual({ mirror: oldCwd, stamp: oldCwd });
-    // A refusal the member can act on names the folders.
-    expect(failure.message).toContain(oldCwd);
-    expect(failure.message).toContain(newCwd);
+      session: mgr.getCurrentSessionId(agentId),
+    }).toEqual({ mirror: newCwd, session: null });
   });
 
   it("is refused with nothing changed when the member's host cannot answer", async () => {

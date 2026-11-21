@@ -379,6 +379,7 @@ export class RunnerChild extends EventEmitter implements AgentChild {
         fullEnv: definedEnv(env),
         stderr: options.stderr ?? "pipe",
         ...(options.isolate ? { isolate: true } : {}),
+        ...(options.prepare ? { prepare: options.prepare } : {}),
       },
       {
         control: (message) => {

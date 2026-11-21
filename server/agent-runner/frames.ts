@@ -4,6 +4,8 @@
 // and the payload. One Unix connection carries one operation, and its first
 // frame is a JSON request.
 
+import type { SessionFilesPrepare } from "../engine-session-store.ts";
+
 export const FRAME_JSON = 1;
 export const FRAME_STDIN = 2;
 export const FRAME_STDOUT = 3;
@@ -88,6 +90,8 @@ export type RunnerRequest =
       stderr?: "pipe" | "ignore";
       // Wrap argv in its own PID namespace (server/process-isolation.ts).
       isolate?: boolean;
+      // Run before argv starts (prepareResume, server/engine-session-store.ts).
+      prepare?: SessionFilesPrepare;
     }
   // stream: the input is the first line of the entry's stdin, and the
   // client's stdin frames follow it (a fixed entry that takes a body).

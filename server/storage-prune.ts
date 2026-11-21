@@ -67,7 +67,7 @@
 // a temp fixture tree with zero reference to the real ~/.isomux.
 
 import { join, resolve, sep, dirname } from "path";
-import { readdirSync, lstatSync, realpathSync, unlinkSync } from "fs";
+import { readdirSync, lstatSync, realpathSync, rmSync, unlinkSync } from "fs";
 import { removeMemberShareFile } from "./member-share-files.ts";
 import {
   lstat as lstatAsync,
@@ -114,6 +114,9 @@ export interface PruneDeps {
   // <stateRoot>/logs. Each target selects its own fence root.
   logsDir: string;
   tokenLogsDir: string;
+  // <agent root>/engine-sessions (server/engine-session-store.ts): a pruned
+  // session's store goes with its transcript. Absent: no store is removed.
+  engineSessionsDir?: string;
   // <stateRoot>/terminal-recordings, and the recordings still being written.
   terminalRecordingsDir: string;
   liveTerminalRecordingIds: ReadonlySet<string>;
@@ -782,6 +785,32 @@ export function planPrune(
 // Files the apply pass declined to delete after re-checking ride in `refused`.
 export type PruneResult = PruneResultWire;
 
+// The store of the office's own link to a pruned session
+// (server/engine-session-store.ts): engine-sessions/<agentId>/<sessionId>.
+// Both names came from the logs listing; one that is not a single path
+// segment is left alone. A store the office user cannot remove (another
+// OS user's agent space) stays.
+function removeEngineSessionStore(
+  engineSessionsDir: string | undefined,
+  candidate: PruneCandidate,
+): void {
+  if (!engineSessionsDir) return;
+  const { agentId, sessionId } = candidate;
+  const segment = (name: string | undefined): name is string =>
+    !!name && name !== "." && name !== ".." && !/[/\\]/.test(name);
+  if (!segment(agentId) || !segment(sessionId)) return;
+  try {
+    rmSync(join(engineSessionsDir, agentId, sessionId), {
+      recursive: true,
+      force: true,
+    });
+  } catch (err) {
+    console.error(
+      `[storage-prune] could not remove the engine-session store of ${agentId}/${sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 function unlinkTranscriptTwin(abs: string): void {
   const twin = abs.endsWith(COMPRESSED_TRANSCRIPT_SUFFIX)
     ? abs.slice(0, -".gz".length)
@@ -908,7 +937,10 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
       unlinkSync(abs);
       // The other form of the same session, left by a crash (planTranscripts
       // counted its bytes in this candidate).
-      if (plan.target === "transcripts") unlinkTranscriptTwin(abs);
+      if (plan.target === "transcripts") {
+        unlinkTranscriptTwin(abs);
+        removeEngineSessionStore(deps.engineSessionsDir, candidate);
+      }
       // The copy in a member's share (member-share-files.ts), by the path
       // that passed the fence: <agentId>/files/<name>.
       if (plan.target === "attachments") removeShareCopy(candidate.path);

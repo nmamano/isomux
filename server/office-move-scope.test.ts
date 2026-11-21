@@ -5,7 +5,7 @@
 // SQLite side files).
 
 import { describe, expect, it } from "bun:test";
-import { BACKUP_EXCLUSIONS } from "./backup-exclusions.ts";
+import { BACKUP_EXCLUSIONS, tarGlobSource } from "./backup-exclusions.ts";
 import { BACKEND_CREDENTIAL_PATHS } from "./backend-credential-paths.ts";
 import {
   MOVE_STATE_FILE,
@@ -176,6 +176,22 @@ describe("the move scope", () => {
       "work/agent-home/.codex/auth.json",
     ])
       expect([p, verdict(s, p)]).toEqual([p, { in: true }]);
+  });
+
+  // Task 3a2de351: the store holds hard links to the engine's files, which
+  // a backup would store a second time; a move carries it, since a
+  // conversation the engine swept lives only there.
+  // MUTANTS: no backup exclusion for engine-sessions; the id in the bound
+  // list (the move leaves the store on the old box).
+  it("leaves the engine-session store out of a backup and carries it in a move", () => {
+    const p = ".isomux/engine-sessions/agent-a/5e55/5e55.jsonl";
+    const excludedBy = BACKUP_EXCLUSIONS.filter((e) =>
+      e
+        .archivePatterns(".isomux")
+        .some((g) => new RegExp(`^${tarGlobSource(g)}$`).test(p)),
+    ).map((e) => e.id);
+    expect(excludedBy).toHaveLength(1);
+    expect([p, verdict(scope(), p)]).toEqual([p, { in: true }]);
   });
 
   it("matches a backup exclusion as tar does: rooted at the state root, and its * crosses folders", () => {

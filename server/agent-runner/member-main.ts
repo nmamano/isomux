@@ -35,6 +35,8 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "tree-in": () => import("./entries/tree-in.ts"),
   "tree-place": () => import("./entries/tree-place.ts"),
   "claude-cwd-move": () => import("./entries/claude-cwd-move.ts"),
+  "engine-session-keep": () => import("./entries/engine-session-keep.ts"),
+  "engine-session-prepare": () => import("./entries/engine-session-prepare.ts"),
   "folder-files": () => import("./entries/folder-files.ts"),
   "opencode-inspect": () => import("./entries/opencode-inspect.ts"),
   "project-skills": () => import("./entries/project-skills.ts"),

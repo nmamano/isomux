@@ -2,6 +2,8 @@
 // live state the pruner must not delete. Moved out of buildExecutorDeps in
 // server/isomux-office.ts, which registers them.
 import { join } from "path";
+import { officeAgentHost } from "./agent-host.ts";
+import { engineSessionsRoot } from "./engine-session-store.ts";
 import { AsksUnavailableError } from "./asks.ts";
 import { STATE_ROOT } from "./config.ts";
 import { agentManager, askStore, storageRoots } from "./office-managers.ts";
@@ -134,6 +136,7 @@ export function createStorageOps(applied: () => void): StorageOps {
     return {
       logsDir: join(STATE_ROOT, "logs"),
       tokenLogsDir: join(STATE_ROOT, "token-logs"),
+      engineSessionsDir: engineSessionsRoot(officeAgentHost().agentRoot()),
       terminalRecordingsDir: join(STATE_ROOT, TERMINAL_RECORDINGS_DIR),
       liveTerminalRecordingIds: liveTerminalRecordingIds(),
       now: Date.now(),

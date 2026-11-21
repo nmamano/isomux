@@ -1649,7 +1649,14 @@ describe("Claude auth-error status checks", () => {
     });
   }
 
-  it("keeps the cwd-specific error and rolls back edits when a legacy transcript is missing", async () => {
+  // Task 3a2de351: the transcript is in neither folder and the office keeps
+  // no copy of it, so no resume can work. The edit applies the folder and
+  // the agent starts a new conversation there, with a line that says so;
+  // it no longer refuses.
+  // MUTANTS: the edit still throws "cwd change aborted" (the old refusal);
+  // the session id kept (the replace resumes a conversation that is gone);
+  // no chat line; the folder applied but the name rolled back.
+  it("applies the folder and starts a new conversation when a legacy transcript is missing at both ends", async () => {
     const fake = new FakeBackend({
       session: {
         onSend: (_text, _attachments, session) =>
@@ -1664,21 +1671,33 @@ describe("Claude auth-error status checks", () => {
       expect(
         getSessionClaudeConfigDir(agentId, fake.sessions[0].sessionId),
       ).toBeUndefined();
-      const before = mgr.getAgent(agentId)!;
-      const oldName = before.name;
-      const oldCwd = before.cwd;
       const newCwd = join(STATE_ROOT, `missing-transcript-${agentId}`);
       mkdirSync(newCwd, { recursive: true });
-      const failure = await mgr
-        .editAgent(agentId, { cwd: newCwd, name: "Should roll back" })
-        .then(
-          () => null,
-          (error: unknown) => error,
-        );
-      expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toContain("cwd change aborted");
-      expect(mgr.getAgent(agentId)?.cwd).toBe(oldCwd);
-      expect(mgr.getAgent(agentId)?.name).toBe(oldName);
+      await mgr.editAgent(agentId, { cwd: newCwd, name: "Moved on" });
+      expect(mgr.getAgent(agentId)?.cwd).toBe(newCwd);
+      expect(mgr.getAgent(agentId)?.name).toBe("Moved on");
+      // The old conversation is dropped: the live session was replaced by a
+      // new one in the new folder (a real Claude reports its id only at its
+      // first turn; this fake reports it at once).
+      const oldSession = fake.sessions[0];
+      expect(mgr.getCurrentSessionId(agentId)).not.toBe(oldSession.sessionId);
+      const replaced = fake.sessions.at(-1)!;
+      expect([replaced.isResume, replaced.opts.cwd]).toEqual([false, newCwd]);
+      expect(
+        mgr
+          .getAgentLogs(agentId)
+          .filter((entry) =>
+            (entry.message ?? []).some(
+              (part) =>
+                typeof part !== "string" &&
+                part.key.startsWith("systemEntries.sessionNotResumable"),
+            ),
+          ),
+      ).toHaveLength(1);
+      // The next message starts a new conversation in the new folder.
+      await mgr.sendMessage(agentId, "second", "tester");
+      const next = fake.sessions.at(-1)!;
+      expect([next.isResume, next.opts.cwd]).toEqual([false, newCwd]);
     } finally {
       await mgr.kill(agentId);
     }

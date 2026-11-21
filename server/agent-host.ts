@@ -4,6 +4,7 @@
 // RunnerAgentHost (server/agent-runner/client.ts), which asks the agent runner
 // to do the same work as the agent user.
 
+import type { SessionFilesPrepare } from "./engine-session-store.ts";
 import { spawn } from "child_process";
 import { EventEmitter } from "events";
 import { constants, existsSync } from "fs";
@@ -152,6 +153,10 @@ export interface SpawnChildOptions {
   // Run argv in its own PID namespace (server/process-isolation.ts). The
   // caller decides; the host only applies it.
   isolate?: boolean;
+  // A runner host runs it (prepareResume, server/engine-session-store.ts)
+  // as its user before it spawns argv. The local host never gets one: its
+  // caller runs the step in process.
+  prepare?: SessionFilesPrepare;
 }
 
 export interface RunOptions {

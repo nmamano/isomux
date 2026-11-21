@@ -396,6 +396,32 @@ describe("applyPrune", () => {
     expect(existsSync(join(logs, "agent-a", "second.jsonl"))).toBe(true);
   });
 
+  // Task 3a2de351: a pruned session's store of engine files goes with its
+  // log; the store of a session that stays is kept.
+  // MUTANTS: applyPrune leaves the store (a killed agent's last conversation
+  // stays on disk for good); removes the agent's whole store folder.
+  it("removes the engine-session store of each pruned session, and only those", () => {
+    const logs = fourOldSessions();
+    const engineSessionsDir = join(logs, "..", "engine-sessions");
+    for (const sid of ["oldest", "newest"])
+      writeAged(
+        join(engineSessionsDir, "agent-a", sid, `${sid}.jsonl`),
+        sid,
+        400,
+      );
+    const d = deps(logs, { engineSessionsDir } as Partial<PruneDeps>);
+    const plan = planPrune("transcripts", POLICY, d);
+    expect(sessionIds(plan)).toEqual(["oldest", "third"]);
+    expect(applyPrune(plan, d).deleted).toBe(2);
+    expect(existsSync(join(logs, "agent-a", "oldest.jsonl"))).toBe(false);
+    expect(existsSync(join(engineSessionsDir, "agent-a", "oldest"))).toBe(
+      false,
+    );
+    expect(
+      existsSync(join(engineSessionsDir, "agent-a", "newest", "newest.jsonl")),
+    ).toBe(true);
+  });
+
   it("aborts the WHOLE run when any candidate escapes the logs root", () => {
     const logs = fourOldSessions();
     const d = deps(logs);

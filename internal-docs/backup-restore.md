@@ -160,8 +160,12 @@ not `~/isomux-backups`.
 A copy keeps office state and history, including provider sessions,
 memories, app registrations and app data. It omits known backend login files,
 managed environment files, secrets, app runtime credential files, private legacy TLS
-material, and Codex shell snapshots (`server/backup-exclusions.ts`,
-`BACKUP_EXCLUSIONS`).
+material, Codex shell snapshots, and `engine-sessions/`
+(`server/backup-exclusions.ts`, `BACKUP_EXCLUSIONS`). `engine-sessions/` holds
+second names of the engines' own session files
+(`internal-docs/engine-sessions-design.md`): a copy of each name would store
+them twice. So a conversation that only the store kept, after the engine
+deleted its own file, is not in a copy.
 It also omits what Isomux or a backend makes again
 (`regenerableBackupPaths`): in each OpenCode profile `cache/`, `tmp/`,
 `home/.npm/` and `config/opencode/node_modules/`; in `codex-home/` and each

@@ -1,6 +1,7 @@
 // The backup's exclusion list (moved out of server/backup.ts so the office
 // move can share it without loading the backup scheduler; task 78733adf).
-// Each entry is a credential or secret store the daily backup leaves out, as
+// Each entry is a credential or secret store (or, for engine-sessions, a
+// second name of files kept elsewhere) the daily backup leaves out, as
 // globs in tar's syntax (tarGlobSource) rooted at the state root's name. The
 // office move copies an entry only when its id is in MOVE_CARRIED_UNITS
 // (server/office-move-scope.ts): put a new id there, or in MOVE_BOUND_UNITS
@@ -75,6 +76,14 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   {
     id: "personal-environment",
     archivePatterns: (root) => rootedDirectory(root, "user-env"),
+  },
+  // Not a secret store: second names (hard links) of the engines' own
+  // session files (server/engine-session-store.ts). The backup copies each
+  // name as its own file, so it would store them twice where an engine's
+  // home is in the state root. The office move carries it.
+  {
+    id: "engine-sessions",
+    archivePatterns: (root) => rootedDirectory(root, "engine-sessions"),
   },
   // The whole directory, so a temp file mid-write stays out too.
   {

@@ -4553,7 +4553,7 @@ export const codexBackend: Backend = {
 
   // An isolated member's rollouts are in their agent space, which these sync
   // checks do not read: trusted. Codex's thread/resume error then drops the
-  // id (agent-manager recoverGoneMemberSession). Proved by the rig case in
+  // id (agent-manager recoverGoneSession). Proved by the rig case in
   // member-rig.integration.test.ts, "recovers a member's agent whose
   // stored conversation is gone or empty, and treats a signed-out member
   // Codex as an office one".

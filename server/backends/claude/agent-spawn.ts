@@ -10,12 +10,16 @@ import type {
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentHost } from "../../agent-host.ts";
+import type { SessionFilesPrepare } from "../../engine-session-store.ts";
 import { hostForEnv } from "../../member-hosts.ts";
 
 export function spawnClaudeThroughHost(
   host: AgentHost,
   { command, args, cwd, env, signal }: SpawnOptions,
   isolate = false,
+  // A resume through a runner host: the runner's step before the CLI starts
+  // (server/engine-session-store.ts prepareResume).
+  prepare?: SessionFilesPrepare,
 ): SpawnedProcess {
   // The SDK reads no stderr from a custom spawn.
   const child = host.spawnChild([command, ...args], {
@@ -23,6 +27,7 @@ export function spawnClaudeThroughHost(
     env,
     stderr: "ignore",
     ...(isolate ? { isolate: true } : {}),
+    ...(prepare && host.kind === "runner" ? { prepare } : {}),
   });
   if (signal.aborted) child.kill("SIGTERM");
   else {
@@ -39,7 +44,10 @@ export function spawnClaudeThroughHost(
 // Only the agent session call sites ask for it.
 export function withAgentSpawn(
   options: Options,
-  { isolate = false }: { isolate?: boolean } = {},
+  {
+    isolate = false,
+    prepare,
+  }: { isolate?: boolean; prepare?: SessionFilesPrepare } = {},
 ): Options {
   // An isolated member's env names its member: the CLI starts on that
   // member's host, which refuses any env not built for them.
@@ -51,6 +59,6 @@ export function withAgentSpawn(
     pathToClaudeCodeExecutable: host.claudeBin(),
     env: options.env ?? host.baseEnv(),
     spawnClaudeCodeProcess: (spawn) =>
-      spawnClaudeThroughHost(host, spawn, isolate),
+      spawnClaudeThroughHost(host, spawn, isolate, prepare),
   };
 }

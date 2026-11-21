@@ -11,6 +11,9 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   startTestServer,
   type TestServer,
@@ -2006,10 +2009,10 @@ describe("routes/tasks REST: the assignee's agent id", () => {
     const worker = await spawnAgent(srv, "Worker");
     const t = await create("held");
     await claim(t.id, "Worker");
-    // A session-bearing Claude agent must move its .jsonl on a cwd change; no
-    // file exists for the fake session id, so the edit fails and rolls back
-    // (the fault seam of routes-agents-rest.test.ts, "failed cwd+instructions
-    // edit rolls back ...").
+    // A session-bearing Claude agent moves its .jsonl on a cwd change and
+    // resumes in the new folder; that resume is refused, so the edit fails
+    // and rolls back (the fault seam of routes-agents-rest.test.ts, "failed
+    // cwd+instructions edit rolls back ...").
     const enq = srv.agentManager.enqueueMessage(worker.id, {
       sender: { kind: "user", username: "tester" },
       text: "wake",
@@ -2019,6 +2022,20 @@ describe("routes/tasks REST: the assignee's agent id", () => {
       () => srv.agentManager.getCurrentSessionId(worker.id) !== null,
       2000,
       "sessionId",
+    );
+    const sessionId = srv.agentManager.getCurrentSessionId(worker.id)!;
+    const session = srv.fakeBackend.sessions.find(
+      (s) => s.sessionId === sessionId,
+    )!;
+    const project = claudeProjectDir(
+      srv.agentManager.getAgent(worker.id)!.cwd,
+      session.opts.env,
+    );
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, `${sessionId}.jsonl`), "{}\n");
+    srv.fakeBackend.setSessionResumableError(
+      sessionId,
+      "injected resume failure",
     );
     const versionBefore = stored(t.id).version;
     const res = await api(srv, `/api/agents/${worker.id}`, {

@@ -8,7 +8,9 @@ import {
   releaseHold,
   type FlushRun,
 } from "./queue-flush.ts";
-import { hostFor, isMemberEnv, onMemberConnected } from "./member-hosts.ts";
+import { hostFor, hostForEnv, onMemberConnected } from "./member-hosts.ts";
+import { agentStoreDir, sessionStoreDir } from "./engine-session-store.ts";
+import { keepOnHost, prepareOnHost } from "./engine-session-host.ts";
 import {
   agentCwdProblem,
   agentHome,
@@ -818,6 +820,10 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   const agents = new Map<string, ManagedAgent>();
+  // The keep in flight per agent (keepEngineSession), and the agents whose
+  // last keep failed (logged once).
+  const engineSessionKeeps = new Map<string, Promise<unknown>>();
+  const engineSessionKeepFailed = new Set<string>();
 
   // The pack rule's reply right (server/identity/agent-fit.ts): agent
   // `writerId`'s message reached agent `receiverId`.
@@ -2230,6 +2236,15 @@ export function createAgentManager(deps: ManagerDeps) {
       // mirror back, reverse any partial move) rather than stamp the session into
       // a cwd it can't be resumed from - keeps source-of-truth metadata honest.
       if (needClaudeFileMove && activeSessionId && targetCwd) {
+        // The engine may have swept the files while the agent was idle: put
+        // back what the office's store has, in the folder they move from.
+        await restoreEngineSession(
+          agentId,
+          managed,
+          activeSessionId,
+          oldCwd,
+          cwdMoveEnv,
+        );
         const moved = await moveClaudeSessionFileOnHost(
           activeSessionId,
           oldCwd,
@@ -2263,13 +2278,11 @@ export function createAgentManager(deps: ManagerDeps) {
                   `are restored.`),
           );
         }
-        // Lazy edits have no createSession preflight, so a session whose .jsonl is
-        // missing at BOTH ends would otherwise get stamped into a cwd it can't be
-        // resumed from. Proceed only if the file actually lives at the target now
-        // - either we just moved it, or it was already there. (Live edits are also
-        // covered: createSession's resume preflight would catch a missing file,
-        // but failing here is a cleaner error and skips a pointless session spawn.)
-        // An isolated member's transcript is looked up through their host.
+        // A session whose .jsonl is missing at BOTH ends would otherwise get
+        // stamped into a cwd it can't be resumed from. Keep it only if the file
+        // actually lives at the target now - either we just moved it, or it was
+        // already there. An isolated member's transcript is looked up through
+        // their host.
         let fileAtTarget = moved.moved;
         if (!fileAtTarget) {
           try {
@@ -2289,14 +2302,14 @@ export function createAgentManager(deps: ManagerDeps) {
             );
           }
         }
-        if (!fileAtTarget) {
-          officeState.updateAgent(agentId, snapshot);
-          throw new Error(
-            `Session file for ${activeSessionId.slice(0, 8)}… was not found in ` +
-              `${oldCwd} or ${targetCwd}; cwd change aborted. Start a new ` +
-              `conversation to work in ${targetCwd}.`,
-          );
-        }
+        // Gone at both ends, and the store had none: no resume can work.
+        // The folder applies, and the agent starts a new conversation there,
+        // with a line that says so. Known gap: with a live session, the drop
+        // (chat cleared, id dropped) is not rolled back when the replace
+        // below throws: the old process stays bound in the old folder, with
+        // the chat cleared and no id. Rare: a live process whose transcript
+        // is gone, and a failed replace.
+        if (!fileAtTarget) dropUnresumableSession(agentId, managed, "missing");
         claudeFileMoved = moved.moved;
       }
 
@@ -3027,12 +3040,12 @@ export function createAgentManager(deps: ManagerDeps) {
     checkMemberFolder(agentId, managed);
     if (
       err instanceof StoredSessionNotFoundError &&
-      memberSessionGone(managed, err.sessionId)
+      sessionGoneAtResume(managed, err.sessionId)
     ) {
       console.log(
         `[resume] agent ${agentId}: ${managed.info.agentType} has no stored session ${err.sessionId}: ${errMessage(err)}`,
       );
-      recoverGoneMemberSession(agentId, managed);
+      recoverGoneSession(agentId, managed);
       if (err.beforeSend) opts.requeue?.();
       return;
     }
@@ -4027,7 +4040,9 @@ export function createAgentManager(deps: ManagerDeps) {
         const sessionGone =
           goneManaged !== undefined &&
           ev.status === "failed" &&
-          memberSessionGone(goneManaged, ev.sessionNotFound);
+          sessionGoneAtResume(goneManaged, ev.sessionNotFound);
+        if (goneManaged && !sessionGone)
+          keepEngineSession(agentId, goneManaged);
         {
           const m = agents.get(agentId);
           if (m && !sessionGone && clearUnsavedDeliveryOnTurnEnd(m))
@@ -5760,34 +5775,97 @@ export function createAgentManager(deps: ManagerDeps) {
     return cleared;
   }
 
+  // Put back the session's files that the office's store has and the
+  // engine lost, in the project folder of `cwd`, and touch them. A failure
+  // is logged: the caller's own check then finds the file missing.
+  async function restoreEngineSession(
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+    cwd: string,
+    env: { [key: string]: string | undefined } | undefined,
+  ): Promise<void> {
+    const backend = getBackend(managed.info.agentType);
+    const files = backend.sessionFiles?.(sessionId, { cwd, env });
+    if (!files) return;
+    const host = hostForEnv(env);
+    try {
+      await prepareOnHost(host, {
+        ...files,
+        store: sessionStoreDir(host.agentRoot(), agentId, sessionId),
+      });
+    } catch (err) {
+      console.error(
+        `[engine-sessions] agent ${agentId}: could not put back session ${sessionId}: ${errMessage(err)}`,
+      );
+    }
+  }
+
+  // The office's own link to the agent's current session
+  // (server/engine-session-store.ts), made again at each turn end, after the
+  // engine wrote the turn. Found through the env the session launched with:
+  // a sign-in switch since then does not move the session's files. One keep
+  // at a time per agent; a failure is logged once per agent, never in the
+  // chat.
+  function keepEngineSession(agentId: string, managed: ManagedAgent): void {
+    const sessionId = managed.sessionManager.sessionId;
+    const env = managed.launchedSkillEnv;
+    const backend = getBackend(managed.info.agentType);
+    if (!sessionId || !env || !backend.sessionFiles) return;
+    const files = backend.sessionFiles(sessionId, {
+      cwd: managed.info.cwd,
+      env,
+    });
+    if (!files) return;
+    const host = hostForEnv(env);
+    const input = {
+      ...files,
+      agentStore: agentStoreDir(host.agentRoot(), agentId),
+      sessionId,
+    };
+    const previous = engineSessionKeeps.get(agentId) ?? Promise.resolve();
+    const next = previous
+      .then(() => keepOnHost(host, input))
+      .then(
+        () => engineSessionKeepFailed.delete(agentId),
+        (err: unknown) => {
+          if (engineSessionKeepFailed.has(agentId)) return;
+          engineSessionKeepFailed.add(agentId);
+          console.error(
+            `[engine-sessions] agent ${agentId}: could not keep session ${sessionId}: ${errMessage(err)}`,
+          );
+        },
+      )
+      .finally(() => {
+        if (engineSessionKeeps.get(agentId) === next)
+          engineSessionKeeps.delete(agentId);
+      });
+    engineSessionKeeps.set(agentId, next);
+  }
+
   // The engine reported at resume that it has no stored conversation for
-  // `reported`. For an isolated member's env the sync checks trust the
-  // stored session without reading it (inspectStoredSession answers
-  // durable), so the office never dropped it: true when `reported` is that
-  // stored session and the env is such an env, the same test the checks
-  // make. Any other agent's checks drop the id first. Not the host's kind:
-  // in split mode the office host is a runner too.
-  function memberSessionGone(
+  // `reported`, the agent's current session: the step before the engine
+  // started already put back what the office's store had
+  // (server/engine-session-store.ts), so nothing can bring it back. The
+  // engine's verdict decides, for every agent: the sync checks trust a
+  // member's stored session without reading it, and a Claude transcript
+  // that is missing is left to the CLI.
+  function sessionGoneAtResume(
     managed: ManagedAgent,
     reported: string | undefined,
   ): boolean {
     return (
-      reported !== undefined &&
-      reported === managed.sessionManager.sessionId &&
-      isMemberEnv(envForHints(managed))
+      reported !== undefined && reported === managed.sessionManager.sessionId
     );
   }
 
-  // What the auto-resume policy does for an office agent, done after the
+  // What the auto-resume policy does for a missing session, done after the
   // engine's own error: drop the stored id (its accepted messages go back to
   // the queue), then start a new conversation, which sends what waits. The
   // new conversation resumes no id, so it cannot fail this way again: one
   // retry, no loop. Proved by the member rig case "recovers a member's agent
   // whose stored conversation is gone or empty".
-  function recoverGoneMemberSession(
-    agentId: string,
-    managed: ManagedAgent,
-  ): void {
+  function recoverGoneSession(agentId: string, managed: ManagedAgent): void {
     dropUnresumableSession(agentId, managed, "missing");
     claimAutoResume(agentId, managed, null);
   }
@@ -6025,6 +6103,14 @@ export function createAgentManager(deps: ManagerDeps) {
     };
     opts.officeAuth = officeAuthFor(managed, env);
     const backend = getBackend(managed.info.agentType);
+    // A resume: the backend puts back what the office's store has of the
+    // session before the engine starts (server/engine-session-store.ts).
+    if (resumeSessionId && backend.sessionFiles)
+      opts.engineSessionStore = sessionStoreDir(
+        hostForEnv(env).agentRoot(),
+        managed.info.id,
+        resumeSessionId,
+      );
     // Plan mode is session state the engine may not keep (a resumed Claude
     // session does not), so every new session is asked to start in it.
     if (backend.planMode) opts.planMode = managed.planMode;

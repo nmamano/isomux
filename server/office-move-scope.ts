@@ -105,6 +105,7 @@ export const MOVE_CARRIED_UNITS = [
   "app-runtime-credentials",
   "container-app-tokens",
   "personal-environment",
+  "engine-sessions",
   "office-environment",
   "secret-store",
   "removed-members",

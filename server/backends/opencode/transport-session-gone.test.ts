@@ -2,8 +2,8 @@
 // part 2b-i). OpenCode 2.2.5 answers every route of a missing session with
 // HTTP 404 and {"_tag":"SessionNotFoundError","sessionID":<id>} (measured on
 // the real `opencode serve`, 2026-11-15). The failed turn names that id in
-// sessionNotFound, so the manager can start a new conversation for an
-// isolated member (agent-manager recoverGoneMemberSession; the manager's part
+// sessionNotFound, so the manager can start a new conversation
+// (agent-manager recoverGoneSession; the manager's part
 // is in server/test-support/member-gone-session.di.test.ts). The member rig
 // cannot run OpenCode, so this is the engine's proof.
 //

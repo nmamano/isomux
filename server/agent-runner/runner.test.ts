@@ -11,6 +11,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "fs";
 import { connect, createServer, type Server } from "net";
@@ -100,6 +101,43 @@ describe("agent runner spawn", () => {
     expect(await new Response(child.stdout).text()).toBe("hello runner\n");
     expect(await child.exited).toBe(3);
     expect(child.pid).toBeGreaterThan(0);
+  });
+
+  // Task 3a2de351: an engine resumed through a runner host gets its session's
+  // files back from the store, touched, before it starts; the runner does it
+  // as its own user (the agent user, or the member). The store is filled by
+  // keepSessionFiles, as at a turn end.
+  // MUTANTS: the runner's spawn handler ignores `prepare` (the child sees no
+  // file); runs it after startChild (the child can start first: seen as a
+  // missing file); RunnerChild drops `prepare` from the spawn frame.
+  it("runs the session-files step of a spawn before the child starts", async () => {
+    const { keepSessionFiles } = await import("../engine-session-store.ts");
+    start();
+    const sid = "7e570000-0000-4000-8000-000000000001";
+    const root = join(dir, "projects", "-work");
+    const transcript = join(root, `${sid}.jsonl`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(transcript, "the whole conversation\n");
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    utimesSync(transcript, old, old);
+    const agentStore = join(dir, "agent-root", "engine-sessions", "agent-r");
+    const entries = [`${sid}.jsonl`, `${sid}/`];
+    keepSessionFiles({ root, entries, agentStore, sessionId: sid });
+    rmSync(transcript);
+    const host = await RunnerAgentHost.connect(socketPath);
+    const child = host.spawnChild(
+      ["sh", "-c", `stat -c '%i %Y' '${transcript}'`],
+      { prepare: { root, entries, store: join(agentStore, sid) } },
+    );
+    let out = "";
+    child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
+    const code = await new Promise<number | null>((resolve) =>
+      child.once("close", (c: number | null) => resolve(c)),
+    );
+    expect([code, out.trim() !== ""]).toEqual([0, true]);
+    const [ino, mtimeSec] = out.trim().split(" ").map(Number);
+    expect(ino).toBe(statSync(join(agentStore, sid, `${sid}.jsonl`)).ino);
+    expect(mtimeSec * 1000).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it("drains late input after the exit report until the peer closes", async () => {

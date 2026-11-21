@@ -20,7 +20,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { resolveCwd } from "../cwd-utils.ts";
+import { claudeProjectDir, resolveCwd } from "../cwd-utils.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import type { StartServerOpts } from "../isomux-office.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -94,6 +94,27 @@ async function spawnAt(
   );
   if (!a) throw new Error(`spawn failed: ${name}`);
   return a;
+}
+
+// A cwd edit of a Claude agent with a live session that fails after its
+// mirror changed: the transcript is in the old folder (so the move goes),
+// and the resume in the new folder is refused, so the edit rolls back.
+function failResumeAfterMove(
+  srv: TestServer,
+  agentId: string,
+  cwd: string,
+): void {
+  const sessionId = srv.agentManager.getCurrentSessionId(agentId)!;
+  const session = srv.fakeBackend.sessions.find(
+    (s) => s.sessionId === sessionId,
+  )!;
+  const project = claudeProjectDir(cwd, session.opts.env);
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, `${sessionId}.jsonl`), "{}\n");
+  srv.fakeBackend.setSessionResumableError(
+    sessionId,
+    "injected resume failure",
+  );
 }
 
 describe("agents.kill REST (Phase 3d slice 7a)", () => {
@@ -979,10 +1000,11 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     // Wake the agent so it holds a live session with a sessionId: a cwd change
-    // on a session-bearing Claude agent must relocate the session's .jsonl, and
-    // no such file exists anywhere for the fake session id - the move preflight
-    // fails and the whole edit rolls back (the path under test). All Claude-dir
-    // consults on this path are read-only, so no host state is touched.
+    // on a session-bearing Claude agent moves the session's .jsonl (put in
+    // the test's Claude home, a temp dir) and resumes the session in the new
+    // folder; the resume is refused, so the whole edit rolls back (the path
+    // under test). A transcript at neither end would not fail the edit: it
+    // starts a new conversation (task 3a2de351).
     const enq = srv.agentManager.enqueueMessage(x.id, {
       sender: { kind: "user", username: "tester" },
       text: "wake",
@@ -995,6 +1017,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     }
     const oldCwd = srv.agentManager.getAgent(x.id)!.cwd;
     const v0 = srv.agentManager.getAgent(x.id)!.customInstructionsVersion;
+    failResumeAfterMove(srv, x.id, oldCwd);
 
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {

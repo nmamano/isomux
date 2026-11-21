@@ -1,3 +1,4 @@
+import type { SessionFiles } from "../engine-session-store.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { OfficeAuth } from "../office-login-sync.ts";
 import type { LogMessage, LogText } from "../../shared/i18n/log-message.ts";
@@ -103,6 +104,11 @@ export interface CreateSessionOptions {
   // OpenCode below standard: the office MCP server's tool names for this
   // agent, which the session rules allow by exact name.
   officeTools?: string[];
+  // A resume: the store folder of the resumed session
+  // (server/engine-session-store.ts), which a backend with sessionFiles
+  // restores from before the engine starts. Absent: the session has no
+  // store, and only the touch runs.
+  engineSessionStore?: string;
 }
 
 export interface SessionEnvironmentOptions {
@@ -777,6 +783,13 @@ export interface Backend {
       environmentKey?: string;
     },
   ): StoredSessionState;
+  // The files the engine resumes this session from, by id: never a listing
+  // beyond the session's own folder (server/engine-session-store.ts). No
+  // IO. Absent: the office keeps no link to this engine's sessions.
+  sessionFiles?(
+    sessionId: string,
+    opts: { cwd: string; env?: { [key: string]: string | undefined } },
+  ): SessionFiles | null;
   checkSessionResumable(
     sessionId: string,
     opts: {

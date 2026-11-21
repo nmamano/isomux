@@ -1,3 +1,8 @@
+import {
+  prepareResume,
+  type SessionFiles,
+  type SessionFilesPrepare,
+} from "../engine-session-store.ts";
 import { claudeSessionStore } from "./claude/session-store.ts";
 import { withAgentSpawn } from "./claude/agent-spawn.ts";
 import { hostForEnv, isMemberEnv } from "../member-hosts.ts";
@@ -65,6 +70,9 @@ import {
 export interface SdkSessionOptions {
   // The CLI runs in its own PID namespace (withAgentSpawn).
   isolate?: boolean;
+  // A resume through a runner host: the step the runner runs before it
+  // starts the CLI (withAgentSpawn, server/engine-session-store.ts).
+  prepare?: SessionFilesPrepare;
   model: string;
   pathToClaudeCodeExecutable: string;
   systemPrompt?: Options["systemPrompt"];
@@ -124,7 +132,6 @@ import {
 import {
   CLAUDE_NATIVE_BIN,
   claudeProjectDir,
-  claudeSessionFileExists,
   claudeStoredSessionState,
 } from "../cwd-utils.ts";
 import {
@@ -351,7 +358,7 @@ export interface SdkClient {
 // `systemPrompt` into `extraArgs`: extraArgs is rendered onto the child's
 // argv.
 export function sessionOptsToV1(
-  { isolate: _isolate, ...opts }: SdkSessionOptions,
+  { isolate: _isolate, prepare: _prepare, ...opts }: SdkSessionOptions,
   resumeSessionId?: string,
 ): Options {
   return {
@@ -985,6 +992,23 @@ export function oneShotResultText(result: SDKResultMessage | null): string {
   return result.result;
 }
 
+// The transcript, the two side files the CLI's sweep deletes with it, and
+// the session's own folder (subagents, tool results).
+function claudeSessionFiles(
+  sessionId: string,
+  opts: { cwd: string; env?: { [key: string]: string | undefined } },
+): SessionFiles {
+  return {
+    root: claudeProjectDir(opts.cwd, opts.env),
+    entries: [
+      `${sessionId}.jsonl`,
+      `${sessionId}.ccr-tip.json`,
+      `${sessionId}.precompact.json`,
+      `${sessionId}/`,
+    ],
+  };
+}
+
 export const realV1SdkClient: SdkClient = {
   createSession(opts, mcp) {
     const input = makePushableInput<SDKUserMessage>();
@@ -1008,7 +1032,7 @@ export const realV1SdkClient: SdkClient = {
       prompt: input.iterable,
       options: withAgentSpawn(
         { ...sessionOptsToV1(opts, sessionId), abortController },
-        { isolate: opts.isolate },
+        { isolate: opts.isolate, prepare: opts.prepare },
       ),
     });
     return wrapV1Query(q, input, abortController, registerMcpServers(q, mcp));
@@ -2455,10 +2479,21 @@ export function createClaudeBackend(
       opts: CreateSessionOptions,
     ): BackendSession {
       const denials = new SafetyDenials();
+      const sdkOpts = buildSdkOpts(opts, isomuxLabel(), denials.record);
+      // Claude Code's sweep, a few seconds after a process starts, takes
+      // any transcript past cleanupPeriodDays, the one it resumes too: the
+      // session's files go back from the store and are touched before the
+      // CLI starts. A runner host runs the step as its own user.
+      const prepare: SessionFilesPrepare = {
+        ...claudeSessionFiles(sessionId, opts),
+        store: opts.engineSessionStore ?? null,
+      };
+      if (hostForEnv(opts.env).kind === "runner") sdkOpts.prepare = prepare;
+      else prepareResume(prepare);
       return new ClaudeSession(
         opts.agentId,
         sdkClient,
-        buildSdkOpts(opts, isomuxLabel(), denials.record),
+        sdkOpts,
         sessionId,
         opts.mcpServers,
         opts.planMode,
@@ -2474,8 +2509,8 @@ export function createClaudeBackend(
     // claudeStoredSessionState.
     // An isolated member's transcripts are read through their host, which
     // these sync checks cannot wait for: trusted. The CLI's error at resume
-    // then drops the id (agent-manager recoverGoneMemberSession), for a gone
-    // or an empty transcript. Proved by the rig case in
+    // then drops the id (agent-manager recoverGoneSession), for a gone
+    // or an empty transcript, as for an office agent's gone transcript. Proved by the rig case in
     // member-rig.integration.test.ts, "recovers a member's agent whose
     // stored conversation is gone or empty, and treats a signed-out member
     // Codex as an office one".
@@ -2484,14 +2519,13 @@ export function createClaudeBackend(
       return claudeStoredSessionState(opts.cwd, sessionId, opts.env);
     },
 
-    checkSessionResumable(sessionId, opts): LogMessage | null {
-      if (isMemberEnv(opts.env)) return null;
-      if (!claudeSessionFileExists(opts.cwd, sessionId, opts.env)) {
-        return logMsg("systemEntries.claudeSession.missing", {
-          session: sessionId.slice(0, 8),
-          paths: `${claudeProjectDir(opts.cwd, opts.env)}/${sessionId}.jsonl`,
-        });
-      }
+    sessionFiles: claudeSessionFiles,
+
+    // A missing transcript is the engine's to answer: its "No conversation
+    // found" drops the id and starts a new conversation (agent-manager
+    // recoverGoneSession), after the resume step put back what the store
+    // had.
+    checkSessionResumable(): LogMessage | null {
       return null;
     },
 

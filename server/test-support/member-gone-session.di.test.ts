@@ -3,8 +3,8 @@
 // b94dfd25 part 2b-i). The sync checks trust an isolated member's stored
 // session, so the engine's own error at resume is the first word of it: the
 // office drops the id, starts a new conversation and sends the waiting
-// message to it once. An office agent, and an error that names another id,
-// change nothing. The end-to-end proof with the real engine errors is the
+// message to it once. Since task 3a2de351 an office agent recovers the same
+// way; an error that names another id changes nothing. The end-to-end proof with the real engine errors is the
 // member rig case "recovers a member's agent whose stored conversation is
 // gone or empty"; this file pins the manager's part.
 //
@@ -216,8 +216,8 @@ describe("a member's agent whose stored conversation the engine cannot find", ()
     },
   ];
   for (const c of cases)
-    // MUTANTS: memberSessionGone answers false (nothing is sent again);
-    // recoverGoneMemberSession without the drop (a failed turn's message is
+    // MUTANTS: sessionGoneAtResume answers false (nothing is sent again);
+    // recoverGoneSession without the drop (a failed turn's message is
     // lost; after a refused send, no line says why the chat is new); the
     // turn end clears the unsaved record anyway, or resolves the turn in
     // place of the rejection (the message is lost); the direct send's
@@ -264,14 +264,16 @@ describe("a member's agent whose stored conversation the engine cannot find", ()
       expect(restartNotes(mgr, id)).toBe(1);
     });
 
+  // Task 3a2de351: the engine's own verdict decides for an office agent
+  // too (the office keeps its own link to the conversation and puts it back
+  // before the engine starts; when the engine still has none, nothing can).
   // An office in split mode (Hosted) runs its own agents through a runner
-  // host too: the office agent is told apart by its member, not by its
-  // host's kind.
-  // MUTANTS: memberSessionGone without the member check (the office
-  // recovers through this path too); the check on the host's kind (red in
-  // split mode only).
+  // host: both office shapes recover the same way.
+  // MUTANTS: the member check kept in sessionGoneAtResume (the office
+  // agent's turn fails and stays in error); a check on the host's kind
+  // (red in one office shape only).
   for (const office of ["local", "split"] as const)
-    it(`changes nothing for an office agent: the turn fails as before (${office} office)`, async () => {
+    it(`recovers an office agent the same way (${office} office)`, async () => {
       const before = officeAgentHost();
       if (office === "split")
         setOfficeAgentHost({ ...before, kind: "runner" } as AgentHost);
@@ -282,27 +284,28 @@ describe("a member's agent whose stored conversation the engine cannot find", ()
         const { mgr, id } = await restored(fake, bob, stored);
 
         void mgr.sendMessage(id, "hello", "tester").catch(() => {});
-        await waitUntil(() => gone().length === 1, "the gone session resumed");
         await waitUntil(
-          () => mgr.getAgent(id)?.state === "error",
-          "turn failed",
+          () => fake.sessions.some((s) => !s.isResume && s.sent.length > 0),
+          "a new conversation got a send",
+        );
+        await waitUntil(
+          () => mgr.getAgent(id)?.state === "waiting_for_response",
+          "the new conversation's turn ended",
         );
         await sleep(SETTLE_MS);
 
         expect(sendsOf(gone(), "hello")).toBe(1);
-        expect(
-          sendsOf(
-            fake.sessions.filter((s) => !s.isResume),
-            "hello",
-          ),
-        ).toBe(0);
-        expect(mgr.getAgent(id)?.state).toBe("error");
+        const fresh = fake.sessions.filter((s) => !s.isResume);
+        expect(fresh.length).toBe(1);
+        expect(sendsOf(fresh, "hello")).toBe(1);
+        expect(mgr.getCurrentSessionId(id)).toBe(fresh[0].sessionId);
+        expect(restartNotes(mgr, id)).toBe(1);
       } finally {
         setOfficeAgentHost(before);
       }
     });
 
-  // MUTANT: memberSessionGone without the id check (a report about any id
+  // MUTANT: sessionGoneAtResume without the id check (a report about any id
   // drops the member's stored conversation).
   for (const how of ["turn", "send"] as const)
     it(`keeps the stored conversation when the engine names another id (${how})`, async () => {

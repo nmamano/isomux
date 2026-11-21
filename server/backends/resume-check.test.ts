@@ -1,5 +1,7 @@
 // Each backend's resume check states the PROBLEM only, as a message each
-// reader words (tasks beb6089b, c37a7365). The hint what to do next ("/resume ...") belongs to the
+// reader words (tasks beb6089b, c37a7365). Claude has none since task
+// 3a2de351: its CLI answers a missing transcript itself
+// (claude-engine-session.test.ts). The hint what to do next ("/resume ...") belongs to the
 // log entry that shows the failure, so a backend that also gave one put the
 // hint in the log twice.
 import { afterAll, describe, expect, it } from "bun:test";
@@ -8,7 +10,6 @@ import { mkdirSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
 import { opencodeBackend } from "./opencode/adapter.ts";
 import { openCodeProfilePaths } from "./opencode/profile-paths.ts";
@@ -57,11 +58,6 @@ function openCodeEmptySession(environmentKey: string): void {
 
 type Opts = Parameters<Backend["checkSessionResumable"]>[1];
 const cases: [string, Backend, () => Opts][] = [
-  [
-    "Claude, no session file",
-    claudeBackend,
-    () => ({ cwd: tempDir(), env: { CLAUDE_CONFIG_DIR: tempDir() } }),
-  ],
   [
     "Codex, no rollout file",
     codexBackend,

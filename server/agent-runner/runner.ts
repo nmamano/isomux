@@ -24,7 +24,7 @@ import {
   writeFile,
 } from "fs/promises";
 import { homedir, userInfo } from "os";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import type { Readable } from "stream";
 import {
   isolatedArgv,
@@ -36,6 +36,10 @@ import {
   readPeerCredentials,
   socketFileDescriptor,
 } from "../unix-socket-server.ts";
+import {
+  prepareResume,
+  type SessionFilesPrepare,
+} from "../engine-session-store.ts";
 import { writeFileAtomic } from "./atomic-write.ts";
 import {
   createFrameDecoder,
@@ -52,6 +56,28 @@ import {
   type RunnerControl,
   type RunnerRequest,
 } from "./frames.ts";
+
+// The prepare of a spawn (server/engine-session-store.ts): absolute paths;
+// entries relative, with no "..".
+function isSessionFilesPrepare(value: unknown): value is SessionFilesPrepare {
+  const p = value as Partial<SessionFilesPrepare> | null;
+  return (
+    typeof p === "object" &&
+    p !== null &&
+    typeof p.root === "string" &&
+    isAbsolute(p.root) &&
+    (p.store === null ||
+      (typeof p.store === "string" && isAbsolute(p.store))) &&
+    Array.isArray(p.entries) &&
+    p.entries.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry !== "" &&
+        !isAbsolute(entry) &&
+        !entry.split("/").includes(".."),
+    )
+  );
+}
 
 // The fixed entries. Each one reads one JSON value on stdin and writes one on
 // stdout.
@@ -75,6 +101,8 @@ export const ENTRY_NAMES = new Set([
   "home-files",
   "home-list",
   "claude-cwd-move",
+  "engine-session-keep",
+  "engine-session-prepare",
   "folder-files",
   "opencode-inspect",
   "project-skills",
@@ -513,7 +541,7 @@ function handleRequest(
     return;
   }
   if (request.op === "spawn") {
-    const { argv, cwd, env, fullEnv, stderr, isolate } = request;
+    const { argv, cwd, env, fullEnv, stderr, isolate, prepare } = request;
     if (
       !Array.isArray(argv) ||
       argv.length === 0 ||
@@ -522,11 +550,15 @@ function handleRequest(
       (cwd !== undefined && typeof cwd !== "string") ||
       (env !== undefined && !isStringRecord(env)) ||
       (fullEnv !== undefined && !isStringRecord(fullEnv)) ||
-      (isolate !== undefined && typeof isolate !== "boolean")
+      (isolate !== undefined && typeof isolate !== "boolean") ||
+      (prepare !== undefined && !isSessionFilesPrepare(prepare))
     ) {
       fail(socket, "bad_request", "spawn needs argv, and string cwd and env");
       return;
     }
+    // A resumed engine session: its files back from the store and touched,
+    // as this runner's user, before the engine starts.
+    if (prepare) prepareResume(prepare);
     startChild(socket, argv, {
       cwd,
       env: fullEnv ?? { ...process.env, ...env },
