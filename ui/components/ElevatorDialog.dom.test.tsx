@@ -15,17 +15,26 @@
 // refused or busy lookup, a lock stays.
 //
 // First open (task d2b62f44, Nil at sign-off: "a locked row must not show
-// and then vanish"): an office shows only once this browser holds an answer
-// for it (a kept entry, any age) or its lookup in this open ended without
-// one (busy, refused, failed). Until then its row is absent and a loading
-// status (role="status") shows; this office always shows, and the numbers
-// count the shown rows only.
+// and then vanish"): an office's ride row shows only once this browser holds
+// an answer for it (a kept entry, any age) or its lookup in this open ended
+// without one (busy, refused, failed). This office always shows.
+//
+// A list that keeps its size (task ac0d71f6, Nil: "one blank row per office
+// still loading; a blank row for an office the member cannot enter may
+// vanish"): until that answer, the office holds a blank row in its own place
+// - no number, no text, no control, hidden from screen readers - and the
+// list is aria-busy. The answer turns the blank row into the ride row at the
+// same place; a locked answer removes it. Numbers count the blank rows, so a
+// number does not change when an answer lands. The list holds only rows: no
+// loading line. Same height for every row is a layout property happy-dom
+// cannot measure: scripts/loading-check.sh checks it.
 //
 // Markers the dialog carries: each panel button is an element with
 // data-panel-url and data-panel-kind ("here", "floor", "visited",
 // "snapshot"); an office floor also has data-floor-id; the open and remove
 // controls are buttons with data-floor-action="open" and "remove"; the add
-// button has data-floor-action="add"; an inline error has role="alert".
+// button has data-floor-action="add"; an inline error has role="alert"; a
+// blank row has data-panel-url and data-panel-waiting.
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -99,16 +108,26 @@ function open(
     onLanguage(null, createElement(ElevatorDialog, props), { floors: list });
   const view = render(withFloors(floors));
   const rows = () =>
-    [...view.container.querySelectorAll("[data-floor-id]")] as HTMLElement[];
+    [
+      ...view.container.querySelectorAll(
+        "[data-floor-id]:not([data-panel-waiting])",
+      ),
+    ] as HTMLElement[];
   const action = (el: ParentNode, name: string) =>
     el.querySelector(`[data-floor-action="${name}"]`) as HTMLElement;
   const field = () => view.getByRole("textbox") as HTMLInputElement;
   const alertText = () =>
     view.queryByRole("alert")?.textContent?.trim() ?? null;
-  const loading = () => view.queryByRole("status");
-  // Every lookup this open started has ended: the loading status is gone.
+  // The blank rows of offices that still wait for their first answer.
+  const blanks = () =>
+    [
+      ...view.container.querySelectorAll("[data-panel-waiting]"),
+    ] as HTMLElement[];
+  // Every first answer this open waited for has landed: no blank row. Assert
+  // a count, never an element list: a failed toEqual on DOM elements
+  // serialises them, and in a waitFor poll that runs out of memory.
   async function answered() {
-    await waitFor(() => expect(loading()).toBeNull());
+    await waitFor(() => expect(blanks().length).toBe(0));
     await act(async () => {});
   }
   // floors_updated: the same open, with this office's new floors.
@@ -132,7 +151,7 @@ function open(
     field,
     alertText,
     submit,
-    loading,
+    blanks,
     answered,
     setFloors,
     closes: () => closes,
@@ -376,16 +395,32 @@ function panelRows(view: ReturnType<typeof render>) {
 }
 const rowFor = (view: ReturnType<typeof render>, url: string) =>
   panelRows(view).find((r) => r.getAttribute("data-panel-url") === url)!;
+const isBlank = (r: Element) => r.hasAttribute("data-panel-waiting");
+// Each row as [url, kind] in order, a blank row as [url, "waiting"].
 const shape = (view: ReturnType<typeof render>) =>
   panelRows(view).map((r) => [
     r.getAttribute("data-panel-url"),
-    r.getAttribute("data-panel-kind"),
+    isBlank(r) ? "waiting" : r.getAttribute("data-panel-kind"),
   ]);
-// The number each row shows, in order (the row's first aria-hidden span).
+// The number each row shows, in order (the row's first aria-hidden span); a
+// blank row shows none and reads as "".
 const numbers = (view: ReturnType<typeof render>) =>
-  panelRows(view).map(
-    (r) => r.querySelector('[aria-hidden="true"]')?.textContent ?? "",
+  panelRows(view).map((r) =>
+    isBlank(r)
+      ? ""
+      : (r.querySelector('[aria-hidden="true"]')?.textContent ?? ""),
   );
+// The element that holds the rows: aria-busy while a row waits.
+const listOf = (view: ReturnType<typeof render>) =>
+  rowFor(view, OWN).parentElement!;
+// What a blank row must be: hidden from screen readers, no control, and no
+// text (no number, name or host; white space only).
+function expectBlank(row: HTMLElement) {
+  expect(isBlank(row)).toBe(true);
+  expect(row.getAttribute("aria-hidden")).toBe("true");
+  expect(row.querySelector("button, a, input, [tabindex]") === null).toBe(true);
+  expect((row.textContent ?? "").trim()).toBe("");
+}
 const HOUR_MS = 60 * 60 * 1000;
 
 // Storage that throws on one key only. happy-dom's Storage copies a bound
@@ -505,7 +540,8 @@ describe("ElevatorDialog panel", () => {
     await waitFor(() => expect(answers.size).toBe(3));
     // Never for this office.
     expect(namesAsked(d.calls).sort()).toEqual([ATLAS, COVE, named.url].sort());
-    expect(rowFor(d.view, ATLAS)).toBeUndefined();
+    // Until it answers, Atlas holds a blank row.
+    expect(isBlank(rowFor(d.view, ATLAS))).toBe(true);
     await act(async () => {
       answers.get(ATLAS)!({ name: "Atlas Works" });
     });
@@ -567,8 +603,14 @@ describe("ElevatorDialog panel", () => {
       if (url === ATLAS || url === named.url) throw lockedRefusal();
       return { name: url === COVE ? "Cove" : null };
     });
-    // Not shown before the answers arrive.
-    expect(shape(d.view)).toEqual([[OWN, "here"]]);
+    // Before the answers: a blank row in each office's place.
+    expect(shape(d.view)).toEqual([
+      [ATLAS, "waiting"],
+      [COVE, "waiting"],
+      [named.url, "waiting"],
+      [OWN, "here"],
+      [unnamed.url, "waiting"],
+    ]);
     await waitFor(() =>
       expect(shape(d.view)).toEqual([
         [COVE, "snapshot"],
@@ -686,8 +728,10 @@ describe("ElevatorDialog panel", () => {
       [COVE, "snapshot"],
       [OWN, "here"],
     ]);
-    // A lock kept through an ended lookup does not keep the dialog loading.
-    expect(d.loading()).toBeNull();
+    // A lock kept through an ended lookup leaves no blank row, and the list
+    // is not busy.
+    expect(d.blanks().length).toBe(0);
+    expect(listOf(d.view).hasAttribute("aria-busy")).toBe(false);
     d.view.unmount();
   });
 
@@ -746,20 +790,36 @@ describe("ElevatorDialog first open", () => {
         : Promise.resolve({});
     return { held, answer };
   }
-  // Every panel url the dialog ever put in the DOM, between two looks too.
+  // Every panel url the dialog ever showed a ride row for, between two looks
+  // too: a row added as a ride row, or a blank row that lost its waiting
+  // mark (React may keep the element and change its attributes).
   function watchRows(view: ReturnType<typeof render>) {
     const seen = new Set<string>();
     const note = (records: MutationRecord[]) => {
-      for (const r of records)
+      for (const r of records) {
+        if (
+          r.type === "attributes" &&
+          r.oldValue !== null &&
+          r.target instanceof Element &&
+          r.target.hasAttribute("data-panel-url")
+        )
+          seen.add(r.target.getAttribute("data-panel-url")!);
         for (const node of r.addedNodes) {
           if (!(node instanceof Element)) continue;
           for (const el of [node, ...node.querySelectorAll("[data-panel-url]")])
-            if (el.hasAttribute("data-panel-url"))
+            if (el.hasAttribute("data-panel-url") && !isBlank(el))
               seen.add(el.getAttribute("data-panel-url")!);
         }
+      }
     };
     const observer = new MutationObserver(note);
-    observer.observe(view.container, { childList: true, subtree: true });
+    observer.observe(view.container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-panel-waiting"],
+      attributeOldValue: true,
+    });
     return {
       seen: () => {
         note(observer.takeRecords());
@@ -769,50 +829,73 @@ describe("ElevatorDialog first open", () => {
     };
   }
 
-  it("shows an office only once its first answer arrives, this office at once, and a loading status while any waits", async () => {
+  it("holds a blank row in each waiting office's place, turns it into the ride row there, and removes it for a locked office", async () => {
     seed(trip);
     const { held, answer } = heldAnswers();
     const d = open([named], answer);
     const watch = watchRows(d.view);
-    expect(shape(d.view)).toEqual([[OWN, "here"]]);
-    expect(numbers(d.view)).toEqual(["1"]);
-    expect((d.loading()?.textContent ?? "").trim().length).toBeGreaterThan(0);
+    // At once: this office, and a blank row for each other office, in panel
+    // order; the numbers count the blank rows.
+    expect(shape(d.view)).toEqual([
+      [ATLAS, "waiting"],
+      [COVE, "waiting"],
+      [named.url, "waiting"],
+      [OWN, "here"],
+    ]);
+    expect(numbers(d.view)).toEqual(["", "", "", "4"]);
+    for (const row of d.blanks()) expectBlank(row);
+    const list = listOf(d.view);
+    expect(list.getAttribute("aria-busy")).toBe("true");
+    // The list holds rows only: no loading line beside them.
+    expect(
+      [...list.children].every((c) => c.hasAttribute("data-panel-url")),
+    ).toBe(true);
     await waitFor(() => expect(held.size).toBe(3));
 
+    // The floor answers: its blank row becomes its ride row, in place, and
+    // no number moves.
     await act(async () => {
       held.get(named.url)!.resolve({ name: null });
     });
     await waitFor(() =>
       expect(shape(d.view)).toEqual([
+        [ATLAS, "waiting"],
+        [COVE, "waiting"],
         [named.url, "floor"],
         [OWN, "here"],
       ]),
     );
-    expect(numbers(d.view)).toEqual(["1", "2"]);
-    expect(d.loading()).not.toBeNull();
+    expect(numbers(d.view)).toEqual(["", "", "3", "4"]);
+    expect(listOf(d.view).getAttribute("aria-busy")).toBe("true");
 
+    // Atlas is locked: its blank row goes, and the numbers after it close up.
     await act(async () => {
       held.get(ATLAS)!.reject(lockedRefusal());
     });
-    await act(async () => {});
-    expect(shape(d.view)).toEqual([
-      [named.url, "floor"],
-      [OWN, "here"],
-    ]);
+    await waitFor(() =>
+      expect(shape(d.view)).toEqual([
+        [COVE, "waiting"],
+        [named.url, "floor"],
+        [OWN, "here"],
+      ]),
+    );
+    expect(numbers(d.view)).toEqual(["", "2", "3"]);
     // Cove still waits.
-    expect(d.loading()).not.toBeNull();
+    expect(listOf(d.view).getAttribute("aria-busy")).toBe("true");
 
     await act(async () => {
       held.get(COVE)!.resolve({ name: "Cove" });
     });
-    await waitFor(() => expect(d.loading()).toBeNull());
+    await waitFor(() => expect(d.blanks().length).toBe(0));
     expect(shape(d.view)).toEqual([
       [COVE, "snapshot"],
       [named.url, "floor"],
       [OWN, "here"],
     ]);
     expect(numbers(d.view)).toEqual(["1", "2", "3"]);
-    // The watch saw the rows that came; the locked office never came.
+    expect(rowFor(d.view, COVE).textContent).toContain("Cove");
+    expect(listOf(d.view).hasAttribute("aria-busy")).toBe(false);
+    // The watch saw the ride rows that came; the locked office's never came.
     const seen = watch.seen();
     expect(seen.has(COVE) && seen.has(named.url)).toBe(true);
     expect(seen.has(ATLAS)).toBe(false);
@@ -820,7 +903,7 @@ describe("ElevatorDialog first open", () => {
     d.view.unmount();
   });
 
-  it("shows an office whose lookup is busy, refused or fails, asks it once, and ends the loading status", async () => {
+  it("shows an office whose lookup is busy, refused or fails, asks it once, and leaves no blank row", async () => {
     seed(trip);
     const d = open([named, unnamed], async (c) => {
       if (!isNameAsk(c)) return {};
@@ -830,8 +913,9 @@ describe("ElevatorDialog first open", () => {
       if (url === named.url) throw new ApiError(403, "forbidden", "no");
       throw new ApiError(422, "office_unreachable", "unreachable");
     });
-    expect(d.loading()).not.toBeNull();
+    expect(d.blanks().length).toBe(4);
     await d.answered();
+    expect(listOf(d.view).hasAttribute("aria-busy")).toBe(false);
     expect(shape(d.view)).toEqual([
       [ATLAS, "visited"],
       [COVE, "snapshot"],
@@ -878,7 +962,7 @@ describe("ElevatorDialog first open", () => {
     d.view.unmount();
   });
 
-  it("shows a kept answer at once, of any age, with no loading status while it is asked again", async () => {
+  it("shows a kept answer at once, of any age, with no blank row and no busy list while it is asked again", async () => {
     seed(trip);
     const keep = [ATLAS, COVE, OWN, named.url];
     rememberName(ATLAS, "Atlas Works", keep);
@@ -893,11 +977,11 @@ describe("ElevatorDialog first open", () => {
       [OWN, "here"],
     ];
     expect(shape(d.view)).toEqual(expected);
-    expect(d.loading()).toBeNull();
+    expect(listOf(d.view).hasAttribute("aria-busy")).toBe(false);
     // The stale one is asked again, and shows while it is.
     await waitFor(() => expect([...held.keys()]).toEqual([COVE]));
     expect(shape(d.view)).toEqual(expected);
-    expect(d.loading()).toBeNull();
+    expect(listOf(d.view).hasAttribute("aria-busy")).toBe(false);
     d.view.unmount();
   });
 

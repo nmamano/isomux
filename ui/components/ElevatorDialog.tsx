@@ -19,7 +19,7 @@ import {
   PANEL_RECHECK_MS,
   commitPanel,
   hideLocked,
-  hideUnanswered,
+  markUnanswered,
   readFloorBrowser,
   readNames,
   readPanel,
@@ -105,11 +105,8 @@ export function ElevatorDialog({
   // any other refusal): their rows show without one.
   const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   const allButtons = panelButtons(panel, here, floors);
-  const { shown: buttons, waiting } = hideUnanswered(
-    hideLocked(allButtons, names),
-    names,
-    settled,
-  );
+  const slots = markUnanswered(hideLocked(allButtons, names), names, settled);
+  const waiting = slots.some((slot) => slot.waiting);
   // From the iOS Home Screen app a ride leaves for the member's browser,
   // which holds their sign-in to the other office.
   const choosesBrowser = floorBrowserApplies(env);
@@ -337,11 +334,12 @@ export function ElevatorDialog({
           {t("lobby.elevator.hint")}
         </p>
 
-        {/* A row comes only with its office's first answer, so a locked
-            office never shows and then vanishes: the list grows as answers
-            land (an unreachable office can take 8 s), the one exception to
-            a panel that keeps its size. */}
+        {/* An office with no answer yet holds a blank row in its place, so
+            the list keeps its size as answers land (an unreachable office
+            can take 8 s). A locked answer removes its blank row: nobody can
+            enter that office, and the blank row showed no name. */}
         <div
+          aria-busy={waiting ? "true" : undefined}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -349,32 +347,23 @@ export function ElevatorDialog({
             marginTop: 16,
           }}
         >
-          {buttons.map((button, i) => (
-            <PanelRow
-              key={button.url}
-              button={button}
-              index={i}
-              name={nameOf(button)}
-              onOpen={() => ride(button.url)}
-              onRemove={() =>
-                button.floor
-                  ? void remove(button.floor)
-                  : removePersonal(button.url)
-              }
-            />
-          ))}
-          {waiting > 0 && (
-            <p
-              role="status"
-              style={{
-                fontSize: 12,
-                color: "var(--text-muted)",
-                margin: 0,
-                padding: "4px 10px",
-              }}
-            >
-              {t("common.loading")}
-            </p>
+          {slots.map(({ button, waiting: blank }, i) =>
+            blank ? (
+              <BlankRow key={button.url} url={button.url} />
+            ) : (
+              <PanelRow
+                key={button.url}
+                button={button}
+                index={i}
+                name={nameOf(button)}
+                onOpen={() => ride(button.url)}
+                onRemove={() =>
+                  button.floor
+                    ? void remove(button.floor)
+                    : removePersonal(button.url)
+                }
+              />
+            ),
           )}
         </div>
 
@@ -536,6 +525,111 @@ export function ElevatorDialog({
   );
 }
 
+// A row's face: the office's number, its name and host, and for this office
+// the "here" mark.
+const faceStyle = {
+  flex: 1,
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 10px",
+  borderRadius: 10,
+  color: "var(--text-primary)",
+  textAlign: "left",
+} as const;
+
+// The frame of a ride button, which a blank row copies.
+const rideFrame = {
+  border: "1px solid var(--border)",
+  background: "var(--bg-input)",
+} as const;
+
+// The side of a row's remove button.
+const REMOVE_SIZE = 30;
+
+const nameLine = {
+  display: "block",
+  fontSize: 13,
+  fontWeight: 600,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+} as const;
+
+const hostLine = {
+  display: "block",
+  fontSize: 11,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+} as const;
+
+// A row's text: the label, and under it the host when the label is a name.
+// An invisible name line and host line sit in the same cell, so every row
+// has the height of two lines, with the text centered in it: a blank row, a
+// named row and a host-only row are all the same height.
+function RowText({
+  label,
+  host,
+}: {
+  label: string | null;
+  host: string | null;
+}) {
+  return (
+    <span
+      style={{
+        minWidth: 0,
+        flex: 1,
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+        lineHeight: "normal",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{ gridArea: "1 / 1", visibility: "hidden" }}
+      >
+        <span style={nameLine}>{"\u00a0"}</span>
+        <span style={hostLine}>{"\u00a0"}</span>
+      </span>
+      {label !== null && (
+        <span style={{ gridArea: "1 / 1", alignSelf: "center", minWidth: 0 }}>
+          <span {...noTranslate()} style={nameLine}>
+            {label}
+          </span>
+          {host !== null && (
+            <span
+              {...noTranslate()}
+              style={{ ...hostLine, color: "var(--text-muted)" }}
+            >
+              {host}
+            </span>
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// The place of an office whose first answer has not come: a ride row's frame
+// with nothing in it, and room for the remove button.
+function BlankRow({ url }: { url: string }) {
+  return (
+    <div
+      data-panel-url={url}
+      data-panel-waiting
+      aria-hidden="true"
+      style={{ display: "flex", alignItems: "center", gap: 6 }}
+    >
+      <div style={{ ...faceStyle, ...rideFrame }}>
+        <RowText label={null} host={null} />
+      </div>
+      <span style={{ flex: "none", width: REMOVE_SIZE, height: REMOVE_SIZE }} />
+    </div>
+  );
+}
+
 interface PanelRowProps {
   button: PanelButton;
   index: number;
@@ -582,36 +676,7 @@ function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
       >
         {index + 1}
       </span>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span
-          {...noTranslate()}
-          style={{
-            display: "block",
-            fontSize: 13,
-            fontWeight: 600,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {label}
-        </span>
-        {name !== null && (
-          <span
-            {...noTranslate()}
-            style={{
-              display: "block",
-              fontSize: 11,
-              color: "var(--text-muted)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {host}
-          </span>
-        )}
-      </span>
+      <RowText label={label} host={name !== null ? host : null} />
       {isHere && (
         <span
           style={{
@@ -626,17 +691,6 @@ function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
       )}
     </>
   );
-  const faceStyle = {
-    flex: 1,
-    minWidth: 0,
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "8px 10px",
-    borderRadius: 10,
-    color: "var(--text-primary)",
-    textAlign: "left",
-  } as const;
   return (
     <div
       data-panel-url={button.url}
@@ -661,12 +715,7 @@ function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
             type="button"
             data-floor-action="open"
             onClick={onOpen}
-            style={{
-              ...faceStyle,
-              border: "1px solid var(--border)",
-              background: "var(--bg-input)",
-              cursor: "pointer",
-            }}
+            style={{ ...faceStyle, ...rideFrame, cursor: "pointer" }}
           >
             {face}
           </button>
@@ -681,8 +730,8 @@ function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
               flex: "none",
               // Armed, it widens to the left: the row's right edge, and the
               // pointer on the button, stay where they were.
-              minWidth: 30,
-              height: 30,
+              minWidth: REMOVE_SIZE,
+              height: REMOVE_SIZE,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

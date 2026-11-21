@@ -14,11 +14,12 @@
 //     damaged entry. It keeps a lock (task ad60eb81), and hideLocked drops
 //     the locked offices' buttons at any age, in order, so the numbers close
 //     up.
-//   - hideUnanswered (task d2b62f44) keeps, after hideLocked, only the
-//     buttons with an answer to show - a kept entry of any age, or a lookup
-//     of this open that ended without one - and this office; it counts the
-//     rest as waiting, so the dialog never shows a row that a lock then
-//     hides.
+//   - markUnanswered (tasks d2b62f44, ac0d71f6) keeps, after hideLocked,
+//     every button in panel order and marks waiting each one with no answer
+//     to show yet - no kept entry of any age and no lookup of this open that
+//     ended without one. This office never waits. The dialog draws a blank
+//     row in a waiting button's place, so the list keeps its size while the
+//     answers land.
 //   - The glue: holdArrivingPanel keeps the arriving panel until syncPanel
 //     (full_state, floors_updated) merges it once and writes this office's
 //     snapshot; rideFragment carries this office and its live floors even
@@ -33,8 +34,8 @@ const {
   PANEL_STORAGE_KEY,
   commitPanel,
   hideLocked,
-  hideUnanswered,
   holdArrivingPanel,
+  markUnanswered,
   readNames,
   readPanel,
   rememberName,
@@ -322,50 +323,72 @@ describe("first answers", () => {
     ]);
     return out;
   };
-  const urls = (r: { shown: { url: string }[] }) => r.shown.map((b) => b.url);
+  // Each slot as [url, waiting], in the order markUnanswered gives them.
+  const marks = (slots: { button: { url: string }; waiting: boolean }[]) =>
+    slots.map((s) => [s.button.url, s.waiting]);
 
-  it("shows only this office before any answer, and counts every other button as waiting", () => {
-    const r = hideUnanswered(buttons(), {}, new Set());
-    expect(urls(r)).toEqual([here]);
-    expect(r.waiting).toBe(4);
+  it("keeps every button in panel order before any answer, each other office waiting and this office not", () => {
+    expect(marks(markUnanswered(buttons(), {}, new Set()))).toEqual([
+      [A, true],
+      [B, true],
+      [C, true],
+      [D, true],
+      [here, false],
+    ]);
   });
 
-  it("shows a button with a kept entry of any age or with no name, and one whose lookup ended without an answer, in order", () => {
+  it("marks answered a button with a kept entry of any age or with no name, and one whose lookup ended without an answer, in place", () => {
     const names = {
       // An hour and more ago: shown while it is asked again.
       [A]: { name: "Atlas", at: 0 },
       // An office that did not answer is kept with no name.
       [D]: { name: null, at: NOW },
     };
-    const r = hideUnanswered(buttons(), names, new Set([C]));
-    expect(urls(r)).toEqual([A, C, D, here]);
-    expect(r.waiting).toBe(1);
+    expect(marks(markUnanswered(buttons(), names, new Set([C])))).toEqual([
+      [A, false],
+      [B, true],
+      [C, false],
+      [D, false],
+      [here, false],
+    ]);
     // Every button answered: nothing waits.
-    const all = hideUnanswered(buttons(), names, new Set([B, C]));
-    expect(urls(all)).toEqual([A, B, C, D, here]);
-    expect(all.waiting).toBe(0);
+    expect(
+      markUnanswered(buttons(), names, new Set([B, C])).some((s) => s.waiting),
+    ).toBe(false);
   });
 
-  it("shows this office with no entry and with an ended lookup alike, and never counts it", () => {
-    const r = hideUnanswered(buttons(), {}, new Set([here]));
-    expect(urls(r)).toEqual([here]);
-    expect(r.waiting).toBe(4);
+  it("gives the buttons through as they are and leaves its inputs unchanged", () => {
+    const input = buttons();
+    const before = structuredClone(input);
+    const names = { [A]: { name: "Atlas", at: 0 } };
+    const settled = new Set([C]);
+    const slots = markUnanswered(input, names, settled);
+    expect(slots.map((s) => s.button)).toEqual(before);
+    expect(input).toEqual(before);
+    expect(names).toEqual({ [A]: { name: "Atlas", at: 0 } });
+    expect([...settled]).toEqual([C]);
   });
 
-  // Applied after hideLocked: a lock whose new lookup was busy stays hidden
-  // and does not keep the dialog waiting.
-  it("after hideLocked, keeps a locked button hidden through an ended lookup and does not count it as waiting", () => {
+  // Applied after hideLocked: a kept lock leaves no slot at all, waiting or
+  // not, also while its new lookup is pending.
+  it("after hideLocked, gives a locked button no slot, through a pending or an ended lookup", () => {
     const names = {
       [A]: { name: null, at: 0, locked: true as const },
       [B]: { name: null, at: NOW },
     };
     const unlocked = hideLocked(buttons(), names);
-    const r = hideUnanswered(unlocked, names, new Set([A, C, D]));
-    expect(urls(r)).toEqual([B, C, D, here]);
-    expect(r.waiting).toBe(0);
-    const pending = hideUnanswered(unlocked, names, new Set());
-    expect(urls(pending)).toEqual([B, here]);
-    expect(pending.waiting).toBe(2);
+    expect(marks(markUnanswered(unlocked, names, new Set([A, C, D])))).toEqual([
+      [B, false],
+      [C, false],
+      [D, false],
+      [here, false],
+    ]);
+    expect(marks(markUnanswered(unlocked, names, new Set()))).toEqual([
+      [B, false],
+      [C, true],
+      [D, true],
+      [here, false],
+    ]);
   });
 });
 

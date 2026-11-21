@@ -234,19 +234,27 @@ export function hideLocked(
   return buttons.filter((b) => b.kind === "here" || !names[b.url]?.locked);
 }
 
-// The panel buttons that have an answer to show: a kept entry (any age), or
-// a lookup in this open that ended without one (`settled`). This office
-// always shows. `waiting` counts the rows still hidden for want of one.
-export function hideUnanswered(
+// One button of the panel and whether it still waits for its first answer.
+export interface PanelSlot {
+  button: PanelButton;
+  waiting: boolean;
+}
+
+// Every button, in panel order, marked waiting when it has no answer to show
+// yet: no kept entry (any age) and no lookup of this open that ended without
+// one (`settled`). This office never waits.
+export function markUnanswered(
   buttons: PanelButton[],
   names: Record<string, PanelName>,
   settled: ReadonlySet<string>,
-): { shown: PanelButton[]; waiting: number } {
-  const shown = buttons.filter(
-    (b) =>
-      b.kind === "here" || names[b.url] !== undefined || settled.has(b.url),
-  );
-  return { shown, waiting: buttons.length - shown.length };
+): PanelSlot[] {
+  return buttons.map((button) => ({
+    button,
+    waiting:
+      button.kind !== "here" &&
+      names[button.url] === undefined &&
+      !settled.has(button.url),
+  }));
 }
 
 // The browser the elevator's rides open in from the iOS Home Screen app
