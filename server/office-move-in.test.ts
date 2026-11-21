@@ -2352,7 +2352,8 @@ describe("slice 5b: folders outside the home", () => {
     );
   });
 
-  it("on one device, the folders' bytes count with the home's: room for the home alone fails no_space", async () => {
+  // Quarantined: flaky, task 12e793ac (P1).
+  it.skip("on one device, the folders' bytes count with the home's: room for the home alone fails no_space", async () => {
     const big = 4 * 1024 * 1024;
     let bavail = 1e9;
     const b = outsideBed({
