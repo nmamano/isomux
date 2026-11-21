@@ -4,7 +4,7 @@
 // file covers the run view's own wiring: the run's route and Edit. The store
 // here starts unhydrated, which also pins that the transcript backfill waits
 // for the first full_state.
-import { afterAll, beforeEach, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -18,6 +18,13 @@ const { StateCtx, StoreProvider, useAppState, useDispatch } =
 const { ApiError, setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { _resetOutboxForTests } = await import("../log-view/outbox.ts");
+const { layOutTextareas, scrolledToEnd } =
+  await import("../test-support/textarea-layout.ts");
+let undoLayout = () => {};
+afterEach(() => {
+  undoLayout();
+  undoLayout = () => {};
+});
 type CronjobRun = import("../../shared/types.ts").CronjobRun;
 type CronjobListWire = import("../../shared/types.ts").CronjobListWire;
 
@@ -141,12 +148,17 @@ it("posts to the run's messages route with a clientMessageId and drops the row o
   view.unmount();
 });
 
-it("shows the server's refusal reason, and Edit puts the text back in the composer", async () => {
+it("shows the server's refusal reason, and Edit puts the text back in the composer, showing the end of a long text", async () => {
   answer = async () => {
     throw new ApiError(409, "run_busy", "server-reason-409");
   };
+  undoLayout = layOutTextareas();
+  // Taller than the composer's cap (task fefacd08).
+  const text = Array.from({ length: 20 }, (_, i) => `too soon ${i + 1}`).join(
+    "\n",
+  );
   const view = mount();
-  await sendText(view.container, "too soon");
+  await sendText(view.container, text);
 
   await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
   const failed = rows(view.container, "failed")[0];
@@ -157,8 +169,15 @@ it("shows the server's refusal reason, and Edit puts the text back in the compos
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(rows(view.container, "failed").length).toBe(0);
-  expect(composer(view.container).value).toBe("too soon");
+  expect(composer(view.container).value).toBe(text);
   expect(posts.length).toBe(1);
+  // The caret and the scroll come a frame later.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const ta = composer(view.container);
+  expect(ta.selectionStart).toBe(text.length);
+  expect(scrolledToEnd(ta)).toEqual({ overflows: true, atEnd: true });
   view.unmount();
 });
 

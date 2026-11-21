@@ -135,6 +135,7 @@ import {
   COMPOSER_MOBILE_FONT_SIZE,
   composerMaxHeight,
   fitComposer,
+  placeComposerCaret,
 } from "../composer-height.ts";
 import {
   armedConfirmLook,
@@ -1261,10 +1262,9 @@ export function LogView({
 
   // Auto-resize textarea and place cursor at end when draft is restored
   useEffect(() => {
-    if (textareaRef.current && input) {
-      autoResize(textareaRef.current);
-      const len = textareaRef.current.value.length;
-      textareaRef.current.setSelectionRange(len, len);
+    const ta = textareaRef.current;
+    if (ta && input) {
+      placeComposerCaret(ta, ta.value.length, isMobile, { focus: false });
     }
     // Mount-only - we read `input` at mount and don't re-apply selection on
     // every keystroke.
@@ -1283,10 +1283,7 @@ export function LogView({
     dispatch({ type: "composer_focus_handled", agentId: agent.id });
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.focus({ preventScroll: true });
-    const caret = Math.min(composerFocusCaret, ta.value.length);
-    ta.setSelectionRange(caret, caret);
-    fitComposer(ta, isMobile);
+    placeComposerCaret(ta, composerFocusCaret, isMobile);
   }, [composerFocusCaret, agent.id, dispatch, isMobile]);
 
   // Ctrl+` to toggle terminal panel
@@ -1847,9 +1844,7 @@ export function LogView({
     requestAnimationFrame(() => {
       const ta2 = textareaRef.current;
       if (!ta2) return;
-      ta2.focus({ preventScroll: true });
-      ta2.setSelectionRange(caretPos, caretPos);
-      autoResize(ta2);
+      placeComposerCaret(ta2, caretPos, isMobile);
     });
   }
 
@@ -1861,9 +1856,7 @@ export function LogView({
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus({ preventScroll: true });
-      ta.setSelectionRange(newDraft.length, newDraft.length);
-      autoResize(ta);
+      placeComposerCaret(ta, newDraft.length, isMobile);
     });
   }
   const restoreFailedEditRef = useRef(restoreFailedEdit);
@@ -1909,9 +1902,7 @@ export function LogView({
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
         if (!ta) return;
-        ta.focus({ preventScroll: true });
-        ta.setSelectionRange(caretPos, caretPos);
-        autoResize(ta);
+        placeComposerCaret(ta, caretPos, isMobile);
       });
       return;
     }
@@ -1930,9 +1921,7 @@ export function LogView({
     requestAnimationFrame(() => {
       const ta2 = textareaRef.current;
       if (!ta2) return;
-      ta2.focus({ preventScroll: true });
-      ta2.setSelectionRange(caretPos, caretPos);
-      autoResize(ta2);
+      placeComposerCaret(ta2, caretPos, isMobile);
     });
   }
 

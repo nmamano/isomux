@@ -27,6 +27,7 @@ import {
   COMPOSER_MOBILE_FONT_SIZE,
   composerMaxHeight,
   fitComposer,
+  placeComposerCaret,
 } from "../composer-height.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 import { CommandRunDetails } from "./CommandRunDetails.tsx";
@@ -363,9 +364,7 @@ export function CronjobRunView({
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus({ preventScroll: true });
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-      autoResize(ta);
+      placeComposerCaret(ta, ta.value.length, isMobile);
     });
   }
 

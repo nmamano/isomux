@@ -1,7 +1,7 @@
 // Task eb9002b4: a failed edit never loses the member's edited text. A
 // failure the server reports keeps the text in its error entry, with an action
 // that appends it to the composer; a rejected edit request appends it at once.
-import { afterAll, expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -13,6 +13,8 @@ const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { FAILED_EDIT_TEXT_KEY } = await import("../../shared/failed-edit.ts");
+const { layOutTextareas, scrolledToEnd } =
+  await import("../test-support/textarea-layout.ts");
 setShim(() => {});
 afterAll(() => {
   connect(
@@ -23,6 +25,11 @@ afterAll(() => {
   setApiShim(null);
 });
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
+let undoLayout = () => {};
+afterEach(() => {
+  undoLayout();
+  undoLayout = () => {};
+});
 type LogEntry = import("../../shared/types.ts").LogEntry;
 
 function agentWith(canEdit: boolean): AgentInfo {
@@ -86,8 +93,13 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
   return all[all.length - 1];
 }
 
-it("appends a failed edit's text to the composer without replacing newer text", async () => {
+it("appends a failed edit's text to the composer without replacing newer text, and shows the end of a long draft", async () => {
   setApiShim(async () => ({ counts: {} }));
+  undoLayout = layOutTextareas();
+  // Taller than the composer's cap (task fefacd08).
+  const newer = Array.from({ length: 20 }, (_, i) => `newer ${i + 1}`).join(
+    "\n",
+  );
   const view = render(
     <StoreProvider>
       <Page agent={agentWith(true)} logs={[failedEdit]} />
@@ -96,13 +108,17 @@ it("appends a failed edit's text to the composer without replacing newer text", 
   const shown = view.container.querySelector("[data-failed-edit-text]");
   expect(shown?.textContent).toBe("my edited text");
   const box = composer(view.container);
-  fireEvent.change(box, { target: { value: "newer text" } });
+  fireEvent.change(box, { target: { value: newer } });
+  box.scrollTop = 0;
   fireEvent.click(view.container.querySelector("[data-restore-failed-edit]")!);
   await waitFor(() =>
-    expect(composer(view.container).value).toBe("newer text\n\nmy edited text"),
+    expect(composer(view.container).value).toBe(`${newer}\n\nmy edited text`),
   );
   // Let pending effects settle before the DOM goes away.
   await act(async () => {});
+  const ta = composer(view.container);
+  expect(ta.selectionStart).toBe(ta.value.length);
+  expect(scrolledToEnd(ta)).toEqual({ overflows: true, atEnd: true });
   view.unmount();
 });
 

@@ -24,6 +24,9 @@ const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { primaryPointer } = await import("../test-support/pointer.ts");
 const { en } = await import("../../shared/i18n/en.ts");
+const { citationBlock } = await import("./cite.ts");
+const { layOutTextareas, scrolledToEnd } =
+  await import("../test-support/textarea-layout.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type LogEntry = import("../../shared/types.ts").LogEntry;
@@ -168,6 +171,11 @@ function stubLayout(layout: Layout) {
     }) as unknown as DOMRectList;
 }
 
+function composer(container: HTMLElement): HTMLTextAreaElement {
+  const all = container.querySelectorAll("textarea");
+  return all[all.length - 1];
+}
+
 const pill = () =>
   document.body.querySelector<HTMLElement>(
     `button[title="${en["logView.cite.hint"]}"]`,
@@ -204,12 +212,16 @@ async function select(root: Element, text: string) {
   await settle();
 }
 
-// Renders the chat as `device` in `layout`, selects the reply's text, and
-// returns the view and the scroller. The caller unmounts with the returned
-// cleanup.
+// Renders the chat as `device` in `layout`, types `draft` into the composer
+// when given, selects the reply's text, and returns the view and the
+// scroller. The caller unmounts with the returned cleanup.
 async function selectOn(
   device: { coarse: boolean; userAgent: string; platform: string },
-  { layout = BARE, asks = [] }: { layout?: Layout; asks?: AskEntry[] } = {},
+  {
+    layout = BARE,
+    asks = [],
+    draft,
+  }: { layout?: Layout; asks?: AskEntry[]; draft?: string } = {},
 ) {
   const undoPointer = primaryPointer(device.coarse);
   const values = {
@@ -245,6 +257,12 @@ async function selectOn(
     // the pill's place is read from.
     for (const selector of Object.keys(layout))
       expect(view.container.querySelectorAll(selector).length).toBe(1);
+    if (draft !== undefined) {
+      fireEvent.change(composer(view.container), {
+        target: { value: draft },
+      });
+      await settle();
+    }
     await select(scroller, REPLY);
     return { view, scroller, cleanup };
   } catch (error) {
@@ -427,5 +445,40 @@ it("with a mouse, puts the pill next to the selection in the ask's primary-butto
     expect(pill() === null).toBe(true);
   } finally {
     cleanup();
+  }
+});
+
+it("on an iPhone, a tap on the pill after a long draft shows the end of the draft, with the cite and the caret there", async () => {
+  // Task fefacd08: the field showed the top of the draft, the caret out of
+  // view below it.
+  const undoLayout = layOutTextareas();
+  const draft = Array.from({ length: 20 }, (_, i) => `note ${i + 1}`).join(
+    "\n",
+  );
+  const { view, cleanup } = await selectOn(
+    { coarse: true, userAgent: IPHONE, platform: "iPhone" },
+    { draft },
+  );
+  try {
+    const ta = composer(view.container);
+    expect(ta.value).toBe(draft);
+    // Scrolled up, as a member reading the draft leaves it.
+    ta.scrollTop = 0;
+    const shown = pill();
+    expect(shown === null).toBe(false);
+    await act(async () => {
+      fireEvent.pointerDown(shown!, { button: 0 });
+    });
+    await settle();
+    expect(ta.value).toBe(`${draft}\n\n${citationBlock(REPLY)}`);
+    expect(document.activeElement === ta).toBe(true);
+    expect([ta.selectionStart, ta.selectionEnd]).toEqual([
+      ta.value.length,
+      ta.value.length,
+    ]);
+    expect(scrolledToEnd(ta)).toEqual({ overflows: true, atEnd: true });
+  } finally {
+    cleanup();
+    undoLayout();
   }
 });
