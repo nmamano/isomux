@@ -42,6 +42,7 @@ import type {
   AgentOutfit,
   AgentState,
   Attachment,
+  BackendModelWire,
   BackgroundTask,
   EffortLevel,
   LogEntry,
@@ -230,7 +231,8 @@ import {
 import { startAskRun, type AskRunResult } from "./ask-command-runner.ts";
 import { createCommandHandling } from "./command-handlers.ts";
 import { createUsageReadings } from "./usage-readings.ts";
-import { createAgentAuth } from "./agent-auth.ts";
+import { createAgentAuth, providerDisplayName } from "./agent-auth.ts";
+import { openCodeDefaultModel } from "../shared/opencode-model.ts";
 import { createSessionAccounts } from "./session-accounts.ts";
 import { createAgentSkills } from "./agent-skills.ts";
 import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
@@ -410,6 +412,12 @@ import {
 // lives in createProductionAgentManager() at the bottom of this file. Tests
 // inject a FakeBackend resolver, a capturing event sink, and a fresh
 // OfficeState + persisted-agent snapshot for isolation.
+
+// The OpenCode models an agent's manager can use, in the agent's folder
+// (discovery). Rejects when discovery fails or times out.
+export type OpenCodeModelLister = (
+  agent: Readonly<AgentInfo>,
+) => Promise<BackendModelWire[]>;
 
 // A page raise, as the office attaches it (a paged ask, task 74e8fc07).
 export interface PageRaiser {
@@ -1623,6 +1631,92 @@ export function createAgentManager(deps: ManagerDeps) {
   ): void {
     refusedFreeModelReplacer = replacer;
   }
+  // Lists the OpenCode models an agent can use, for an agent with no model
+  // set (fillUnsetModel). isomux-office registers it at boot; tests stub it.
+  let openCodeModelLister: OpenCodeModelLister | null = null;
+  function setOpenCodeModelLister(lister: OpenCodeModelLister | null): void {
+    openCodeModelLister = lister;
+  }
+
+  // An OpenCode agent with no model set gets the OpenCode default before a
+  // session starts (task eecaaedc), and one chat line says which. False when
+  // no model could be set: an error line is written and the agent is in
+  // "error", so the caller must not start a session. True otherwise. Wakes
+  // that run together share one discovery (unsetModelFills).
+  const unsetModelFills = new Map<string, Promise<boolean>>();
+  // Callers test this first and await the fill only when it holds, so a send
+  // to an agent with a model keeps its timing (no added await).
+  function modelUnset(managed: ManagedAgent): boolean {
+    return (
+      managed.info.agentType === "opencode" &&
+      !managed.info.modelFamily &&
+      getBackend("opencode").requiresModel === true
+    );
+  }
+  function fillUnsetModel(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<boolean> {
+    if (!modelUnset(managed)) return Promise.resolve(true);
+    const inFlight = unsetModelFills.get(agentId);
+    if (inFlight) return inFlight;
+    const fill = runUnsetModelFill(agentId, managed).finally(() => {
+      if (unsetModelFills.get(agentId) === fill)
+        unsetModelFills.delete(agentId);
+    });
+    unsetModelFills.set(agentId, fill);
+    return fill;
+  }
+
+  async function runUnsetModelFill(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<boolean> {
+    const lister = openCodeModelLister;
+    let pick: { model: BackendModelWire; officeFree: boolean } | undefined;
+    if (lister) {
+      try {
+        pick = openCodeDefaultModel(await lister({ ...managed.info }));
+      } catch (err) {
+        console.warn(
+          `[opencode] model discovery failed for ${managed.info.name}, which has no model set:`,
+          errMessage(err),
+        );
+      }
+    }
+    // A kill, an engine switch or a member's pick during discovery wins.
+    if (agents.get(agentId) !== managed) return false;
+    if (managed.info.agentType !== "opencode" || managed.info.modelFamily)
+      return true;
+    const engine = providerDisplayName("opencode");
+    if (pick) {
+      const id = pick.model.id;
+      // No session runs (the callers wake one after this), so the record
+      // changes alone; the wake reads the new model.
+      for (const event of officeState.updateAgent(agentId, {
+        modelFamily: id,
+        ...(pick.officeFree ? { officeFreeModel: id } : {}),
+      }))
+        emit(event);
+      addLogEntry(
+        agentId,
+        "system",
+        msg("systemEntries.unsetModelFilled", {
+          model: pick.model.label || id,
+          engine,
+        }),
+      );
+      return true;
+    }
+    addLogEntry(
+      agentId,
+      "error",
+      msg("systemEntries.unsetModelNone", { engine }),
+    );
+    updateState(agentId, "error");
+    return false;
+  }
+
   // One search per owner and refused model: the Receptionist and the Free
   // Welcome Agent of one owner share it.
   const freeModelSearches = new Map<string, Promise<string | null>>();
@@ -2270,6 +2364,12 @@ export function createAgentManager(deps: ManagerDeps) {
         // so stamp the resumed session now. Otherwise a resume before that
         // turn restores the old model from the stale stamp (task a987d05b).
         if (sessionId) stampCurrentEngine(agentId, managed, sessionId);
+        // A new session is a fresh start: an agent an error stopped (a
+        // session that could not start, task eecaaedc) runs its queue again.
+        if (managed.info.state === "error") {
+          updateState(agentId, "waiting_for_response");
+          requestFlush(agentId, "settings edit");
+        }
       }
 
       // Record the active session's new cwd as source of truth (after any replace
@@ -6295,6 +6395,8 @@ export function createAgentManager(deps: ManagerDeps) {
     persistAll,
     requeueSwappedSend,
     alignAccount,
+    modelUnset,
+    fillUnsetModel,
     wakeDormantSession: (agentId, managed, rawText, username, device) =>
       wakeSessionForSend(agentId, managed, {
         // echoEarly:false - executeSkill echoes the user's command AFTER the
@@ -6440,6 +6542,11 @@ export function createAgentManager(deps: ManagerDeps) {
       // takes the session. A failed move keeps the conversation on the
       // member's own sign-in: the continue meant for the office sign-in is
       // dropped, and the agent waits for the member's reset instead.
+      // An OpenCode agent with no model gets the default before the wake.
+      if (!managed.sessionManager.session && modelUnset(managed)) {
+        if (!(await fillUnsetModel(agentId, managed))) return;
+        if (!flushStillWanted(agentId, managed)) return;
+      }
       const accountCheck = alignAccount(agentId, managed);
       if (accountCheck && (await accountCheck) === "failed") {
         const continues = new Set(
@@ -7387,6 +7494,21 @@ export function createAgentManager(deps: ManagerDeps) {
         msg("systemEntries.permissionOutcome.priorSessionStopped"),
       );
     }
+    // An OpenCode agent with no model gets the default before the wake
+    // below. With none, the message is kept in the chat beside the error line,
+    // as a failed wake keeps it.
+    if (
+      !managed.sessionManager.session &&
+      !claimedChoice &&
+      !isSlash &&
+      modelUnset(managed) &&
+      !(await fillUnsetModel(agentId, managed))
+    ) {
+      if (!echoEarly)
+        addLogEntry(agentId, "user_message", text, userMeta, attachments);
+      accept();
+      return;
+    }
     // A swap that started after the busy check above holds the slot: wait
     // for it, so the check below sees what it installed. No await between
     // this wait and the check.
@@ -7977,6 +8099,18 @@ export function createAgentManager(deps: ManagerDeps) {
     if (isSlash) {
       const accountCheck = alignAccount(agentId, managed);
       if (accountCheck) await accountCheck;
+    }
+    // As above: the model before the wake.
+    if (
+      !managed.sessionManager.session &&
+      managed.info.dormant &&
+      modelUnset(managed) &&
+      !(await fillUnsetModel(agentId, managed))
+    ) {
+      if (!echoEarly)
+        addLogEntry(agentId, "user_message", text, userMeta, attachments);
+      accept();
+      return;
     }
     // As above: a swap holds the slot until its caller's steps are done.
     while (managed.sessionManager.swapping)
@@ -10745,6 +10879,7 @@ export function createAgentManager(deps: ManagerDeps) {
     setGoneModel,
     setOfficeFreeModel,
     setRefusedFreeModelReplacer,
+    setOpenCodeModelLister,
     cancelFreeModelSearches,
     openCodeFreeLimit,
     oneShotForUser,

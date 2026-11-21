@@ -2,13 +2,12 @@ import {
   codexDefaultModel,
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
-  OPENCODE_DEFAULT_MODEL,
   effortLevelsFor,
   type AgentBackendType,
   type BackendModelWire,
   type EffortLevel,
 } from "../shared/types.ts";
-import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
+import { openCodeDefaultModel } from "../shared/opencode-model.ts";
 import { apiFetch, ApiError } from "./api.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
 
@@ -90,12 +89,7 @@ export function defaultBackendModel(
     const id = codexDefaultModel(models);
     return models.find((model) => model.id === id);
   }
-  const visibleModels = models.filter((model) => !model.hidden);
-  return (
-    preferredFreeOpenCodeModel(visibleModels, OPENCODE_DEFAULT_MODEL) ??
-    visibleModels.find((model) => model.isDefault) ??
-    visibleModels[0]
-  );
+  return openCodeDefaultModel(models)?.model;
 }
 
 export function selectSupportedEffort(

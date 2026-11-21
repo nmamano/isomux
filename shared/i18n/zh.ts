@@ -3923,6 +3923,10 @@ export const zh: Catalog = {
   "systemEntries.unsavedResent.other":
     "已开始新会话（原会话在保存前已结束）。Isomux 将重新发送 {count} 条消息。",
   "systemEntries.freshSessionBeforeFlush": "已在发送队列消息之前开始新会话。",
+  "systemEntries.unsetModelFilled":
+    "未设置模型。此智能体现在使用 {engine} 的默认模型 {model}。",
+  "systemEntries.unsetModelNone":
+    "此智能体没有模型，Isomux 也没有为它找到 {engine} 模型。请打开智能体设置选择一个。",
   "systemEntries.flushStartFailed":
     "无法启动会话以发送队列消息：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.restartingForSettings":

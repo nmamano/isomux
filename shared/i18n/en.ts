@@ -4307,6 +4307,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Started a fresh session (the previous one ended before it was saved). Isomux sends {count} messages again.",
   "systemEntries.freshSessionBeforeFlush":
     "Started a fresh session before flushing queued messages.",
+  "systemEntries.unsetModelFilled":
+    "No model was set. This agent now uses {model}, the {engine} default.",
+  "systemEntries.unsetModelNone":
+    "This agent has no model, and Isomux found no {engine} model for it. Open agent settings to select one.",
   "systemEntries.flushStartFailed":
     "Cannot start session to flush queue: {error}\nType /clear to start fresh, or /resume to pick another session.",
   "systemEntries.restartingForSettings":

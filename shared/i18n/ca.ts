@@ -4408,6 +4408,10 @@ Coses que pots fer per ell:
     "S'ha iniciat una sessió nova (l'anterior va acabar abans de desar-se). Isomux torna a enviar {count} missatges.",
   "systemEntries.freshSessionBeforeFlush":
     "S'ha iniciat una sessió nova abans de buidar la cua de missatges.",
+  "systemEntries.unsetModelFilled":
+    "No hi havia cap model. Aquest agent ara fa servir {model}, el predeterminat de {engine}.",
+  "systemEntries.unsetModelNone":
+    "Aquest agent no té model, i Isomux no ha trobat cap model de {engine} per a ell. Obre la configuració de l'agent per triar-ne un.",
   "systemEntries.flushStartFailed":
     "No s'ha pogut iniciar la sessió per buidar la cua: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
   "systemEntries.restartingForSettings":

@@ -708,6 +708,34 @@ describe("OpenCode pinned transport", () => {
     expect(listed).toBe(refusal);
   });
 
+  // Task eecaaedc: a session with no model set gets its own refusal, not the
+  // one for a malformed model id: a path that starts a session without the
+  // office's default fill must tell the member to pick a model.
+  it("refuses a session with no model with its own error, not the malformed-model one", () => {
+    const backend = createOpenCodeBackend();
+    const thrown = (run: () => unknown): string => {
+      try {
+        run();
+      } catch (error) {
+        return (error as Error).message;
+      }
+      throw new Error("expected a throw");
+    };
+    const malformed = thrown(() =>
+      backend.createSession({ ...opts, modelFamily: "no-slash" }),
+    );
+    for (const start of [
+      () => backend.createSession({ ...opts, modelFamily: "" }),
+      () => backend.resumeSession("stored", { ...opts, modelFamily: "" }),
+    ]) {
+      const unset = thrown(start);
+      expect(unset).not.toBe(malformed);
+      expect(unset).not.toBe(
+        "OpenCode session environment identity is required.",
+      );
+    }
+  });
+
   // R7: the 2.1.4 prompt carries no agent, model or system prompt. Each
   // session runs its turn with its own model, instructions and the agent of
   // its current permission mode, also when it was created in another mode.

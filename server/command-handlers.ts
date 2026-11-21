@@ -285,6 +285,11 @@ interface HandlerDeps {
   // (an error was already logged and the agent moved to "error"), in which case
   // the caller must stop. Caller must gate on `managed.info.dormant` - a
   // genuinely-broken (non-dormant) session is left to surface its own error.
+  // An OpenCode agent with no model gets the default before a wake. False:
+  // none could be set, an error line is written and the agent is in "error".
+  fillUnsetModel: (agentId: string, managed: ManagedAgent) => Promise<boolean>;
+  // Whether fillUnsetModel has work: the caller awaits only then.
+  modelUnset: (managed: ManagedAgent) => boolean;
   wakeDormantSession: (
     agentId: string,
     managed: ManagedAgent,
@@ -1592,6 +1597,20 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     const accountCheck = deps.alignAccount(agentId, managed);
     if (accountCheck) await accountCheck;
+    // The model before the wake below. With none, the command is kept in the
+    // chat beside the error line, as a failed wake keeps it.
+    if (
+      !managed.sessionManager.session &&
+      managed.info.dormant &&
+      deps.modelUnset(managed) &&
+      !(await deps.fillUnsetModel(agentId, managed))
+    ) {
+      const userMeta: Record<string, unknown> = {};
+      if (username) userMeta.username = username;
+      if (device) userMeta.device = device;
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta, files);
+      return true;
+    }
     // A swap holds the slot (a /resume pick, an edit): the skill runs on what
     // it installs. No await between this wait and the check below.
     while (managed.sessionManager.swapping)

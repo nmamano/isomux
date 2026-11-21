@@ -1125,6 +1125,7 @@ let seedWelcomeAgentsForFirstOwner:
 
 const {
   resolveCodexDefaultModel,
+  listOpenCodeModelsForAgent,
   replaceRefusedFreeModel,
   stopFallbackRepick,
   backfillOfficeFreeModelMarks,
@@ -1144,6 +1145,9 @@ const {
 // Body left at prior indentation; prettier normalizes post-review.
 function registerBootHooks(): void {
   agentManager.setRefusedFreeModelReplacer(replaceRefusedFreeModel);
+  // Before the boot replay (restoreAgents): a queued message of an OpenCode
+  // agent with no model set fills the default at that wake.
+  agentManager.setOpenCodeModelLister(listOpenCodeModelsForAgent);
   // Inject the room snapshot provider auth.ts uses when seeding a new
   // owner's allowedRooms at invite-acceptance time. The provider closes
   // over agentManager.getRooms() rather than auth.ts importing
@@ -7223,6 +7227,14 @@ export interface StartServerOpts {
   }) => Promise<BackendModelWire[]>;
   // Test seam for that discovery's timeout (production: 10 s).
   codexModelDiscoveryTimeoutMs?: number;
+  // Test seam for the OpenCode model discovery of an agent with no model set
+  // (task eecaaedc). Production uses the same backend model-list path as the
+  // picker.
+  listOpenCodeModels?: (input: {
+    userId: string | null;
+    cwd: string;
+    signal: AbortSignal;
+  }) => Promise<BackendModelWire[]>;
   // Inject the app supervisor. Tests MUST pass a fake: the production one
   // writes systemd unit files and runs systemctl against the real user manager,
   // which is shared with whatever office is running on the same box.

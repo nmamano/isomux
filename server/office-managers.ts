@@ -294,6 +294,11 @@ export let discoverWelcomeOpenCodeModels:
 export const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
 
 export let listCodexModelsSeam: StartServerOpts["listCodexModels"];
+// How long the wake of an OpenCode agent with no model set waits for the
+// model list (task eecaaedc). Longer than Codex's: the list can need a cold
+// opencode server.
+export const OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
+export let listOpenCodeModelsSeam: StartServerOpts["listOpenCodeModels"];
 // The storage roots GET /api/storage/usage and /isomux-storage measure. One
 // function for both, resolved in createManagers.
 export let storageRoots: () => StorageRoots = () => productionStorageRoots();
@@ -447,6 +452,7 @@ export function createManagers(
   setProcessIsolationSwitch(loadProcessIsolation);
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   listCodexModelsSeam = startOpts.listCodexModels;
+  listOpenCodeModelsSeam = startOpts.listOpenCodeModels;
   codexModelDiscoveryTimeoutMs =
     startOpts.codexModelDiscoveryTimeoutMs ?? CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
   storageRoots =

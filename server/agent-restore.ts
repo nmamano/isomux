@@ -15,12 +15,14 @@ import {
   type LogText,
 } from "../shared/i18n/log-message.ts";
 import type { OfficeState } from "../shared/office-state.ts";
-import type {
-  AgentBackendType,
-  AgentInfo,
-  Attachment,
-  LogEntry,
+import {
+  familyDisplayLabel,
+  type AgentBackendType,
+  type AgentInfo,
+  type Attachment,
+  type LogEntry,
 } from "../shared/types.ts";
+import { providerDisplayName } from "./agent-auth.ts";
 import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { rmSync } from "fs";
 import { claudeConfigDirOf } from "./provider-skill-links.ts";
@@ -571,6 +573,20 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     if (dropped && droppedState)
       noteUnresumableSession(p.id, agentType, dropped, droppedState, resent);
     else if (resent > 0) noteUnsavedResent(p.id, resent);
+
+    // A Claude or Codex agent stored with no model came back on its engine's
+    // default (resolveAgentEngineSettings): say so once, after the chat
+    // above. The stored record takes the model at the next save. An OpenCode
+    // agent fills its default at its first wake (fillUnsetModel).
+    if (!p.modelFamily && agentType !== "opencode")
+      addLogEntry(
+        p.id,
+        "system",
+        msg("systemEntries.unsetModelFilled", {
+          model: familyDisplayLabel(modelFamily, info.claudeFamilyModels),
+          engine: providerDisplayName(agentType),
+        }),
+      );
 
     // Lazy restore: stop here. The agent is on its desk (addExistingAgent above),
     // state="idle", dormant=true, sessionId set, transcript loaded into logCache,

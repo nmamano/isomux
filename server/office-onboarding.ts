@@ -42,6 +42,8 @@ import {
   codexModelDiscoveryTimeoutMs,
   discoverWelcomeOpenCodeModels,
   listCodexModelsSeam,
+  listOpenCodeModelsSeam,
+  OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS,
   openCodeRunsOnHost,
 } from "./office-managers.ts";
 
@@ -139,6 +141,46 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
       clearTimeout(timer);
     }
     return CODEX_MODELS[0].value;
+  }
+
+  // The OpenCode models an agent with no model set can use, in its folder
+  // (agentManager.setOpenCodeModelLister, task eecaaedc). Rejects when
+  // discovery fails or times out; the timeout aborts it.
+  async function listOpenCodeModelsForAgent(
+    agent: Readonly<AgentInfo>,
+  ): Promise<BackendModelWire[]> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new Error(
+            `timed out after ${OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS} ms`,
+          ),
+        );
+      }, OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS);
+    });
+    const input = {
+      userId: agent.userId,
+      cwd: agent.cwd,
+      signal: controller.signal,
+    };
+    const discovery = listOpenCodeModelsSeam
+      ? listOpenCodeModelsSeam(input)
+      : listBackendModels({
+          ...input,
+          agentType: "opencode",
+          includeHidden: false,
+        }).then((r) => {
+          if (!r.ok) throw new Error(r.error);
+          return r.models;
+        });
+    try {
+      return await Promise.race([discovery, timedOut]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // Where the seed puts a welcome agent: the discovered model, or
@@ -682,6 +724,7 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
 
   return {
     resolveCodexDefaultModel,
+    listOpenCodeModelsForAgent,
     replaceRefusedFreeModel,
     stopFallbackRepick,
     backfillOfficeFreeModelMarks,

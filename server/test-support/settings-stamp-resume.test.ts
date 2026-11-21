@@ -165,8 +165,8 @@ async function pickChoice(
 }
 
 describe("a settings change reaches a resume of the same session (a987d05b)", () => {
-  // Errored session, model and effort edit, then an agent message: the
-  // auto-resume must run the edited settings.
+  // Errored session, model and effort edit, then a resume and an agent
+  // message: the resume must run the edited settings.
   async function erroredAutoResume(
     agentType: "opencode" | "claude",
     refused: string,
@@ -186,9 +186,14 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
       modelFamily: good,
       effort: "low",
     });
-    expect(agentOf(server, agent.id).state).toBe("error");
-
+    // The edit's new session is a fresh start: the error no longer holds the
+    // queue (task eecaaedc).
+    expect(agentOf(server, agent.id).state).toBe("waiting_for_response");
+    // A resume of the same session before its first send (and so before its
+    // system_init) reads its stored config. Before task eecaaedc the error
+    // made the next message do this resume; now the edit clears the error.
     const resumesBefore = server.fakeBackend.resumeSessionCount;
+    await server.agentManager.resume(agent.id, sessionId);
     const sent = server.agentManager.enqueueMessage(agent.id, {
       sender: {
         kind: "agent",
@@ -198,10 +203,10 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
       },
       text: "after the edit",
     });
-    expect(sent).toMatchObject({ ok: true, queued: true });
+    expect(sent).toMatchObject({ ok: true });
     await waitUntil(
       () => server!.fakeBackend.resumeSessionCount === resumesBefore + 1,
-      "automatic resume",
+      "resume",
     );
     await waitUntil(
       () => agentOf(server!, agent.id).queue.length === 0,
@@ -220,11 +225,11 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
     });
   }
 
-  it("an errored OpenCode agent's auto-resume runs the model and effort the edit chose", async () => {
+  it("an errored OpenCode agent's resume after the edit runs the model and effort the edit chose", async () => {
     await erroredAutoResume("opencode", REFUSED, GOOD);
   });
 
-  it("an errored Claude agent's auto-resume runs the model and effort the edit chose", async () => {
+  it("an errored Claude agent's resume after the edit runs the model and effort the edit chose", async () => {
     await erroredAutoResume("claude", CLAUDE_REFUSED, "sonnet");
   });
 

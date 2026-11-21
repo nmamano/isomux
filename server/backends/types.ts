@@ -723,6 +723,10 @@ export interface Backend {
   // True when the engine has a native plan mode: sessions implement
   // setPlanMode and createSession/resumeSession honor `planMode`.
   readonly planMode?: boolean;
+  // True when a session cannot start with an empty modelFamily (OpenCode
+  // has no model of its own to fall back on). The agent manager then fills
+  // the engine's default before a wake (fillUnsetModel, task eecaaedc).
+  readonly requiresModel?: boolean;
 
   getModelOptions(): ModelOption[];
   getPermissionModes(): PermissionModeOption[];

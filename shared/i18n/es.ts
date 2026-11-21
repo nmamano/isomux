@@ -4407,6 +4407,10 @@ Cosas que puedes hacer por él:
     "Se inició una sesión nueva (la anterior terminó antes de guardarse). Isomux vuelve a enviar {count} mensajes.",
   "systemEntries.freshSessionBeforeFlush":
     "Se inició una sesión nueva antes de vaciar la cola de mensajes.",
+  "systemEntries.unsetModelFilled":
+    "No había ningún modelo. Este agente usa ahora {model}, el predeterminado de {engine}.",
+  "systemEntries.unsetModelNone":
+    "Este agente no tiene modelo, e Isomux no encontró ningún modelo de {engine} para él. Abre la configuración del agente para elegir uno.",
   "systemEntries.flushStartFailed":
     "No se pudo iniciar la sesión para vaciar la cola: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
   "systemEntries.restartingForSettings":

@@ -12,11 +12,10 @@ import type {
 import {
   DEFAULT_EFFORT,
   MODEL_FAMILIES,
-  OPENCODE_DEFAULT_MODEL,
   claudePermissionModeFor,
   effortLevelsFor,
 } from "./types.ts";
-import { preferredFreeOpenCodeModel } from "./opencode-model.ts";
+import { openCodeDefaultModel } from "./opencode-model.ts";
 import { en } from "./i18n/en.ts";
 import {
   translatorFor,
@@ -480,8 +479,7 @@ export function resolveTemplateModel(
     if (visible.length === 0) return current;
     const chosen =
       visible.find((model) => model.id === current.modelFamily) ??
-      preferredFreeOpenCodeModel(visible, OPENCODE_DEFAULT_MODEL) ??
-      visible.find((model) => model.isDefault) ??
+      openCodeDefaultModel(visible)?.model ??
       visible[0];
     return {
       modelFamily: chosen.id,

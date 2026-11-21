@@ -293,6 +293,10 @@ async function bootTestServer(
       listCodexModels: async () => {
         throw new Error("test harness: no Codex model discovery");
       },
+      // The same for an OpenCode agent with no model set: no real opencode.
+      listOpenCodeModels: async () => {
+        throw new Error("test harness: no OpenCode model discovery");
+      },
       appSupervisor,
       // The same for an isolated member's apps: no member runner, no user
       // manager (fake-member-runner.ts).

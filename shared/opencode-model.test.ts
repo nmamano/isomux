@@ -1,5 +1,41 @@
 import { describe, expect, it } from "bun:test";
-import { preferredFreeOpenCodeModel } from "./opencode-model.ts";
+import {
+  openCodeDefaultModel,
+  preferredFreeOpenCodeModel,
+} from "./opencode-model.ts";
+import { OPENCODE_DEFAULT_MODEL } from "./types.ts";
+
+// Task eecaaedc: the server fills an agent with no model from this rule, and
+// marks the pick as the office's only when it is the preferred free model.
+// The order itself is pinned through the UI picker (defaultBackendModel in
+// ui/backend-model-selection.test.ts).
+describe("openCodeDefaultModel", () => {
+  const free = { id: OPENCODE_DEFAULT_MODEL, isFree: true };
+  const reported = { id: "prov/reported", isDefault: true };
+  const first = { id: "prov/first" };
+
+  it("marks only the preferred free model as the office's pick", () => {
+    expect(openCodeDefaultModel([first, reported, free])).toEqual({
+      model: free,
+      officeFree: true,
+    });
+    expect(openCodeDefaultModel([first, reported])).toEqual({
+      model: reported,
+      officeFree: false,
+    });
+    expect(openCodeDefaultModel([first])).toEqual({
+      model: first,
+      officeFree: false,
+    });
+  });
+
+  it("never picks a hidden model, and gives nothing for a list with no visible model", () => {
+    const hiddenDefault = { ...reported, hidden: true };
+    expect(openCodeDefaultModel([hiddenDefault, first])?.model).toBe(first);
+    expect(openCodeDefaultModel([hiddenDefault])).toBeUndefined();
+    expect(openCodeDefaultModel([])).toBeUndefined();
+  });
+});
 
 describe("preferredFreeOpenCodeModel", () => {
   const preferred = "opencode/preferred-free";

@@ -185,6 +185,13 @@ const ONE_SHOT_TIMEOUT_MS = 120_000;
 const ONE_SHOT_CLEANUP_TIMEOUT_MS = 1_000;
 
 function productionModel(model: string): string {
+  // The office fills the default before a wake (task eecaaedc); a path that
+  // starts a session without that fill still names the fix.
+  if (!model) {
+    throw new Error(
+      "This OpenCode agent has no model. Open agent settings and select a connected model.",
+    );
+  }
   if (model === OPENCODE_TRACER_MODEL) {
     throw new Error(
       "This OpenCode agent uses the retired tracer model. Open agent settings and select a connected model.",
@@ -669,6 +676,8 @@ export function createOpenCodeBackend(
     // the running turn instead of aborting it, as on Claude and Codex
     // (internal-docs/steer-delivery-design.md §3.5).
     toolBoundaryDelivery: true,
+    // productionModel refuses an empty model.
+    requiresModel: true,
     getModelOptions: () => [],
     getPermissionModes: () => PERMISSION_MODES,
     // A saved setting reaches both of the member's servers: the limited one
