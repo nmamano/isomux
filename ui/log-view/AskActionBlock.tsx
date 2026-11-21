@@ -128,6 +128,9 @@ interface ActionView {
   lines: ReactNode[];
   marks: Record<string, string>;
   gone: string | null;
+  // The gone line says the asked end state already holds (the member is
+  // removed, the sessions ended): a note, not a blocker.
+  goneDone?: boolean;
   // No Apply: the viewer is not the member who can run it.
   noApply?: boolean;
   // Apply waits for a choice on the card.
@@ -443,6 +446,9 @@ export function AskActionBlock({
   const fontSize = isMobile ? 13 : 12;
   const small = isMobile ? 12 : 11;
   const muted = { color: "var(--text-muted)", fontSize: small };
+  // A line that says why Apply cannot run: in the error colour and set apart,
+  // so it does not read as a note under a warning (task a1971631).
+  const blocker = { color: "var(--red-text)", fontSize: small, marginTop: 4 };
 
   // The first click of a kind that asks again: a prune's preview (the page's
   // dry run, with the step's policy), else the confirm state.
@@ -1017,6 +1023,7 @@ export function AskActionBlock({
       ],
       marks: here ? { "data-ask-action-signs-you-out": "" } : {},
       gone: member ? null : t("asks.action.memberGone"),
+      goneDone: true,
     };
   }
 
@@ -1066,6 +1073,7 @@ export function AskActionBlock({
       ],
       marks: here ? { "data-ask-action-signs-you-out": "" } : {},
       gone: member ? null : t("asks.action.memberGone"),
+      goneDone: true,
     };
   }
 
@@ -1089,6 +1097,7 @@ export function AskActionBlock({
       lines: [],
       marks: {},
       gone: member ? null : t("asks.action.memberGone"),
+      goneDone: true,
     };
   }
 
@@ -1220,6 +1229,7 @@ export function AskActionBlock({
       ],
       marks: self ? { "data-ask-action-self": "" } : {},
       gone: member ? null : t("asks.action.memberGone"),
+      goneDone: true,
     };
   }
 
@@ -1274,6 +1284,9 @@ export function AskActionBlock({
       ],
       marks: {},
       gone: list && !removed ? t("asks.action.notRemoved") : null,
+      // Restored or purged by someone else: a restore after a purge fails,
+      // but the card cannot tell the two apart.
+      goneDone: true,
     };
   }
 
@@ -1478,7 +1491,10 @@ export function AskActionBlock({
           })}
         </div>,
       );
-    if (target && !belowStandard(agentAccessOf(target)))
+    // No chat matches: Apply cannot run, so the blocker is the one coloured
+    // line.
+    const waNone = waMember && waChats !== null && waCandidates.length === 0;
+    if (target && !belowStandard(agentAccessOf(target)) && !waNone)
       lines.push(
         <div
           key="shell"
@@ -1496,9 +1512,14 @@ export function AskActionBlock({
           })}
         </div>,
       );
-    else if (waChats !== null && waCandidates.length === 0)
+    else if (waNone)
       lines.push(
-        <div key="none" data-ask-action-wa-none="" style={muted}>
+        <div
+          key="none"
+          data-ask-action-wa-none=""
+          data-ask-action-blocker=""
+          style={blocker}
+        >
           {rich("asks.action.whatsappNoMatch", {
             name: <Data>{s.chatName}</Data>,
           })}
@@ -1863,7 +1884,10 @@ export function AskActionBlock({
           })}
         </div>,
       );
-    if (target && !belowStandard(agentAccessOf(target)))
+    // No place matches: Apply cannot run, so the blocker is the one coloured
+    // line.
+    const dcNone = dcMember && dcBots !== null && dcPlaces.length === 0;
+    if (target && !belowStandard(agentAccessOf(target)) && !dcNone)
       lines.push(
         <div
           key="shell"
@@ -1881,9 +1905,14 @@ export function AskActionBlock({
           })}
         </div>,
       );
-    else if (dcBots !== null && dcPlaces.length === 0)
+    else if (dcNone)
       lines.push(
-        <div key="none" data-ask-action-dc-none="" style={muted}>
+        <div
+          key="none"
+          data-ask-action-dc-none=""
+          data-ask-action-blocker=""
+          style={blocker}
+        >
           {rich("asks.action.discordNoMatch", {
             name: <Data>{s.placeName}</Data>,
           })}
@@ -2119,7 +2148,13 @@ export function AskActionBlock({
       ))}
       {view.lines}
       {view.gone !== null ? (
-        <div style={muted}>{view.gone}</div>
+        view.goneDone ? (
+          <div style={muted}>{view.gone}</div>
+        ) : (
+          <div data-ask-action-blocker="" style={blocker}>
+            {view.gone}
+          </div>
+        )
       ) : view.noApply ||
         (step.kind === "office-update" && phase === "ran") ? null : (
         <button
