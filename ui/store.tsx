@@ -80,7 +80,7 @@ import type {
   UnavailableFeatures,
 } from "../shared/types.ts";
 import { cronjobRunStreamId } from "../shared/types.ts";
-import type { AskCardTag } from "./log-view/ask-tag.ts";
+import type { AskTag } from "../shared/types.ts";
 import {
   type UserView,
   upsertUserView,
@@ -241,7 +241,7 @@ export interface AppState {
   askDrafts: Map<string, string>;
   // askId → the tag on the reply field (task 1466ea8b). No entry: the card
   // shows the agent's recommended tag, if any; null: the member removed it.
-  askTags: Map<string, AskCardTag | null>;
+  askTags: Map<string, AskTag | null>;
   // agentId → which side panel was open (terminal/editor) when the user last
   // viewed this agent. Persists across LogView remount on agent switch so
   // the panel reopens automatically when the member returns. `undefined` means
@@ -569,7 +569,7 @@ export type Action =
   // null deletes the draft.
   | { type: "set_ask_draft"; askId: string; text: string | null }
   // undefined deletes the entry (the card is untouched again).
-  | { type: "set_ask_tag"; askId: string; tag: AskCardTag | null | undefined }
+  | { type: "set_ask_tag"; askId: string; tag: AskTag | null | undefined }
   | {
       type: "set_side_panel";
       agentId: string;

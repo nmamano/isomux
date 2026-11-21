@@ -76,13 +76,27 @@ function backgrounds(v: ThemeVars, tints: readonly string[]): Rgb[] {
   return out;
 }
 
+// The HSL hue of a colour, in degrees.
+function hue([r, g, b]: Rgb): number {
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h =
+    max === r
+      ? ((g - b) / d) % 6
+      : max === g
+        ? (b - r) / d + 2
+        : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
 function worst(color: string, bgs: Rgb[]): number {
   const fg = parse(color).rgb;
   return Math.min(...bgs.map((bg) => contrast(fg, bg)));
 }
 
 const TEXT = ["primary", "secondary", "dim", "muted", "faint", "ghost", "hint"];
-const HUES = ["accent", "green", "orange", "red", "purple"];
+const HUES = ["accent", "green", "orange", "red", "purple", "ask-tag"];
 
 describe.each(THEMES.map((t) => [t.id, t] as const))("%s theme", (_, t) => {
   const v = t.vars;
@@ -123,6 +137,28 @@ describe.each(THEMES.map((t) => [t.id, t] as const))("%s theme", (_, t) => {
         label: contrast(base, parse(v[key]).rgb) >= AA,
       }).toEqual({ key, label: true });
     }
+  });
+
+  // The ask card's tag buttons (task 9d79a544): --ask-tag-text on a 14%
+  // --ask-tag tint, in a hue that never reads as an error (no red or pink)
+  // and stands apart from the accent.
+  it("draws the ask tags' text at AA on their own tint, in a hue apart from red and the accent", () => {
+    const solids = backgrounds(v, []);
+    const tint = parse(v["--ask-tag"]).rgb;
+    const tinted = solids.map(
+      (bg) => bg.map((c, i) => tint[i] * 0.14 + c * 0.86) as Rgb,
+    );
+    expect(worst(v["--ask-tag-text"], tinted) >= AA).toBe(true);
+    const tag = hue(parse(v["--ask-tag"]).rgb);
+    const apart = (other: keyof ThemeVars) => {
+      const d = Math.abs(tag - hue(parse(v[other]).rgb)) % 360;
+      return Math.min(d, 360 - d);
+    };
+    expect({
+      notRed: tag > 30 && tag < 290,
+      fromRed: apart("--red") >= 40,
+      fromAccent: apart("--accent") >= 20,
+    }).toEqual({ notRed: true, fromRed: true, fromAccent: true });
   });
 
   it("draws syntax colours at AA", () => {

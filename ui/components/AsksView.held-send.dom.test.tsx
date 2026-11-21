@@ -60,9 +60,9 @@ const pendingOf = (view: View, id: string) => {
 const undoOf = (view: View, id: string) =>
   cardEl(view, id)!.querySelector<HTMLButtonElement>("[data-ask-undo]")!;
 
-type Kind = "reply" | "dismiss" | "file-task";
+type Kind = "reply" | "dismiss" | "postpone";
 // Types the text in the card's field and clicks the answer of that kind: a
-// dismiss and a filed task are a tag on the field (task 1466ea8b), sent by
+// dismiss and a postpone are a tag on the field (task 1466ea8b), sent by
 // the send button that names it. A card back from Undo keeps its tag.
 async function answerAsk(view: View, id: string, kind: Kind, text?: string) {
   const card = cardEl(view, id)!;
@@ -74,16 +74,14 @@ async function answerAsk(view: View, id: string, kind: Kind, text?: string) {
     .askTagChip;
   if (kind === "dismiss" && chip !== "dismiss")
     await click('[data-ask-tag="dismiss"]');
-  if (kind === "file-task" && chip !== "file") {
+  if (kind === "postpone" && chip !== "postpone")
     await click('[data-ask-tag="postpone"]');
-    await click('[data-ask-suggestion="file"]');
-  }
   if (text !== undefined)
     fireEvent.change(fieldOf(view, id), { target: { value: text } });
   await click(
     kind === "reply"
       ? 'button[type="submit"][data-ask-send="reply"]'
-      : `button[type="submit"][data-ask-send="${kind === "dismiss" ? "dismiss" : "file"}"]`,
+      : `button[type="submit"][data-ask-send="${kind}"]`,
   );
 }
 
@@ -94,7 +92,7 @@ async function answerAsk(view: View, id: string, kind: Kind, text?: string) {
 for (const [kind, text] of [
   ["reply", "Ship it on Monday"],
   ["dismiss", "Not this week"],
-  ["file-task", "Do it after the release"],
+  ["postpone", "Do it after the release"],
 ] as const) {
   it(`sends a held ${kind} at once from the line's ×, and only once`, async () => {
     jest.useFakeTimers();
@@ -169,12 +167,12 @@ it("sends every waiting answer at once when the Inbox goes away, and only once",
   jest.useFakeTimers();
   const { view } = mount([ask("left1", "a1", 30), ask("left2", "a2", 20)]);
   await answerAsk(view, "left1", "reply", "yes");
-  await answerAsk(view, "left2", "file-task", "later");
+  await answerAsk(view, "left2", "postpone", "later");
   expect(posts).toEqual([]);
   await act(async () => view.unmount());
   expect([...posts].sort()).toEqual([
     "/api/asks/left1/reply",
-    "/api/asks/left2/file-task",
+    "/api/asks/left2/postpone",
   ]);
   await advance(ASK_UNDO_MS * 2);
   expect(posts).toHaveLength(2);

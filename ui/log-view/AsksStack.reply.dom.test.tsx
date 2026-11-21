@@ -292,18 +292,20 @@ it("starts an ask with options and no recommendation empty, and Reply waits for 
   view.unmount();
 });
 
-// Task 1466ea8b: the Dismiss tag replaces the untouched default, so the
-// recommendation the card starts with goes as no reason; once the member
-// filled or typed the field, it goes as it is, the recommendation too.
-it("sends no dismiss reason for the untouched recommended default, and the field as it is once the member filled or typed it", async () => {
+// Task 9d79a544: the Dismiss tag empties the field whatever it held (the
+// untouched recommendation, a filled option, typed words), so a dismiss
+// right after the tap goes with no reason; words typed after the tap go as
+// they are.
+it("sends no dismiss reason after the tag tap emptied the field, whatever it held, and the words typed after the tap as they are", async () => {
   // A tap on the option the field holds sends it, so the recommendation
   // comes back into the field by a tap after another option.
-  for (const [label, step, body] of [
-    ["untouched", null, {}],
-    ["filled the recommendation again", { taps: [0, 1] }, { text: "No" }],
-    ["typed the recommendation again", { type: "No" }, { text: "No" }],
-    ["tapped the other option", { taps: [0] }, { text: "Yes" }],
-    ["typed a reason", { type: "not now" }, { text: "not now" }],
+  for (const [label, step, after, body] of [
+    ["untouched", null, null, {}],
+    ["filled the recommendation again", { taps: [0, 1] }, null, {}],
+    ["typed the recommendation again", { type: "No" }, null, {}],
+    ["tapped the other option", { taps: [0] }, null, {}],
+    ["typed a reason before the tag", { type: "not now" }, null, {}],
+    ["typed a reason after the tag", null, "not now", { text: "not now" }],
   ] as const) {
     posts = [];
     const view = mount(false, "a8");
@@ -323,14 +325,19 @@ it("sends no dismiss reason for the untouched recommended default, and the field
       fireEvent.change(input, { target: { value: "" } });
       fireEvent.change(input, { target: { value: step.type } });
     }
-    for (const selector of [
-      '[data-ask-tag="dismiss"]',
-      '[data-ask-send="dismiss"]',
-    ])
-      await act(async () => {
-        fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!);
-        await new Promise((r) => setTimeout(r, 0));
-      });
+    await act(async () => {
+      fireEvent.click(
+        card.querySelector<HTMLButtonElement>('[data-ask-tag="dismiss"]')!,
+      );
+    });
+    expect([label, input.value]).toEqual([label, ""]);
+    if (after !== null) fireEvent.change(input, { target: { value: after } });
+    await act(async () => {
+      fireEvent.click(
+        card.querySelector<HTMLButtonElement>('[data-ask-send="dismiss"]')!,
+      );
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect([label, posts]).toEqual([
       label,
       [{ path: "/api/asks/mmmm0013/dismiss", body }],

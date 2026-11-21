@@ -71,6 +71,11 @@ const DARK_VARS = {
   "--orange-text": "#f5a623",
   "--red-text": "#ea6980",
   "--purple-text": "#a47bff",
+  // The ask card's tags (Dismiss, Postpone, Rewrite): a hue of their own,
+  // never red (it reads as an error) and apart from --accent, which the
+  // agent's options take. Text strength as the status hues above.
+  "--ask-tag": "#3fbfad",
+  "--ask-tag-text": "#45c7b5",
 
   "--user-msg-bg": "rgba(126,184,255,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -195,6 +200,8 @@ const LIGHT_VARS: ThemeVars = {
   "--orange-text": "#985304",
   "--red-text": "#c42020",
   "--purple-text": "#7a36ed",
+  "--ask-tag": "#0d9488",
+  "--ask-tag-text": "#0b6e65",
 
   "--user-msg-bg": "rgba(59,130,246,0.07)",
   "--tool-result-bg": "rgba(0,0,0,0.03)",
@@ -308,6 +315,8 @@ const NORD_VARS: ThemeVars = {
   "--orange-text": "#e3b8aa",
   "--red-text": "#e2b7bb",
   "--purple-text": "#d2bbcd",
+  "--ask-tag": "#a3be8c",
+  "--ask-tag-text": "#bfd3ae",
 
   "--user-msg-bg": "rgba(136,192,208,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -419,6 +428,8 @@ const DRACULA_VARS: ThemeVars = {
   "--orange-text": "#ffb86c",
   "--red-text": "#ff9696",
   "--purple-text": "#ff8ecf",
+  "--ask-tag": "#8be9fd",
+  "--ask-tag-text": "#8be9fd",
 
   "--user-msg-bg": "rgba(189,147,249,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -530,6 +541,8 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
   "--orange-text": "#ef9068",
   "--red-text": "#ec8f8d",
   "--purple-text": "#a1a5d9",
+  "--ask-tag": "#2aa198",
+  "--ask-tag-text": "#3dbdb2",
 
   "--user-msg-bg": "rgba(38,139,210,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -640,6 +653,8 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--orange-text": "#a53d12",
   "--red-text": "#b8221f",
   "--purple-text": "#4e54b8",
+  "--ask-tag": "#2aa198",
+  "--ask-tag-text": "#145e58",
 
   "--user-msg-bg": "rgba(38,139,210,0.07)",
   "--tool-result-bg": "rgba(0,0,0,0.03)",

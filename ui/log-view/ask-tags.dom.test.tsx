@@ -4,6 +4,10 @@
 // takes it off. Suggestions sit above the box for Postpone and Rewrite. Each
 // tag sends the box to its own route as typed. The agent can recommend one.
 // The stack sends at once; the Inbox holds every answer but a rewrite.
+// Task 9d79a544: a tag or suggestion tap replaces the box's words (no
+// append), with an Undo line when it erased the member's own words; "File
+// as a task" is plain Postpone words; each tag button carries the option's
+// mark.
 import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -115,6 +119,25 @@ const type = (root: HTMLElement, id: string, value: string) =>
   });
 const precedes = (a: Node, b: Node) =>
   (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+// What a suggestion puts in the box: its words, and a space after a label
+// that ends with a colon (it asks for words after it).
+const wordsOf = (root: HTMLElement, id: string, name: string) => {
+  const words = suggestion(root, id, name).textContent!.trim();
+  return words.endsWith(":") ? `${words} ` : words;
+};
+// The "text replaced" line under the box, and its Undo.
+const replacedLines = (root: HTMLElement, id: string) =>
+  card(root, id).querySelectorAll("[data-ask-replaced]").length;
+const replacedUndo = (root: HTMLElement, id: string) =>
+  card(root, id).querySelector<HTMLButtonElement>(
+    "[data-ask-replaced] [data-ask-replaced-undo]",
+  )!;
+// The box, its chip and the line, as scalars.
+const state = (root: HTMLElement, id: string) => ({
+  value: input(root, id).value,
+  chip: chip(root, id),
+  line: replacedLines(root, id),
+});
 
 it("draws Dismiss, Postpone and Rewrite in a row after the agent's options, and no Dismiss, file or Simplify buttons under the box; Reply is off while the box is empty", async () => {
   const view = await stack(ask("tttt1001", { options: ["Yes", "No"] }));
@@ -162,7 +185,7 @@ it("puts a tag on the box as a chip that names the send button and makes its but
   // A tagged send with an empty box is on.
   expect(sendButton(root, "tttt1002").disabled).toBe(false);
 
-  // Another tag replaces it and keeps the typed words.
+  // Another tag replaces it, and the typed words go too (task 9d79a544).
   await type(root, "tttt1002", "The new rule covers it");
   await click(tagButton(root, "tttt1002", "postpone"));
   expect([
@@ -170,7 +193,7 @@ it("puts a tag on the box as a chip that names the send button and makes its but
     sends(root, "tttt1002"),
     tagSends(root, "tttt1002"),
     input(root, "tttt1002").value,
-  ]).toEqual(["postpone", "postpone", ["postpone"], "The new rule covers it"]);
+  ]).toEqual(["postpone", "postpone", ["postpone"], ""]);
   expect(
     card(root, "tttt1002").querySelectorAll("[data-ask-tag-chip]").length,
   ).toBe(1);
@@ -239,8 +262,6 @@ it("sends each tag to its route with the box as typed, and with no words when th
     ["dismiss", [], "dismiss"],
     ["postpone", [], "postpone"],
     ["rewrite", [], "rewrite"],
-    // Postpone with its File as a task suggestion files the ask.
-    ["postpone", ["file"], "file-task"],
   ];
   let n = 0;
   for (const [tag, picks, route] of cases)
@@ -304,7 +325,7 @@ it("sends the tagged answer from the tag's own button and from Enter", async () 
   ]);
 });
 
-it("shows suggestions above the box only for Postpone and Rewrite: a word suggestion fills an empty box or follows the typed words, and File as a task toggles onto the Postpone tag", async () => {
+it("shows suggestions above the box only for Postpone and Rewrite; a suggestion's words replace the box's words and keep the tag", async () => {
   const view = await stack(ask("tttt1008"));
   const root = view.container;
   const id = "tttt1008";
@@ -321,14 +342,19 @@ it("shows suggestions above the box only for Postpone and Rewrite: a word sugges
   ]);
   for (const name of ["file", "circle-back"])
     expect(precedes(suggestion(root, id, name), input(root, id))).toBe(true);
+  // File as a task is words like the others: the tag stays Postpone.
   await click(suggestion(root, id, "file"));
-  expect([chip(root, id), sends(root, id)]).toEqual(["file", "file"]);
-  await click(suggestion(root, id, "file"));
-  expect([chip(root, id), sends(root, id)]).toEqual(["postpone", "postpone"]);
+  expect([chip(root, id), sends(root, id), input(root, id).value]).toEqual([
+    "postpone",
+    "postpone",
+    wordsOf(root, id, "file"),
+  ]);
+  // The next suggestion replaces those words; it does not follow them.
   await click(suggestion(root, id, "circle-back"));
-  const circle = input(root, id).value;
-  expect(circle).not.toBe("");
-  expect(chip(root, id)).toBe("postpone");
+  expect([chip(root, id), input(root, id).value]).toEqual([
+    "postpone",
+    wordsOf(root, id, "circle-back"),
+  ]);
 
   await type(root, id, "");
   await click(tagButton(root, id, "rewrite"));
@@ -339,15 +365,14 @@ it("shows suggestions above the box only for Postpone and Rewrite: a word sugges
   for (const name of ["simplify", "context", "visuals", "answer"])
     expect(precedes(suggestion(root, id, name), input(root, id))).toBe(true);
   await click(suggestion(root, id, "context"));
-  const context = input(root, id).value;
-  expect(context).not.toBe("");
-  // After typed words: a space, then the suggestion's words.
+  expect(input(root, id).value).toBe(wordsOf(root, id, "context"));
+  // Over typed words: the box holds only the suggestion's words.
   await type(root, id, "Please");
   await click(suggestion(root, id, "visuals"));
-  const after = input(root, id).value;
-  expect(after.startsWith("Please ")).toBe(true);
-  expect(after.length).toBeGreaterThan("Please ".length);
-  expect(after).not.toContain(context);
+  expect([chip(root, id), input(root, id).value]).toEqual([
+    "rewrite",
+    wordsOf(root, id, "visuals"),
+  ]);
   expect(posts).toEqual([]);
 });
 
@@ -467,4 +492,249 @@ it("on the Inbox, an ask with no agent has only its Dismiss button, and a reply 
     card(root, "noagent").querySelectorAll("[data-ask-dismiss]").length,
   ]).toEqual([[], 1]);
   expect(tags(root, "draft")).toEqual(["dismiss"]);
+});
+
+// Task 9d79a544: a tap that erases the member's own words shows a line with
+// Undo, which brings back the words and the tag from before the tap.
+const focusedField = () => {
+  const el = document.activeElement as HTMLElement | null;
+  return el?.hasAttribute("data-ask-reply-input")
+    ? el.closest<HTMLElement>("[data-ask]")!.dataset.ask!
+    : null;
+};
+
+it("a tag tap over typed words empties the box with an Undo line; Undo brings back the words and the tag before the tap, and focuses the box", async () => {
+  const view = await stack(ask("tttt3001"), ask("tttt3002"));
+  const root = view.container;
+
+  // No tag before the tap.
+  await type(root, "tttt3001", "My own words");
+  expect(state(root, "tttt3001")).toEqual({
+    value: "My own words",
+    chip: null,
+    line: 0,
+  });
+  await click(tagButton(root, "tttt3001", "dismiss"));
+  expect(state(root, "tttt3001")).toEqual({
+    value: "",
+    chip: "dismiss",
+    line: 1,
+  });
+  await act(async () => input(root, "tttt3001").blur());
+  expect(focusedField()).toBe(null);
+  await click(replacedUndo(root, "tttt3001"));
+  expect(state(root, "tttt3001")).toEqual({
+    value: "My own words",
+    chip: null,
+    line: 0,
+  });
+  expect(focusedField()).toBe("tttt3001");
+  expect(sends(root, "tttt3001")).toBe("reply");
+
+  // Another tag before the tap: Undo puts that tag back.
+  await click(tagButton(root, "tttt3002", "postpone"));
+  await type(root, "tttt3002", "Monday works");
+  await click(tagButton(root, "tttt3002", "rewrite"));
+  expect(state(root, "tttt3002")).toEqual({
+    value: "",
+    chip: "rewrite",
+    line: 1,
+  });
+  await click(replacedUndo(root, "tttt3002"));
+  expect(state(root, "tttt3002")).toEqual({
+    value: "Monday works",
+    chip: "postpone",
+    line: 0,
+  });
+  expect(posts).toEqual([]);
+});
+
+it("a suggestion tap over typed words shows the Undo line too, and Undo brings back the typed words with the tag", async () => {
+  const view = await stack(ask("tttt3003"));
+  const root = view.container;
+  const id = "tttt3003";
+  await click(tagButton(root, id, "rewrite"));
+  await type(root, id, "Please");
+  await click(suggestion(root, id, "context"));
+  expect(state(root, id)).toEqual({
+    value: wordsOf(root, id, "context"),
+    chip: "rewrite",
+    line: 1,
+  });
+  await click(replacedUndo(root, id));
+  expect(state(root, id)).toEqual({
+    value: "Please",
+    chip: "rewrite",
+    line: 0,
+  });
+  expect(posts).toEqual([]);
+});
+
+it("keeps the Undo line through a tag tap then a suggestion tap, and Undo brings back the words from before the first tap", async () => {
+  const view = await stack(ask("tttt3004"));
+  const root = view.container;
+  const id = "tttt3004";
+  await type(root, id, "My long note");
+  await click(tagButton(root, id, "postpone"));
+  expect(state(root, id)).toEqual({ value: "", chip: "postpone", line: 1 });
+  await click(suggestion(root, id, "circle-back"));
+  expect(state(root, id)).toEqual({
+    value: wordsOf(root, id, "circle-back"),
+    chip: "postpone",
+    line: 1,
+  });
+  // A second tag tap in the chain keeps it too.
+  await click(tagButton(root, id, "rewrite"));
+  expect(state(root, id)).toEqual({ value: "", chip: "rewrite", line: 1 });
+  await click(replacedUndo(root, id));
+  expect(state(root, id)).toEqual({
+    value: "My long note",
+    chip: null,
+    line: 0,
+  });
+  expect(posts).toEqual([]);
+});
+
+it("shows no Undo line when the tap erases only the untouched default, the agent's recommended words or a blank box", async () => {
+  const view = await stack(
+    ask("tttt3005"),
+    ask("tttt3006", {
+      recommendedTag: "postpone",
+      recommendedText: "Circle back at: Monday",
+    }),
+    ask("tttt3007", {
+      recommendedTag: "postpone",
+      recommendedText: "Circle back at: Monday",
+    }),
+  );
+  const root = view.container;
+  // The untouched default of an ask with no options.
+  expect(input(root, "tttt3005").value).not.toBe("");
+  await click(tagButton(root, "tttt3005", "dismiss"));
+  expect(state(root, "tttt3005")).toEqual({
+    value: "",
+    chip: "dismiss",
+    line: 0,
+  });
+  // Blank box with a tag: a suggestion erases nothing.
+  await click(tagButton(root, "tttt3005", "postpone"));
+  await click(suggestion(root, "tttt3005", "file"));
+  expect(state(root, "tttt3005")).toEqual({
+    value: wordsOf(root, "tttt3005", "file"),
+    chip: "postpone",
+    line: 0,
+  });
+  // The agent's words: a suggestion tap and a tag tap.
+  await click(suggestion(root, "tttt3006", "file"));
+  expect(state(root, "tttt3006")).toEqual({
+    value: wordsOf(root, "tttt3006", "file"),
+    chip: "postpone",
+    line: 0,
+  });
+  await click(tagButton(root, "tttt3007", "dismiss"));
+  expect(state(root, "tttt3007")).toEqual({
+    value: "",
+    chip: "dismiss",
+    line: 0,
+  });
+  expect(posts).toEqual([]);
+});
+
+it("takes the Undo line away when the box changes another way: typing, an option, or the tag's ×", async () => {
+  const view = await stack(
+    ask("tttt3008"),
+    ask("tttt3009", { options: ["Yes", "No"] }),
+    ask("tttt3010"),
+  );
+  const root = view.container;
+  const replace = async (id: string) => {
+    await type(root, id, "Words of mine");
+    await click(tagButton(root, id, "dismiss"));
+    expect([id, replacedLines(root, id)]).toEqual([id, 1]);
+  };
+  await replace("tttt3008");
+  await type(root, "tttt3008", "x");
+  expect(state(root, "tttt3008")).toEqual({
+    value: "x",
+    chip: "dismiss",
+    line: 0,
+  });
+  // Typed back to what the tap left: the line stays gone.
+  await type(root, "tttt3008", "");
+  expect(state(root, "tttt3008")).toEqual({
+    value: "",
+    chip: "dismiss",
+    line: 0,
+  });
+
+  await replace("tttt3009");
+  await click(
+    card(root, "tttt3009").querySelectorAll<HTMLElement>(
+      "[data-ask-option]",
+    )[1],
+  );
+  expect(state(root, "tttt3009")).toEqual({ value: "No", chip: null, line: 0 });
+
+  await replace("tttt3010");
+  await click(
+    card(root, "tttt3010").querySelector<HTMLElement>(
+      "[data-ask-tag-chip-remove]",
+    )!,
+  );
+  expect(state(root, "tttt3010")).toEqual({ value: "", chip: null, line: 0 });
+  expect(posts).toEqual([]);
+});
+
+it("files as a task with Postpone and the suggestion's words: the agent gets a postpone with them, never a file-task", async () => {
+  const view = await stack(ask("tttt3011"));
+  const root = view.container;
+  const id = "tttt3011";
+  await click(tagButton(root, id, "postpone"));
+  await click(suggestion(root, id, "file"));
+  const words = wordsOf(root, id, "file");
+  expect(words).not.toBe("");
+  expect([chip(root, id), sends(root, id), input(root, id).value]).toEqual([
+    "postpone",
+    "postpone",
+    words,
+  ]);
+  await click(sendButton(root, id));
+  expect(posts).toEqual([{ path: `/api/asks/${id}/postpone`, text: words }]);
+});
+
+it("draws each tag button with the agent options' mark: the pencil when it does not send, the arrow when it does, always shown", async () => {
+  const view = await stack(ask("tttt3012", { options: ["Yes", "No"] }));
+  const root = view.container;
+  const id = "tttt3012";
+  const options = () => [
+    ...card(root, id).querySelectorAll<HTMLElement>("[data-ask-option]"),
+  ];
+  // The drawn mark of a button: its svg, with no hidden box around it.
+  const mark = (b: HTMLElement) => {
+    const svg = b.querySelector("svg");
+    if (!svg) return "none";
+    for (let el: Element | null = svg; el && el !== b; el = el.parentElement)
+      if ((el as HTMLElement).style?.visibility === "hidden") return "hidden";
+    return svg.outerHTML;
+  };
+  const pencil = mark(options()[0]);
+  // Option Yes in the box: its button sends.
+  await click(options()[0]);
+  const arrow = mark(options()[0]);
+  expect(pencil).not.toBe(arrow);
+  expect([pencil.startsWith("<svg"), arrow.startsWith("<svg")]).toEqual([
+    true,
+    true,
+  ]);
+  await click(tagButton(root, id, "dismiss"));
+  const marks = () =>
+    ["dismiss", "postpone", "rewrite"].map((tag) => {
+      const m = mark(tagButton(root, id, tag));
+      return m === pencil ? "pencil" : m === arrow ? "arrow" : m;
+    });
+  expect(marks()).toEqual(["arrow", "pencil", "pencil"]);
+  await click(
+    card(root, id).querySelector<HTMLElement>("[data-ask-tag-chip-remove]")!,
+  );
+  expect(marks()).toEqual(["pencil", "pencil", "pencil"]);
 });

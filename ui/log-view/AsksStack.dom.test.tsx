@@ -365,11 +365,11 @@ const field = (root: HTMLElement, id: string) =>
   root.querySelector<HTMLTextAreaElement>(
     `[data-ask="${id}"] form [data-ask-reply-input]`,
   )!;
-it("sends a typed note with a dismiss or a file-task, and nothing for a blank field or the untouched one, and closes the card", async () => {
+it("sends a typed note with a dismiss or a postpone, and nothing for a blank field or the untouched one, and closes the card", async () => {
   // A tag, then the send button that names it (task 1466ea8b).
   const clicks = {
     dismiss: ['[data-ask-tag="dismiss"]'],
-    "file-task": ['[data-ask-tag="postpone"]', '[data-ask-suggestion="file"]'],
+    postpone: ['[data-ask-tag="postpone"]'],
   };
   // Both verbs read one note rule, so the blank fields run on dismiss only.
   const cases = [
@@ -379,8 +379,8 @@ it("sends a typed note with a dismiss or a file-task, and nothing for a blank fi
     // The member typed the old default: the field goes as it is (task
     // 1466ea8b dropped the "changed from the prefill" rule).
     ["dismiss", "DEFAULT", { text: "DEFAULT" }],
-    ["file-task", "  not this week ", { text: "  not this week " }],
-    ["file-task", null, {}],
+    ["postpone", "  not this week ", { text: "  not this week " }],
+    ["postpone", null, {}],
   ] as const;
   for (const [verb, typed, want] of cases) {
     posts = [];
@@ -422,7 +422,7 @@ it("sends a typed note with a dismiss or a file-task, and nothing for a blank fi
   }
 });
 
-it("keeps the card with the error when the server refuses a file-task, and draws the button on a phone too", async () => {
+it("keeps the card with the error when the server refuses a postpone filed as a task, and draws the button on a phone too", async () => {
   answer = async () => {
     throw new ApiError(409, "agent_stopped", "agent_stopped");
   };
@@ -438,18 +438,18 @@ it("keeps the card with the error when the server refuses a file-task, and draws
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="aaaa0001"]',
   )!;
-  // Filing: the Postpone tag, its File as a task suggestion, then the send
-  // button (task 1466ea8b).
+  // Filing is a postpone with the File as a task words (task 9d79a544): the
+  // Postpone tag, its suggestion, then the send button.
   for (const selector of [
     '[data-ask-tag="postpone"]',
     '[data-ask-suggestion="file"]',
-    '[data-ask-send="file"]',
+    '[data-ask-send="postpone"]',
   ])
     await act(async () => {
       fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!);
       await new Promise((r) => setTimeout(r, 0));
     });
-  expect(posts.map((p) => p.path)).toEqual(["/api/asks/aaaa0001/file-task"]);
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/aaaa0001/postpone"]);
   expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
     "agent_stopped",

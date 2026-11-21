@@ -4,7 +4,7 @@ Part of the `asks` page: when the member dismisses or postpones your ask, asks a
 
 If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed` or the reason the member typed.
 
-If the member postpones it, the bracket says `Postponed your ask <id>, now closed` and the message is `Not now` or the member's note. When the note names a time (`Circle back at: Monday 9am`), schedule a message to yourself for then (`scheduled-messages` page) and open the ask again then if it still applies. For an app's ask, open your own ask then and name the app's ask in it. Without a time, decide when to ask again, or go on without an answer.
+If the member postpones it, the bracket says `Postponed your ask <id>, now closed` and the message is `Not now` or the member's note. When the note names a time (`Circle back at: Monday 9am`), schedule a message to yourself for then (`scheduled-messages` page) and open the ask again then if it still applies. For an app's ask, open your own ask then and name the app's ask in it. When the note asks you to file the ask as a task, file it on the board (`tasks` page). Otherwise, without a time, decide when to ask again, or go on without an answer.
 
 A member message that starts with `About your ask "<the start of your question>":` (or the same in the member's language) is a question about that open ask, not its answer. Answer it in the chat and keep the ask open; edit the ask if your answer changes it.
 

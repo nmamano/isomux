@@ -13,11 +13,11 @@
 // Rewrite, the answers every ask takes. A tap puts the tag on the reply
 // field as a chip at its start (× or Backspace at the field's start takes
 // it off); the send button takes its name and the tag's button sends, as an
-// option's does. At most one tag; a tap on an option takes it off. A tag
-// replaces the field's untouched default and keeps typed words, and the
-// field goes with the tag as it is (blank = no words). Postpone and Rewrite
-// show suggestions above the field: "File as a task" turns Postpone into
-// filing the ask on the board; the others add their words to the field. The
+// option's does. At most one tag; a tap on an option takes it off. A tag tap
+// empties the field, and the field goes with the tag as it is (blank = no
+// words). Postpone and Rewrite show suggestions above the field, whose words
+// replace the field's ("File as a task" too: the agent files it). A tap that
+// erases the member's words shows a line with Undo (task 9d79a544). The
 // agent can recommend a tag with words (recommendedTag): an untouched card
 // starts with it, so Enter sends it. Rewrite asks the agent to rewrite the
 // ask as the field says: the ask stays open, and until the agent changes it
@@ -99,13 +99,11 @@ import {
 } from "../../shared/types.ts";
 import type {
   AskDismissReq,
-  AskFileTaskReq,
   AskPostponeReq,
   AskReplyReq,
   AskRewriteReq,
   AskSimplifyReq,
 } from "../../shared/contract-shapes.ts";
-import type { AskCardTag } from "./ask-tag.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { AskPrompt } from "./AskPrompt.tsx";
 import { unplacedAskFiles } from "./ask-prompt-diff.ts";
@@ -147,21 +145,19 @@ const PROMPT_LINES = 3;
 // without keepalive.
 const KEEPALIVE_MAX_BYTES = 60_000;
 
-type AnswerKind = "reply" | "dismiss" | "postpone" | "file-task";
-type AnswerBody =
-  AskReplyReq | (AskDismissReq & AskFileTaskReq & AskPostponeReq);
+type AnswerKind = "reply" | "dismiss" | "postpone";
+type AnswerBody = AskReplyReq | (AskDismissReq & AskPostponeReq);
 
 // Each tag's name, on its button, its chip and the send button.
-const TAG_LABEL: Record<AskCardTag, PlainMessageKey> = {
+const TAG_LABEL: Record<AskTag, PlainMessageKey> = {
   dismiss: "asks.tag.dismiss",
   postpone: "asks.tag.postpone",
-  file: "asks.tag.file",
   rewrite: "asks.tag.rewrite",
 };
-// The suggestions above the field: "file" turns Postpone into filing the
-// ask; the others add their words to the field.
+// The suggestions above the field: a tap puts their words in the field in
+// place of what it held. "File as a task" is words too: the agent files it.
 const SUGGESTIONS: Partial<
-  Record<AskCardTag, { name: string; label: PlainMessageKey }[]>
+  Record<AskTag, { name: string; label: PlainMessageKey }[]>
 > = {
   postpone: [
     { name: "file", label: "asks.suggest.file" },
@@ -174,11 +170,6 @@ const SUGGESTIONS: Partial<
     { name: "answer", label: "asks.suggest.answer" },
   ],
 };
-SUGGESTIONS.file = SUGGESTIONS.postpone;
-
-// The tag button that a tag on the field makes the one that sends.
-const tagButtonOf = (tag: AskCardTag): AskTag =>
-  tag === "file" ? "postpone" : tag;
 
 // Where a held answer's Undo line goes: a toast over the list, or, with no
 // host, the card's own place.
@@ -515,13 +506,22 @@ function ReplyAskCard({
     offered.find((tag) => tag === entry.recommendedTag) ?? null;
   const storedTag = askTags.get(entry.id);
   // No stored tag: the card is untouched and shows the agent's.
-  const tag: AskCardTag | null =
+  const tag: AskTag | null =
     storedTag === undefined ? recommendedTag : storedTag;
   const fallback =
     untouched && storedTag === undefined && recommendedTag !== null
       ? (entry.recommendedText ?? "")
       : replyDefault(entry, t("asks.replyDefault"));
   const reply = draft ?? fallback;
+  // The field and tag before a tap replaced the member's words, and what the
+  // taps left (replaceWords).
+  const [replaced, setReplaced] = useState<{
+    before: { draft: string | undefined; tag: AskTag | null | undefined };
+    text: string;
+    tag: AskTag | null;
+  } | null>(null);
+  const replacedShown =
+    replaced !== null && reply === replaced.text && tag === replaced.tag;
   const [busy, setBusy] = useState(false);
   // One answer at a time: a second submit in the same frame still sees busy
   // false.
@@ -610,6 +610,7 @@ function ReplyAskCard({
     draft: () => draft ?? "",
     setDraft: (text) => {
       if (sending.current) return;
+      setReplaced(null);
       dispatch({ type: "set_ask_draft", askId: entry.id, text });
     },
     send: ({ text }) => {
@@ -639,29 +640,48 @@ function ReplyAskCard({
       dispatch({ type: "set_ask_tag", askId: entry.id, tag: null });
   }
 
-  // A tag replaces the untouched default and keeps typed words. `keep`
-  // keeps the untouched field's words too: a change between Postpone and
-  // filing, and the tag's removal, do not touch the words.
-  function setTag(next: AskCardTag | null, keep = next === null) {
-    if (untouched)
-      dispatch({
-        type: "set_ask_draft",
-        askId: entry.id,
-        text: keep ? reply : "",
-      });
+  // A tag tap empties the field, and a suggestion tap puts its words in
+  // place of the field's (task 9d79a544). When that erases the member's own
+  // words, a line under the field offers Undo, which brings back the words
+  // and the tag from before the first such tap: a tag tap and then a
+  // suggestion tap keep the line. It shows while the field still holds what
+  // the taps left.
+  function replaceWords(text: string, next: AskTag | null) {
+    const erases = !untouched && reply.trim() !== "" && reply !== text;
+    setReplaced(
+      replacedShown
+        ? { ...replaced, text, tag: next }
+        : erases
+          ? { before: { draft, tag: storedTag }, text, tag: next }
+          : null,
+    );
+    dispatch({ type: "set_ask_draft", askId: entry.id, text });
     dispatch({ type: "set_ask_tag", askId: entry.id, tag: next });
     if (!touchPrimary) pendingFocus.current = true;
   }
 
-  // A suggestion's words fill an empty field, or follow the typed words
-  // after a space.
-  function addWords(words: string) {
-    const text =
-      reply.trim() === ""
-        ? words
-        : `${reply}${/\s$/.test(reply) ? "" : " "}${words}`;
+  // × and Backspace take the tag off and keep the words.
+  function removeTag() {
+    if (untouched)
+      dispatch({ type: "set_ask_draft", askId: entry.id, text: reply });
+    dispatch({ type: "set_ask_tag", askId: entry.id, tag: null });
     if (!touchPrimary) pendingFocus.current = true;
-    dispatch({ type: "set_ask_draft", askId: entry.id, text });
+  }
+
+  function undoReplace() {
+    if (!replaced) return;
+    dispatch({
+      type: "set_ask_draft",
+      askId: entry.id,
+      text: replaced.before.draft ?? null,
+    });
+    dispatch({
+      type: "set_ask_tag",
+      askId: entry.id,
+      tag: replaced.before.tag,
+    });
+    setReplaced(null);
+    if (!touchPrimary) pendingFocus.current = true;
   }
 
   // The field grows with its text, an option tap, a restored draft and Undo
@@ -748,7 +768,7 @@ function ReplyAskCard({
       e.currentTarget.selectionEnd === 0
     ) {
       e.preventDefault();
-      setTag(null);
+      removeTag();
       return;
     }
     if (e.key !== "Enter" || touchPrimary || e.nativeEvent.isComposing) return;
@@ -816,13 +836,7 @@ function ReplyAskCard({
       return;
     }
     commit(
-      tag === null
-        ? "reply"
-        : tag === "file"
-          ? "file-task"
-          : tag === "postpone"
-            ? "postpone"
-            : "dismiss",
+      tag === null ? "reply" : tag === "postpone" ? "postpone" : "dismiss",
       text,
     );
   }
@@ -834,6 +848,7 @@ function ReplyAskCard({
     // otherwise land on the answered card.
     voice.stop(true);
     sending.current = true;
+    setReplaced(null);
     dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
     // The field goes with a tag as it is; blank is no words.
@@ -879,6 +894,7 @@ function ReplyAskCard({
       await apiFetch("POST", `/api/asks/${entry.id}/rewrite`, body);
       dispatch({ type: "set_ask_draft", askId: entry.id, text: null });
       dispatch({ type: "set_ask_tag", askId: entry.id, tag: undefined });
+      setReplaced(null);
     } catch (err) {
       setSimplifyError(
         err instanceof ApiError ? sendFailureText(t, err) : String(err),
@@ -1133,15 +1149,15 @@ function ReplyAskCard({
     </div>
   );
   // The tags' own hue, so they read as answers apart from the agent's
-  // options and never as greyed out: a purple tint, or filled with the send
-  // arrow on the tag that sends.
+  // options and never as greyed out: a hue of its own (--ask-tag, never
+  // red), filled with the send arrow on the tag that sends.
   const tagRow = offered.length > 0 && (
     <div
       data-ask-tags=""
       style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
     >
       {offered.map((name) => {
-        const sends = tag !== null && tagButtonOf(tag) === name;
+        const sends = tag === name;
         const recommended = name === recommendedTag;
         return (
           <button
@@ -1156,7 +1172,7 @@ function ReplyAskCard({
                 }
               : {})}
             disabled={answerOff || (name === "rewrite" && simplifying)}
-            onClick={() => (sends ? sendTagged() : setTag(name))}
+            onClick={() => (sends ? sendTagged() : replaceWords("", name))}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -1164,14 +1180,13 @@ function ReplyAskCard({
               padding: buttonPad,
               ...(recommended ? { paddingLeft: 10 } : {}),
               borderRadius: 8,
-              border:
-                "1px solid color-mix(in srgb, var(--purple-text) 55%, transparent)",
+              border: "1px solid var(--ask-tag-text)",
               // Filled as the options are: the text colour as the fill and
-              // the page's ground as the text, readable in both themes.
+              // the page's ground as the text, readable in every theme.
               background: sends
-                ? "var(--purple-text)"
-                : "color-mix(in srgb, var(--purple) 14%, transparent)",
-              color: sends ? "var(--bg-base)" : "var(--purple-text)",
+                ? "var(--ask-tag-text)"
+                : "color-mix(in srgb, var(--ask-tag) 14%, transparent)",
+              color: sends ? "var(--bg-base)" : "var(--ask-tag-text)",
               fontFamily: "var(--font-ui)",
               fontSize: isMobile ? 14 : 12,
               fontWeight: 600,
@@ -1183,15 +1198,7 @@ function ReplyAskCard({
               {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
               {t(TAG_LABEL[name])}
             </span>
-            {/* The arrow's place is kept, so a fill moves no button. */}
-            <span
-              style={{
-                visibility: sends ? "visible" : "hidden",
-                display: "flex",
-              }}
-            >
-              <OptionMark sends size={isMobile ? 14 : 12} />
-            </span>
+            <OptionMark sends={sends} size={isMobile ? 14 : 12} />
           </button>
         );
       })}
@@ -1202,26 +1209,22 @@ function ReplyAskCard({
     <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
       {suggestionList.map(({ name, label }) => {
         const words = t(label);
-        const on = name === "file" && tag === "file";
         return (
           <button
             key={name}
             type="button"
             data-ask-suggestion={name}
-            aria-pressed={name === "file" ? on : undefined}
             disabled={answerOff}
             onClick={() =>
-              name === "file"
-                ? setTag(tag === "file" ? "postpone" : "file", true)
-                : // A label that ends with a colon asks for words after it.
-                  addWords(words.endsWith(":") ? `${words} ` : words)
+              // A label that ends with a colon asks for words after it.
+              replaceWords(words.endsWith(":") ? `${words} ` : words, tag)
             }
             style={{
               padding: isMobile ? "4px 9px" : "2px 8px",
               borderRadius: 4,
               border: "1px solid var(--accent-text)",
-              background: on ? "var(--accent-text)" : "var(--accent-bg)",
-              color: on ? "var(--bg-base)" : "var(--accent-text)",
+              background: "var(--accent-bg)",
+              color: "var(--accent-text)",
               fontFamily: "var(--font-ui)",
               fontSize: isMobile ? 13 : 11,
               cursor: "pointer",
@@ -1681,7 +1684,7 @@ function ReplyAskCard({
                     gap: 4,
                     padding: isMobile ? "2px 4px 2px 8px" : "1px 3px 1px 7px",
                     borderRadius: 5,
-                    background: "var(--purple-text)",
+                    background: "var(--ask-tag-text)",
                     color: "var(--bg-base)",
                     fontFamily: "var(--font-ui)",
                     fontSize: isMobile ? 13 : 11,
@@ -1698,7 +1701,7 @@ function ReplyAskCard({
                     aria-label={t("asks.removeTag")}
                     title={t("asks.removeTag")}
                     disabled={busy}
-                    onClick={() => setTag(null)}
+                    onClick={removeTag}
                     style={{
                       display: "flex",
                       padding: 1,
@@ -1729,15 +1732,17 @@ function ReplyAskCard({
                 rows={1}
                 disabled={busy}
                 data-ask-reply-input=""
-                onChange={(e) =>
+                onChange={(e) => {
+                  // Typing ends the Undo line of a replacing tap.
+                  setReplaced(null);
                   dispatch({
                     type: "set_ask_draft",
                     askId: entry.id,
                     // Typed words join a running dictation, so its next result
                     // does not write over them.
                     text: voice.reconcileEdit(e.target.value),
-                  })
-                }
+                  });
+                }}
                 onFocus={(e) => selectDefault(e.currentTarget)}
                 onPointerDown={(e) => {
                   clickFocuses.current =
@@ -1816,6 +1821,39 @@ function ReplyAskCard({
               </button>
             )}
           </div>
+          {replacedShown && (
+            <div
+              data-ask-replaced=""
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 6,
+                color: "var(--text-dim)",
+                fontSize: isMobile ? 12 : 11,
+              }}
+            >
+              {t("asks.textReplaced")}
+              <button
+                type="button"
+                data-ask-replaced-undo=""
+                disabled={busy}
+                onClick={undoReplace}
+                style={{
+                  padding: 0,
+                  border: "none",
+                  background: "none",
+                  color: "var(--accent-text)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: "inherit",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                {t("asks.undo")}
+              </button>
+            </div>
+          )}
           {tag === "rewrite" && (
             <div
               data-ask-rewrite-hint=""
