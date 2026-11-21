@@ -2352,8 +2352,7 @@ describe("slice 5b: folders outside the home", () => {
     );
   });
 
-  // Quarantined: flaky, task 12e793ac (P1).
-  it.skip("on one device, the folders' bytes count with the home's: room for the home alone fails no_space", async () => {
+  it("on one device, the folders' bytes count with the home's: room for the home alone fails no_space", async () => {
     const big = 4 * 1024 * 1024;
     let bavail = 1e9;
     const b = outsideBed({
@@ -2375,8 +2374,15 @@ describe("slice 5b: folders outside the home", () => {
     const end = await toEnd(b.o, b.n);
     expect(failure(end)).toMatchObject({ phase: "failed", code: "no_space" });
     expect(b.n.statfsPaths.length).toBe(1);
-    // The condition: the same room with the big file gone stages.
+    // The condition: the same room with the big file gone stages. The room
+    // was sized from the first walk, so the home must not have grown since.
     rmSync(join(b.p, "big.bin"));
+    const again = await walkMoveManifest(b.o.scope, tmp);
+    rmSync(tmp);
+    expect([again.entries, again.totalBytes]).toEqual([
+      home.entries,
+      home.totalBytes,
+    ]);
     expect((await b.n.moveIn.retryPull({ by: OWNER })).ok).toBe(true);
     expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
       "staged",

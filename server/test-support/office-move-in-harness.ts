@@ -192,7 +192,9 @@ function fillHome(home: string): void {
     for (let i = 0; i < 3000; i++) ins.run("x".repeat(200));
   })();
   db.run("DELETE FROM t WHERE id > 100");
-  db.close();
+  // close(true) finalizes the statements, so SQLite checkpoints the WAL
+  // now, not at a later GC that would grow the home mid-test.
+  db.close(true);
   for (const p of walkFiles(home))
     if (!p.endsWith(".sqlite")) utimesSync(p, FILE_MTIME, FILE_MTIME);
   chmodSync(join(home, "ro"), 0o500);
