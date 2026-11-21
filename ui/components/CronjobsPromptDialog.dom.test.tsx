@@ -13,6 +13,8 @@ const { setApiShim, ApiError } = await import("../api.ts");
 const { versionOf } = await import("../../shared/blob-version.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { createElement } = await import("react");
+const { layOutTextareas, scrolledToEnd } =
+  await import("../test-support/textarea-layout.ts");
 afterAll(() => setApiShim(null));
 
 function open(conflict: boolean) {
@@ -115,4 +117,76 @@ it("holds the field until the read lands, and reads only once", async () => {
   expect(reads).toBe(1);
   expect(field().value).toBe("Draft");
   view.unmount();
+});
+
+// The field takes the focus on open; the stored text comes with the read
+// (task 75c7ce43). A long text then shows its end with the caret there,
+// unless the member went to another control first. The model has no wrap,
+// so a long text is written as many lines.
+const LONG = Array.from({ length: 20 }, (_, i) => `rule ${i + 1}`).join("\n");
+
+// The dialog opened on an empty store copy, its read held until release().
+function openHeld() {
+  let release = () => {};
+  const read = new Promise<void>((resolve) => (release = resolve));
+  setApiShim(async (method, path) => {
+    if (method === "GET" && path === "/api/cron-instructions") {
+      await read;
+      return { instructions: LONG, version: versionOf(LONG) };
+    }
+    throw new Error(`no shim for ${method} ${path}`);
+  });
+  const view = render(
+    onLanguage(
+      null,
+      createElement(CronjobsPromptDialog, { onClose: () => {} }),
+      { cronjobsPrompt: null },
+    ),
+  );
+  return {
+    view,
+    field: view.container.querySelector("textarea")!,
+    release: () => act(async () => release()),
+  };
+}
+
+// A boolean, not toBe on two nodes: a red run would serialise both.
+const focused = (el: HTMLElement) => document.activeElement === el;
+
+it("a long text that arrives after the open shows its end in the focused field, with the caret there", async () => {
+  const undoLayout = layOutTextareas();
+  try {
+    const d = openHeld();
+    expect(d.field.value).toBe("");
+    expect(focused(d.field)).toBe(true);
+    await d.release();
+    expect(d.field.value).toBe(LONG);
+    expect(focused(d.field)).toBe(true);
+    expect(d.field.selectionStart).toBe(LONG.length);
+    expect(scrolledToEnd(d.field)).toEqual({ overflows: true, atEnd: true });
+    d.view.unmount();
+  } finally {
+    undoLayout();
+  }
+});
+
+it("a member who went to a button before the text arrived keeps the focus there, and the text shows its top", async () => {
+  const undoLayout = layOutTextareas();
+  try {
+    const d = openHeld();
+    expect(focused(d.field)).toBe(true);
+    const cancel = d.view.getByRole("button", {
+      name: translatorFor("en").t("common.cancel"),
+    });
+    act(() => cancel.focus());
+    expect(focused(cancel)).toBe(true);
+    await d.release();
+    expect(d.field.value).toBe(LONG);
+    expect(focused(cancel)).toBe(true);
+    expect(d.field.scrollHeight > d.field.clientHeight).toBe(true);
+    expect(d.field.scrollTop).toBe(0);
+    d.view.unmount();
+  } finally {
+    undoLayout();
+  }
 });

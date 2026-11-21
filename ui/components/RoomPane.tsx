@@ -123,7 +123,6 @@ export function RoomPane({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
 
   // The viewer's own choices for this room (Settings > Rooms edits the same
@@ -336,14 +335,6 @@ export function RoomPane({
     return null;
   }
 
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (ta) {
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-    }
-  }, []);
-
   // Mirror the unsaved-changes guard into the page's ref every render, so the
   // captured closure sees fresh field state - the no-deps pattern
   // UserEditPanel and DevicePane use. Name, prompt and memory are all
@@ -511,7 +502,6 @@ export function RoomPane({
           </span>
         </label>
         <ExpandableTextarea
-          textareaRef={textareaRef}
           title={t("settings.room.promptTitle", { room: room.name })}
           hint={t("common.restartOrNewConversation")}
           value={prompt}

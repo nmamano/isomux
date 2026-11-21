@@ -19,6 +19,7 @@
 // stand down while one is open; the overlay's own handler closes just itself.
 
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -32,6 +33,7 @@ import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
 import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import { caretToEnd } from "../textarea-caret.ts";
 
 // How many expanded editors are currently mounted (0 or 1 in practice; a
 // counter rather than a boolean so an unmount can never zero out a newer one).
@@ -180,7 +182,6 @@ function ExpandedEditor({
 }) {
   const { t } = useI18n();
   const { isMobile } = useAppState();
-  const ref = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Claim the Escape key for as long as this is mounted (see the file header).
@@ -202,12 +203,12 @@ function ExpandedEditor({
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose]);
 
-  useEffect(() => {
-    const ta = ref.current;
+  // Portal draws nothing on its first pass, so a mount effect would find no
+  // field. Focus it when it attaches, with the caret at the end in view.
+  const attachField = useCallback((ta: HTMLTextAreaElement | null) => {
     if (!ta) return;
     ta.focus();
-    // Caret at the end, matching how the inline prompt fields open.
-    ta.setSelectionRange(ta.value.length, ta.value.length);
+    caretToEnd(ta);
   }, []);
 
   return (
@@ -308,7 +309,7 @@ function ExpandedEditor({
           </p>
         )}
         <textarea
-          ref={ref}
+          ref={attachField}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}

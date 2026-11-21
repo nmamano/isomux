@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -9,6 +9,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import { caretToEnd } from "../textarea-caret.ts";
 
 export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
@@ -54,6 +55,16 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
       ta.setSelectionRange(ta.value.length, ta.value.length);
     }
   }, []);
+
+  // The field takes the focus before its text loads. When the text arrives,
+  // put the caret at its end and show it, unless the member moved to another
+  // control.
+  const loaded = version != null;
+  useLayoutEffect(() => {
+    if (!loaded) return;
+    const ta = textareaRef.current;
+    if (ta && document.activeElement === ta) caretToEnd(ta);
+  }, [loaded]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -13,6 +13,7 @@ import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { OfficeSettingSwitch } from "./OfficeSettingSwitch.tsx";
 import { ProcessIsolationSwitch } from "./ProcessIsolationSwitch.tsx";
 import { useI18n } from "../i18n.tsx";
+import { caretToEnd } from "../textarea-caret.ts";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
 
@@ -211,6 +212,18 @@ export function OfficePane({
       ta.setSelectionRange(ta.value.length, ta.value.length);
     }
   }, [readOnly]);
+
+  // The field takes the focus before its text loads. When the text arrives,
+  // put the caret at its end and show it, once, and only if the member did
+  // not move to another field. The dependency is the loaded flag, not the
+  // versions: a save moves the versions, and must not move the caret.
+  const caretPlaced = useRef(false);
+  useLayoutEffect(() => {
+    if (readOnly || !settingsLoaded || caretPlaced.current) return;
+    caretPlaced.current = true;
+    const ta = textareaRef.current;
+    if (ta && document.activeElement === ta) caretToEnd(ta);
+  }, [readOnly, settingsLoaded]);
 
   // Mirror the unsaved-changes guard into the page's ref every render, so the
   // captured closure sees fresh field state - the no-deps pattern

@@ -10,6 +10,8 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { createElement } = await import("react");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { layOutTextareas, scrolledToEnd } =
+  await import("../test-support/textarea-layout.ts");
 
 afterAll(() => {
   setApiShim(null);
@@ -186,4 +188,107 @@ it("shows the memory size against its cap in the expanded editor, live", async (
   );
   expect(status()).toBe(t("common.memorySize", { size: 13, cap: 4000 }));
   view.unmount();
+});
+
+// The instructions field takes the focus on open, while it is still empty;
+// the text comes with the read (task 75c7ce43). A long text then shows its
+// end with the caret there, unless the member went to another field first.
+// The model has no wrap, so a long text is written as many lines.
+const LONG = Array.from({ length: 20 }, (_, i) => `rule ${i + 1}`).join("\n");
+
+// An office whose instructions read waits for release().
+function heldOffice() {
+  let release = () => {};
+  const read = new Promise<void>((resolve) => (release = resolve));
+  setApiShim(async (method, path, body) => {
+    if (path.startsWith("/api/memory"))
+      return { text: "", version: "0", size: 0, cap: 4000 };
+    if (path === "/api/office/settings" && method === "GET")
+      return { name: null, version: "s1" };
+    if (path === "/api/office/instructions" && method === "GET") {
+      await read;
+      return { instructions: LONG, version: "i1" };
+    }
+    if (path === "/api/office/instructions" && method === "PUT") {
+      const b = body as { instructions: string | null };
+      return { instructions: b.instructions, version: "i2" };
+    }
+    throw new Error(`no shim for ${method} ${path}`);
+  });
+  return { release: () => act(async () => release()) };
+}
+
+// A boolean, not toBe on two nodes: a red run would serialise both.
+const focused = (el: HTMLElement) => document.activeElement === el;
+
+it("a long text that arrives after the open shows its end in the focused field, with the caret there", async () => {
+  const undoLayout = layOutTextareas();
+  try {
+    const office = heldOffice();
+    const view = render(onLanguage(null, createElement(OfficePane)));
+    const f = fields(view.container);
+    expect(f.text.value).toBe("");
+    expect(focused(f.text)).toBe(true);
+    await office.release();
+    expect(f.text.value).toBe(LONG);
+    expect(focused(f.text)).toBe(true);
+    expect(f.text.selectionStart).toBe(LONG.length);
+    expect(scrolledToEnd(f.text)).toEqual({ overflows: true, atEnd: true });
+    view.unmount();
+  } finally {
+    undoLayout();
+  }
+});
+
+it("a member who went to the name field before the text arrived keeps the focus there, and the text shows its top", async () => {
+  const undoLayout = layOutTextareas();
+  try {
+    const office = heldOffice();
+    const view = render(onLanguage(null, createElement(OfficePane)));
+    const f = fields(view.container);
+    expect(focused(f.text)).toBe(true);
+    act(() => f.name.focus());
+    expect(focused(f.name)).toBe(true);
+    await office.release();
+    expect(f.text.value).toBe(LONG);
+    expect(focused(f.name)).toBe(true);
+    expect(f.text.scrollHeight > f.text.clientHeight).toBe(true);
+    expect(f.text.scrollTop).toBe(0);
+    view.unmount();
+  } finally {
+    undoLayout();
+  }
+});
+
+// Safari does not focus a button on a click, so the caret can still be in
+// the field when Save lands with the new version.
+it("a save leaves the caret and the scroll where the member put them", async () => {
+  const undoLayout = layOutTextareas();
+  try {
+    const office = heldOffice();
+    const view = render(onLanguage(null, createElement(OfficePane)));
+    const f = fields(view.container);
+    await office.release();
+    const edited = `${LONG}\nrule 21`;
+    await act(async () => {
+      fireEvent.change(f.text, { target: { value: edited } });
+    });
+    f.text.setSelectionRange(5, 5);
+    f.text.scrollTop = 0;
+    expect(focused(f.text)).toBe(true);
+    await save(view);
+    // The save landed: the version moved and the field is no longer dirty.
+    await waitFor(() =>
+      expect(
+        view.container.querySelector("[data-settings-save]")?.textContent,
+      ).toBe(translatorFor("en").t("common.saved")),
+    );
+    expect(f.text.value).toBe(edited);
+    expect(focused(f.text)).toBe(true);
+    expect(f.text.selectionStart).toBe(5);
+    expect(f.text.scrollTop).toBe(0);
+    view.unmount();
+  } finally {
+    undoLayout();
+  }
 });

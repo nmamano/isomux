@@ -111,7 +111,7 @@ import { AskStepBlock, useStepView } from "./AskStepBlock.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { AskPageLine } from "./AskPageLine.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
-import { fitComposer } from "../composer-height.ts";
+import { fitComposer, placeComposerCaret } from "../composer-height.ts";
 import { citationBlock, insertCite } from "./cite.ts";
 import { AskCitePill } from "./AskCitePill.tsx";
 import { citeModeHere } from "./cite-mode.ts";
@@ -556,15 +556,6 @@ function ReplyAskCard({
     voice.voiceInput === "openai" && (voice.listening || voice.transcribing);
   const answerOff = busy || voiceHolds;
 
-  useLayoutEffect(() => {
-    if (!pendingFocus.current) return;
-    pendingFocus.current = false;
-    const el = inputRef.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  });
-
   // On a touch screen the focus opens the keyboard, which moves the option
   // the member taps next to send.
   function fillOption(option: string) {
@@ -577,6 +568,16 @@ function ReplyAskCard({
   useLayoutEffect(() => {
     if (inputRef.current) fitComposer(inputRef.current, isMobile);
   }, [reply, isMobile, held]);
+
+  // Keep this after the fit effect: layout effects run in order, and the fit
+  // scrolls the field back to the top.
+  useLayoutEffect(() => {
+    if (!pendingFocus.current) return;
+    pendingFocus.current = false;
+    const el = inputRef.current;
+    if (!el) return;
+    placeComposerCaret(el, el.value.length, isMobile);
+  });
 
   // Show more only when the clamp cuts the prompt. A file placed in the
   // prompt has no height until it loads, so each load measures again.

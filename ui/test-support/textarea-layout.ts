@@ -1,9 +1,11 @@
 // happy-dom has no layout, so a textarea has no heights and never scrolls
 // itself. This gives every textarea the box a browser gives a chat composer:
-// one 20px line per "\n"-line (no wrap) plus 4px of padding, as tall as its
-// text when its style height is not set in px, and no border. Like a browser,
-// each layout clamps the scroll to what the box can scroll: a field that is
-// as tall as its text (height auto) is back at the top.
+// one 20px line per "\n"-line (no wrap) plus 4px of padding, and no border.
+// The box is the style height in px; with style height auto (a composer's
+// fit), as tall as its text; with no style height, the test's `box` for the
+// field, else its rows, else as tall as its text. Like a browser, each layout
+// clamps the scroll to what the box can scroll: a field that is as tall as
+// its text (height auto) is back at the top.
 export const LINE_HEIGHT = 20;
 export const PADDING = 4;
 
@@ -12,7 +14,11 @@ export function textHeight(text: string): number {
 }
 
 // Installs the model on HTMLTextAreaElement.prototype and returns the undo.
-export function layOutTextareas(): () => void {
+// `box` gives the height of a field whose height comes from its place (a
+// flex child), or null for the default.
+export function layOutTextareas(opts?: {
+  box?: (el: HTMLTextAreaElement) => number | null;
+}): () => void {
   const proto = HTMLTextAreaElement.prototype;
   const keys = ["scrollHeight", "clientHeight", "offsetHeight", "scrollTop"];
   const saved = new Map(
@@ -20,8 +26,17 @@ export function layOutTextareas(): () => void {
   );
   const scroll = new WeakMap<HTMLTextAreaElement, number>();
   const content = (el: HTMLTextAreaElement) => textHeight(el.value);
-  const client = (el: HTMLTextAreaElement) =>
-    el.style.height.endsWith("px") ? parseFloat(el.style.height) : content(el);
+  const client = (el: HTMLTextAreaElement) => {
+    const height = el.style.height;
+    if (height.endsWith("px")) return parseFloat(height);
+    if (height === "") {
+      const box = opts?.box?.(el);
+      if (box != null) return box;
+      const rows = Number(el.getAttribute("rows"));
+      if (rows > 0) return rows * LINE_HEIGHT + PADDING;
+    }
+    return content(el);
+  };
   const layout = (el: HTMLTextAreaElement) => {
     const max = Math.max(0, content(el) - client(el));
     const top = Math.min(Math.max(scroll.get(el) ?? 0, 0), max);
