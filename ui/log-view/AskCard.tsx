@@ -1177,6 +1177,11 @@ function ReplyAskCard({
   }, [undoMs]);
 
   const buttonPad = isMobile ? "8px 14px" : "5px 14px";
+  // A recommended button: tight space on the star's left, as on its right.
+  // One shorthand either way: a longhand that comes and goes beside it is
+  // cleared to 0 when it goes, so the button that loses the star would keep
+  // no left padding.
+  const markedPad = isMobile ? "8px 14px 8px 10px" : "5px 14px 5px 10px";
   // Filled, as on other cards: a transparent fill reads as plain text here.
   const secondaryButton = {
     padding: buttonPad,
@@ -1385,8 +1390,7 @@ function ReplyAskCard({
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              padding: buttonPad,
-              ...(recommended ? { paddingLeft: 10 } : {}),
+              padding: recommended ? markedPad : buttonPad,
               borderRadius: 8,
               border: "1px solid var(--ask-tag-text)",
               // Filled as the options are: the text colour as the fill and
@@ -1788,9 +1792,7 @@ function ReplyAskCard({
               gap: 6,
               maxWidth: "100%",
               boxSizing: "border-box",
-              padding: buttonPad,
-              // Tight space on the star's left, as on its right.
-              ...(recommended ? { paddingLeft: 10 } : {}),
+              padding: recommended ? markedPad : buttonPad,
               borderRadius: 8,
               border: "1px solid var(--accent-text)",
               // The option that sends is the Reply button's colours; the

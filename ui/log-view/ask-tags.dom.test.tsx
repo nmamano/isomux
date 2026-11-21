@@ -440,6 +440,74 @@ it("keeps the recommended tag off once the member took it off", async () => {
   expect(chip(root, "tttt1011")).toBe(null);
 });
 
+// Task 39d79a4e: an edit of the ask moves the star. The button that lost it
+// is re-rendered, not mounted again, and must get the padding of a button
+// that never had it (a removed paddingLeft next to an unchanged padding
+// clears the left padding).
+it("gives the option and the tag that lose the star after an edit the padding of one that never had it", async () => {
+  const options = ["design", "hold", "obsolete"];
+  const view = await stack(ask("tttt1012", { options, recommended: "hold" }));
+  const root = view.container;
+  const option = (name: string) =>
+    [
+      ...card(root, "tttt1012").querySelectorAll<HTMLElement>(
+        "[data-ask-option]",
+      ),
+    ].find((b) => b.textContent!.includes(name))!;
+  // Scalars only: the four sides as the inline style sets them.
+  const pad = (el: HTMLElement) =>
+    [
+      el.style.paddingTop,
+      el.style.paddingRight,
+      el.style.paddingBottom,
+      el.style.paddingLeft,
+    ].join(" ");
+  const starred = (attr: string) =>
+    [...card(root, "tttt1012").querySelectorAll<HTMLElement>(`[${attr}]`)].map(
+      (b) => b.dataset.askTag ?? b.textContent!.trim(),
+    );
+  const edit = (fields: Partial<AskEntry>) =>
+    act(async () => {
+      seeded({
+        type: "ask_upserted",
+        entry: ask("tttt1012", { options, ...fields }) as never,
+      });
+    });
+
+  // Before: the starred option is tight on the left, the others are not.
+  const plain = pad(option("design"));
+  expect(pad(option("hold"))).not.toBe(plain);
+  option("hold").dataset.probe = "same-node";
+  tagButton(root, "tttt1012", "dismiss").dataset.probe = "same-node";
+
+  await edit({ recommended: "obsolete" });
+  expect(starred("data-ask-option-recommended")).toEqual([
+    expect.stringContaining("obsolete"),
+  ]);
+  // The same button, re-rendered: a fresh mount draws it right anyway.
+  expect(option("hold").dataset.probe).toBe("same-node");
+  expect({
+    hold: pad(option("hold")),
+    design: pad(option("design")),
+    obsoleteTight: pad(option("obsolete")) !== plain,
+  }).toEqual({ hold: plain, design: plain, obsoleteTight: true });
+
+  // The same for the tags: the agent moves its recommended tag.
+  await edit({ recommended: "obsolete", recommendedTag: "dismiss" });
+  const tagPlain = pad(tagButton(root, "tttt1012", "rewrite"));
+  expect(pad(tagButton(root, "tttt1012", "dismiss"))).not.toBe(tagPlain);
+  await edit({ recommended: "obsolete", recommendedTag: "postpone" });
+  expect(starred("data-ask-tag-recommended")).toEqual(["postpone"]);
+  expect(tagButton(root, "tttt1012", "dismiss").dataset.probe).toBe(
+    "same-node",
+  );
+  expect({
+    dismiss: pad(tagButton(root, "tttt1012", "dismiss")),
+    rewrite: pad(tagButton(root, "tttt1012", "rewrite")),
+    postponeTight: pad(tagButton(root, "tttt1012", "postpone")) !== tagPlain,
+  }).toEqual({ dismiss: tagPlain, rewrite: tagPlain, postponeTight: true });
+});
+
 // The Inbox: a postpone waits out the Undo time like the other answers, a
 // rewrite goes at once and the ask stays.
 it("on the Inbox, holds a postpone on a postpone line and sends a rewrite at once", async () => {
