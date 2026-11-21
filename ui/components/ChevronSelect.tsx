@@ -101,3 +101,55 @@ export function ChevronSelect({
     </div>
   );
 }
+
+/** A full-width dialog select (dialogInput) with the chevron drawn at its
+ *  right edge, so it reads as a list that opens (task d84d87d4). Margins go
+ *  on the wrapper, so the chevron stays centered on the box. */
+export function DialogSelect({
+  style,
+  children,
+  ...props
+}: Omit<SelectHTMLAttributes<HTMLSelectElement>, "style"> & {
+  style: CSSProperties;
+  children: ReactNode;
+}) {
+  const { margin, marginTop, marginBottom, ...box } = style;
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: box.width,
+        margin,
+        marginTop,
+        marginBottom,
+      }}
+    >
+      <select
+        {...props}
+        style={{
+          ...box,
+          appearance: "none",
+          WebkitAppearance: "none",
+          // Text stops short of the chevron: right 12 + chevron 10 + gap 8.
+          paddingRight: 30,
+          textOverflow: "ellipsis",
+        }}
+      >
+        {children}
+      </select>
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: 12,
+          top: "50%",
+          transform: "translateY(-50%)",
+          display: "flex",
+          pointerEvents: "none",
+        }}
+      >
+        <FilterChevron />
+      </span>
+    </div>
+  );
+}

@@ -42,7 +42,7 @@ import {
 } from "../../shared/desks.ts";
 import { randomOutfit } from "../../shared/outfit-options.ts";
 import { OutfitPicker } from "./OutfitPicker.tsx";
-import { FilterChevron } from "./ChevronSelect.tsx";
+import { DialogSelect, FilterChevron } from "./ChevronSelect.tsx";
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -1460,7 +1460,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             !renderedModelIds.includes(modelFamily);
           return (
             <>
-              <select
+              <DialogSelect
                 {...noTranslate()}
                 value={modelFamily}
                 onChange={(e) => {
@@ -1505,7 +1505,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                 }}
                 style={{
                   ...inputStyle,
-                  appearance: "none",
                   cursor: modelSelectCursor(usesBackendModels, modelsLoading),
                 }}
                 disabled={usesBackendModels && modelsLoading}
@@ -1586,7 +1585,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                     </option>
                   ))
                 )}
-              </select>
+              </DialogSelect>
               {/* Only claim the login lacks the model once the check
                           has settled - while the list loads, the fallback
                           list is wrong for backend-model logins and the
@@ -1674,7 +1673,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
           </label>
           {/* The words come from the catalog (effortLabel), including for a
               level the table does not carry, which renders as its own id. */}
-          <select
+          <DialogSelect
             value={effort}
             onChange={(e) => {
               cancelPendingTemplateModelResolution();
@@ -1682,7 +1681,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             }}
             style={{
               ...inputStyle,
-              appearance: "none",
               cursor: "pointer",
             }}
           >
@@ -1691,7 +1689,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                 {effortLabel(i18n, opt.level)}
               </option>
             ))}
-          </select>
+          </DialogSelect>
         </div>
       )}
       <div>
@@ -1700,7 +1698,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             ? t("common.field.approvalPolicy")
             : t("common.field.permissionMode")}
         </label>
-        <select
+        <DialogSelect
           value={permissionMode}
           onChange={(e) => {
             cancelPendingTemplateModelResolution();
@@ -1708,7 +1706,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
           }}
           style={{
             ...inputStyle,
-            appearance: "none",
             cursor: "pointer",
           }}
         >
@@ -1749,21 +1746,20 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
               </option>
             </>
           )}
-        </select>
+        </DialogSelect>
       </div>
       {isCodex && (
         <div>
           <label style={{ ...labelStyle, marginTop: 12 }}>
             {t("common.field.sandbox")}
           </label>
-          <select
+          <DialogSelect
             value={codexSandbox}
             onChange={(e) =>
               setCodexSandbox(e.target.value as CodexSandboxMode)
             }
             style={{
               ...inputStyle,
-              appearance: "none",
               cursor: "pointer",
             }}
           >
@@ -1774,7 +1770,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             <option value="danger-full-access">
               {t("common.sandbox.dangerFullAccess")}
             </option>
-          </select>
+          </DialogSelect>
         </div>
       )}
     </div>
@@ -2190,12 +2186,11 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
           {t("dialogs.agent.manager")}
         </label>
         {canChangeManager ? (
-          <select
+          <DialogSelect
             value={managerUserId}
             onChange={(e) => setManagerUserId(e.target.value)}
             style={{
               ...inputStyle,
-              appearance: "none",
               cursor: "pointer",
             }}
           >
@@ -2211,7 +2206,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                 {u.name}
               </option>
             ))}
-          </select>
+          </DialogSelect>
         ) : (
           <div
             title={isSpawn ? undefined : t("dialogs.agent.managerTitle")}

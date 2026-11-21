@@ -3,6 +3,7 @@
 // request. See internal-docs/webhooks-design.md sections 2 to 4 and 8.
 
 import { useEffect, useRef, useState } from "react";
+import { DialogSelect } from "./ChevronSelect.tsx";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -341,11 +342,11 @@ export function WebhookDialog({
           <label style={{ ...labelStyle, marginTop: 14 }}>
             {t("webhooks.dialog.scheme")}
           </label>
-          <select
+          <DialogSelect
             value={scheme}
             disabled={isEdit}
             onChange={(e) => setScheme(e.target.value as WebhookScheme)}
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+            style={{ ...inputStyle, cursor: "pointer" }}
             data-field="scheme"
           >
             <option value="github-hmac-sha256">
@@ -354,7 +355,7 @@ export function WebhookDialog({
             <option value="hmac-sha256">
               {t("webhooks.dialog.schemeGeneric")}
             </option>
-          </select>
+          </DialogSelect>
           {isEdit && (
             <p style={hintStyle}>{t("webhooks.dialog.schemeFixed")}</p>
           )}
@@ -420,10 +421,10 @@ export function WebhookDialog({
           </div>
           {targetKind === "agent" ? (
             <>
-              <select
+              <DialogSelect
                 value={agentId}
                 onChange={(e) => setAgentId(e.target.value)}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                style={{ ...inputStyle, cursor: "pointer" }}
                 data-field="agentId"
               >
                 <option value="">{t("webhooks.dialog.pickAgent")}</option>
@@ -433,7 +434,7 @@ export function WebhookDialog({
                   </option>
                 )}
                 <AgentOptions agents={agents} rooms={rooms} />
-              </select>
+              </DialogSelect>
               <label style={{ ...labelStyle, marginTop: 10 }}>
                 {t("webhooks.dialog.note")}
               </label>
@@ -460,10 +461,10 @@ export function WebhookDialog({
             <p style={hintStyle}>{t("webhooks.dialog.noCronjobs")}</p>
           ) : (
             <>
-              <select
+              <DialogSelect
                 value={cronjobId}
                 onChange={(e) => setCronjobId(e.target.value)}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                style={{ ...inputStyle, cursor: "pointer" }}
                 data-field="cronjobId"
               >
                 <option value="">{t("webhooks.dialog.pickCronjob")}</option>
@@ -472,7 +473,7 @@ export function WebhookDialog({
                     {o.label}
                   </option>
                 ))}
-              </select>
+              </DialogSelect>
               <p style={hintStyle}>{t("webhooks.dialog.cronjobHint")}</p>
             </>
           )}

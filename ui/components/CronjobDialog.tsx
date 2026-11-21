@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { DialogSelect } from "./ChevronSelect.tsx";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
@@ -671,11 +672,11 @@ export function CronjobDialog({
           <label style={{ ...labelStyle, marginTop: 14 }}>
             {t("dialogs.schedule.room")}
           </label>
-          <select
+          <DialogSelect
             data-cronjob-room=""
             value={roomId}
             onChange={(e) => setRoomId(e.target.value)}
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+            style={{ ...inputStyle, cursor: "pointer" }}
           >
             <option value="">{t("roomFilter.none")}</option>
             {roomOptions.map((room) => (
@@ -683,7 +684,7 @@ export function CronjobDialog({
                 {room.name}
               </option>
             ))}
-          </select>
+          </DialogSelect>
           <p
             style={{
               fontSize: 10,
@@ -697,12 +698,11 @@ export function CronjobDialog({
           <label style={{ ...labelStyle, marginTop: 14 }}>
             {t("common.schedule")}
           </label>
-          <select
+          <DialogSelect
             value={scheduleType}
             onChange={(e) => setScheduleType(e.target.value as ScheduleType)}
             style={{
               ...inputStyle,
-              appearance: "none",
               cursor: "pointer",
               marginBottom: 6,
             }}
@@ -712,9 +712,9 @@ export function CronjobDialog({
             <option value="monthly">{t("dialogs.schedule.monthly")}</option>
             <option value="interval">{t("dialogs.schedule.interval")}</option>
             <option value="none">{t("dialogs.schedule.none")}</option>
-          </select>
+          </DialogSelect>
           {scheduleType === "weekly" && (
-            <select
+            <DialogSelect
               value={weekday}
               onChange={(e) =>
                 setWeekday(
@@ -723,7 +723,6 @@ export function CronjobDialog({
               }
               style={{
                 ...inputStyle,
-                appearance: "none",
                 cursor: "pointer",
                 marginBottom: 6,
               }}
@@ -733,7 +732,7 @@ export function CronjobDialog({
                   {t(d.key)}
                 </option>
               ))}
-            </select>
+            </DialogSelect>
           )}
           {scheduleType === "monthly" && (
             <div style={{ marginBottom: 6 }}>
@@ -889,10 +888,10 @@ export function CronjobDialog({
           </div>
           {isAgentTarget && (
             <>
-              <select
+              <DialogSelect
                 value={targetAgentId}
                 onChange={(e) => setTargetAgentId(e.target.value)}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                style={{ ...inputStyle, cursor: "pointer" }}
                 data-field="agentId"
               >
                 <option value="">{t("webhooks.dialog.pickAgent")}</option>
@@ -902,7 +901,7 @@ export function CronjobDialog({
                   </option>
                 )}
                 <AgentOptions agents={agents} rooms={rooms} />
-              </select>
+              </DialogSelect>
             </>
           )}
 
@@ -1035,7 +1034,7 @@ export function CronjobDialog({
                   !renderedModelIds.includes(modelFamily);
                 return (
                   <>
-                    <select
+                    <DialogSelect
                       {...noTranslate()}
                       value={modelFamily}
                       onChange={(e) => {
@@ -1079,7 +1078,6 @@ export function CronjobDialog({
                       }}
                       style={{
                         ...inputStyle,
-                        appearance: "none",
                         cursor: modelSelectCursor(
                           usesBackendModels,
                           modelsLoading,
@@ -1115,7 +1113,7 @@ export function CronjobDialog({
                           </option>
                         ))
                       )}
-                    </select>
+                    </DialogSelect>
                     {/* Only claim the login lacks the model once the check has
                     settled - while the list loads, the fallback list is wrong
                     for backend-model logins and the message flashes. */}
@@ -1200,12 +1198,11 @@ export function CronjobDialog({
                   <label style={{ ...labelStyle, marginTop: 14 }}>
                     {t("common.field.effort")}
                   </label>
-                  <select
+                  <DialogSelect
                     value={effort}
                     onChange={(e) => setEffort(e.target.value as EffortLevel)}
                     style={{
                       ...inputStyle,
-                      appearance: "none",
                       cursor: "pointer",
                     }}
                   >
@@ -1214,7 +1211,7 @@ export function CronjobDialog({
                         {effortLabel(i18n, opt.level)}
                       </option>
                     ))}
-                  </select>
+                  </DialogSelect>
                 </>
               )}
 
@@ -1223,12 +1220,12 @@ export function CronjobDialog({
                   ? t("common.field.approvalPolicy")
                   : t("common.field.permissionMode")}
               </label>
-              <select
+              <DialogSelect
                 value={permissionMode}
                 onChange={(e) =>
                   setPermissionMode(e.target.value as CronjobPermissionMode)
                 }
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                style={{ ...inputStyle, cursor: "pointer" }}
               >
                 {isCodex ? (
                   <option value="never">
@@ -1243,7 +1240,7 @@ export function CronjobDialog({
                     {t("common.permission.claudeBypass")}
                   </option>
                 )}
-              </select>
+              </DialogSelect>
               <p
                 style={{
                   fontSize: 10,
@@ -1261,14 +1258,13 @@ export function CronjobDialog({
                   <label style={{ ...labelStyle, marginTop: 14 }}>
                     {t("common.field.sandbox")}
                   </label>
-                  <select
+                  <DialogSelect
                     value={codexSandbox}
                     onChange={(e) =>
                       setCodexSandbox(e.target.value as CodexSandboxMode)
                     }
                     style={{
                       ...inputStyle,
-                      appearance: "none",
                       cursor: "pointer",
                     }}
                   >
@@ -1281,7 +1277,7 @@ export function CronjobDialog({
                     <option value="danger-full-access">
                       {t("common.sandbox.dangerFullAccess")}
                     </option>
-                  </select>
+                  </DialogSelect>
                 </>
               )}
             </>
