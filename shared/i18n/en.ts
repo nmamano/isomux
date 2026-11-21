@@ -823,6 +823,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "accountUsage.used": "<strong>{used}%</strong>",
   "accountUsage.sectionMembers": "Members",
   "accountUsage.sectionYours": "Yours",
+  "accountUsage.you": "{name} (You)",
   "accountUsage.members": "In use by agents of {names}",
   "accountUsage.empty": "No accounts.",
   "accountUsage.listFailed": "Accounts could not be read.",

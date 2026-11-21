@@ -555,7 +555,7 @@ const strong = (chunk: ReactNode) => (
   <strong style={{ fontWeight: 600 }}>{chunk}</strong>
 );
 
-// Whose account it is: the office, the viewer ("You") or the members.
+// Whose account it is: the office, the viewer ("nil (You)") or the members.
 function whoLabel(
   row: AccountUsageRowWire,
   viewer: AccountUsageViewer,
@@ -566,7 +566,7 @@ function whoLabel(
       owner.kind === "office"
         ? t("accountUsage.office")
         : owner.username === viewer.username
-          ? t("common.you")
+          ? t("accountUsage.you", { name: owner.username })
           : owner.username,
     )
     .join(", ");

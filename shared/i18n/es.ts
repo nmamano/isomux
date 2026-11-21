@@ -825,6 +825,7 @@ Cosas que puedes hacer por él:
   "accountUsage.used": "<strong>{used} %</strong>",
   "accountUsage.sectionMembers": "Miembros",
   "accountUsage.sectionYours": "Tuyos",
+  "accountUsage.you": "{name} (Tú)",
   "accountUsage.members": "En uso por agentes de {names}",
   "accountUsage.empty": "No hay cuentas.",
   "accountUsage.listFailed": "No se pudieron leer las cuentas.",

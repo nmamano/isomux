@@ -19,6 +19,7 @@ const { setApiShim } = await import("../api.ts");
 const { getAccountUsageLayout, setAccountUsageLayout } =
   await import("../device-settings.ts");
 const { accountUsageRowShape } = await import("../../shared/account-usage.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 const DAY = 24 * 60 * 60 * 1000;
 const LIST = "/api/office/account-usage";
@@ -273,13 +274,19 @@ it("reads a member's card, with the office's accounts first and the member's own
     ],
     refreshDisabled: false,
   });
-  // The member's own row says it is theirs, not their username; the email
-  // stays.
+  // The member's own row carries their name marked as theirs (task
+  // c69897f5); the office row does not; the email stays.
+  const own = translatorFor("en").t("accountUsage.you", {
+    name: MEMBER_VIEWER.username,
+  });
   const mine = rowEl(view, "mine").textContent ?? "";
+  const office = rowEl(view, "office").textContent ?? "";
   expect([
-    mine.includes(MEMBER_VIEWER.username),
+    own.includes(MEMBER_VIEWER.username),
+    mine.includes(own),
+    office.includes(own),
     mine.includes("s@example.test"),
-  ]).toEqual([false, true]);
+  ]).toEqual([true, true, false, true]);
   view.unmount();
 });
 

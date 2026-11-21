@@ -822,6 +822,7 @@ Coses que pots fer per ell:
   "accountUsage.used": "<strong>{used} %</strong>",
   "accountUsage.sectionMembers": "Membres",
   "accountUsage.sectionYours": "Teus",
+  "accountUsage.you": "{name} (Tu)",
   "accountUsage.members": "En ús per agents de {names}",
   "accountUsage.empty": "No hi ha comptes.",
   "accountUsage.listFailed": "No s'han pogut llegir els comptes.",

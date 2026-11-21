@@ -754,6 +754,7 @@ export const zh: Catalog = {
   "accountUsage.used": "<strong>{used}%</strong>",
   "accountUsage.sectionMembers": "成员",
   "accountUsage.sectionYours": "你的",
+  "accountUsage.you": "{name}（你）",
   "accountUsage.members": "{names} 的智能体正在使用",
   "accountUsage.empty": "没有账户。",
   "accountUsage.listFailed": "无法读取账户。",
