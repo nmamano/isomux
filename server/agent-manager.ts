@@ -92,6 +92,8 @@ import {
 import {
   appendLog as appendLogToDisk,
   appendLogOrThrow as appendLogToDiskOrThrow,
+  appendPreSessionLog,
+  writePreSessionLog,
   prepareLogEntry,
   loadLog,
   loadLogWithAncestors,
@@ -1239,6 +1241,7 @@ export function createAgentManager(deps: ManagerDeps) {
     createSession,
     sessionManagerDeps,
     logCache,
+    writeChatLine,
     taskStore,
     initialLoadedAgents,
     resolveAgentUserId,
@@ -3009,10 +3012,63 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!managerStopped) appendLogToDiskOrThrow(agentId, sessionId, entry);
   }
 
+  // The pre-session file (persistence appendPreSessionLog) holds the
+  // non-ephemeral chat lines of an agent with no session id, so the logs API
+  // and a restart see them; the agent's next session takes them (system_init
+  // backfill). A failed write is logged: the line stays in the chat.
+  function appendPreSession(agentId: string, entry: LogEntry) {
+    if (managerStopped) return;
+    try {
+      appendPreSessionLog(agentId, entry);
+    } catch (err) {
+      console.error("Failed to write log:", err);
+    }
+  }
+
+  // A chat line to disk where addLogEntry writes it, with no emit.
+  function writeChatLine(agentId: string, entry: LogEntry) {
+    const sessionId = agents.get(agentId)?.sessionManager.sessionId;
+    if (sessionId) appendLog(agentId, sessionId, entry);
+    else appendPreSession(agentId, entry);
+  }
+
+  // Makes the pre-session file match the chat: the chat's lines while the
+  // agent has no session id, no file once it has one.
+  function syncPreSessionLog(agentId: string) {
+    const managed = agents.get(agentId);
+    if (managerStopped || !managed) return;
+    const entries = managed.sessionManager.sessionId
+      ? []
+      : (logCache.get(agentId) ?? []);
+    try {
+      writePreSessionLog(agentId, entries);
+    } catch (err) {
+      console.error("Failed to write log:", err);
+    }
+  }
+
+  // Replaces the chat: the cache, the clients (clear_logs, then each entry)
+  // and the pre-session file. Every chat reset goes through here, after the
+  // session id is final, so the file follows the chat.
+  function resetChat(
+    agentId: string,
+    entries: LogEntry[],
+    opts?: { rollback?: boolean },
+  ) {
+    logCache.set(agentId, entries);
+    emit(
+      opts?.rollback
+        ? { type: "clear_logs", agentId, rollback: true }
+        : { type: "clear_logs", agentId },
+    );
+    for (const entry of entries) emit({ type: "log_entry", entry });
+    syncPreSessionLog(agentId);
+  }
+
   // Returns false only for a `durable` entry whose transcript write failed;
   // such an entry is then neither cached nor emitted. A durable entry on an
-  // agent whose session has no id yet is cached and written by the
-  // system_init backfill, as every other entry is.
+  // agent whose session has no id yet goes to the pre-session file and is
+  // written by the system_init backfill, as every other entry is.
   function addLogEntry(
     agentId: string,
     kind: LogEntry["kind"],
@@ -3066,6 +3122,8 @@ export function createAgentManager(deps: ManagerDeps) {
       // Track the last entry actually written to this session's JSONL so that
       // /isomux-usage's per-turn snapshots have a stable anchor inside the log.
       managed.lastWrittenEntryId = entry.id;
+    } else if (managed) {
+      appendPreSession(agentId, entry);
     }
     return true;
   }
@@ -3594,8 +3652,7 @@ export function createAgentManager(deps: ManagerDeps) {
             sessionId !== managed.sessionManager.sessionId
           ) {
             summarizeEndedSession(agentId, managed.sessionManager.sessionId);
-            logCache.set(agentId, []);
-            emit({ type: "clear_logs", agentId });
+            resetChat(agentId, []);
             // No "Conversation cleared." entry: an empty log shows the
             // start-or-resume sentence, which is the confirmation (Nil,
             // 2026-09-13).
@@ -3638,12 +3695,21 @@ export function createAgentManager(deps: ManagerDeps) {
           stampCurrentEngine(agentId, managed, sessionId);
           // Backfill: write any cached log entries that were created before sessionId was known.
           // Skip ephemeral entries - they're UI-only by design and must not reach disk.
+          // The pre-session file goes only when every line reached the
+          // session: a line in both is better than a line lost.
           if (!hadPreviousSession) {
             const cached = logCache.get(agentId) ?? [];
+            let backfilled = true;
             for (const entry of cached) {
               if (entry.ephemeral) continue;
-              appendLog(agentId, sessionId, entry);
+              try {
+                appendLogOrThrow(agentId, sessionId, entry);
+              } catch (err) {
+                console.error("Failed to write log:", err);
+                backfilled = false;
+              }
             }
+            if (backfilled) syncPreSessionLog(agentId);
             // Topic generation starts before a fresh backend reports its
             // session id. If it already finished, attach that topic to the
             // resolved session now so /resume uses the same label as the header.
@@ -5500,8 +5566,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // boundary: the old transcript's fullness measurement doesn't describe
     // the blank conversation that follows.
     resetContextUsage(managed);
-    logCache.set(agentId, []);
-    emit({ type: "clear_logs", agentId });
+    resetChat(agentId, []);
     return true;
   }
 
@@ -6423,8 +6488,10 @@ export function createAgentManager(deps: ManagerDeps) {
             managed.messageQueue.some((m) => m.restartWake);
           // If the prior session died owing a response, mark the gap. Parity
           // with the SDK's lazy synthetic placeholder injected at this moment.
+          // Only a resumed session has a gap: with no session id the chat
+          // tail is a pre-session line, and its message is sent again.
           const tail = (logCache.get(agentId) ?? []).at(-1);
-          if (!restartWake && needsInterruptionMarker(tail)) {
+          if (sessionId && !restartWake && needsInterruptionMarker(tail)) {
             addLogEntry(
               agentId,
               "system",
@@ -7237,8 +7304,9 @@ export function createAgentManager(deps: ManagerDeps) {
 
     // If the prior session ended owing a response, write the gap breadcrumb
     // before any new entries land. Parity with the SDK's lazy synthetic
-    // placeholder injected into its own transcript at this moment.
-    if (!managed.sessionManager.session) {
+    // placeholder injected into its own transcript at this moment. With no
+    // session id there is no session to have a gap (the pre-session lines).
+    if (!managed.sessionManager.session && managed.sessionManager.sessionId) {
       const tail = (logCache.get(agentId) ?? []).at(-1);
       if (needsInterruptionMarker(tail)) {
         addLogEntry(
@@ -7586,14 +7654,7 @@ export function createAgentManager(deps: ManagerDeps) {
             setTopicState(agentId, null);
             // Clear and replay resumed session's logs (walks fork ancestry)
             const history = loadLogWithAncestors(agentId, picked.sessionId);
-            logCache.set(agentId, []);
-            emit({ type: "clear_logs", agentId });
-            if (history.length > 0) {
-              logCache.set(agentId, [...history]);
-              for (const entry of history) {
-                emit({ type: "log_entry", entry });
-              }
-            }
+            resetChat(agentId, [...history]);
             // Restore topic - officeState.updateAgent fires persistAll via onChange,
             // capturing the new sessionId set above.
             for (const event of officeState.updateAgent(agentId, {
@@ -9111,8 +9172,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // Match /clear's behavior: wipe the chat. Without this, the timeline
       // continues across session boundaries and editing an old entry hits the
       // cross-session dead-end.
-      logCache.set(agentId, []);
-      emit({ type: "clear_logs", agentId });
+      resetChat(agentId, []);
       // officeState.resetTopic clears topic and fires persistAll via
       // onChange (capturing the null sessionId set above).
       for (const event of officeState.resetTopic(agentId)) emit(event);
@@ -9709,14 +9769,7 @@ export function createAgentManager(deps: ManagerDeps) {
 
         // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
         const history = loadLogWithAncestors(agentId, sessionId);
-        logCache.set(agentId, []);
-        emit({ type: "clear_logs", agentId });
-        if (history.length > 0) {
-          logCache.set(agentId, [...history]);
-          for (const entry of history) {
-            emit({ type: "log_entry", entry });
-          }
-        }
+        resetChat(agentId, [...history]);
 
         // Restore the session's topic from sessions.json.
         const sessions = listAgentSessions(agentId);
@@ -9902,12 +9955,7 @@ export function createAgentManager(deps: ManagerDeps) {
         failEdit(msg("systemEntries.editForbidden"));
         return;
       }
-      const trimmed = oldLogCache.slice(0, targetPos);
-      logCache.set(agentId, trimmed);
-      emit({ type: "clear_logs", agentId });
-      for (const entry of trimmed) {
-        emit({ type: "log_entry", entry });
-      }
+      resetChat(agentId, oldLogCache.slice(0, targetPos));
       await sendMessage(agentId, newText, username, device, undefined, {
         limits,
       });
@@ -10134,14 +10182,7 @@ export function createAgentManager(deps: ManagerDeps) {
 
         // 6. Clear UI and replay parent entries (not persisted - ancestors are loaded
         //    via loadLogWithAncestors on resume, avoiding log duplication on disk)
-        logCache.set(agentId, []);
-        emit({ type: "clear_logs", agentId });
-        if (parentEntries.length > 0) {
-          logCache.set(agentId, [...parentEntries]);
-          for (const entry of parentEntries) {
-            emit({ type: "log_entry", entry });
-          }
-        }
+        resetChat(agentId, [...parentEntries]);
 
         // 7. Add system log entry at branch point
         addLogEntry(
@@ -10259,11 +10300,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Restore the old log cache and UI. rollback: this clear restores the
         // PRIOR timeline (the fork failed), so it is not a conversation
         // boundary - clients must keep transient cues like the unread dot.
-        logCache.set(agentId, oldLogCache);
-        emit({ type: "clear_logs", agentId, rollback: true });
-        for (const entry of oldLogCache) {
-          emit({ type: "log_entry", entry });
-        }
+        resetChat(agentId, oldLogCache, { rollback: true });
 
         for (const event of officeState.updateAgent(agentId, {
           topic: oldTopic,

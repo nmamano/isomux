@@ -624,6 +624,12 @@ export type LogEntryKind = LogEntry["kind"];
  */
 export type LogTier = "prompts" | "conversation" | "full";
 
+/**
+ * The pseudo session that holds the lines an agent wrote while it had no
+ * session (for example a start that failed). Its next session takes them.
+ */
+export const PRE_SESSION_LOG_ID = "pre-session";
+
 /** One session in the index mode's listing. */
 export interface LogSessionIndexEntry {
   sessionId: string;

@@ -15,6 +15,7 @@ import {
   readTranscriptHeadSync,
   readTranscriptSync,
   resolveTranscript,
+  preSessionLogPath,
   sessionIdOfTranscript,
   type TranscriptFile,
 } from "./transcript-files.ts";
@@ -27,6 +28,7 @@ import {
   existsSync,
   readdirSync,
   renameSync,
+  rmSync,
 } from "fs";
 import { createHash } from "crypto";
 import type {
@@ -188,6 +190,54 @@ export function appendLogOrThrow(
       console.error("Failed to write log:", err);
     }
   }
+}
+
+// The pre-session file (transcript-files.ts preSessionLogPath): the
+// non-ephemeral chat lines of an agent that has no session id yet.
+export function appendPreSessionLog(agentId: string, entry: LogEntry): void {
+  if (entry.ephemeral) return;
+  const agentDir = join(LOGS_DIR, agentId);
+  mkdirSync(agentDir, { recursive: true });
+  appendFileSync(
+    preSessionLogPath(agentDir),
+    JSON.stringify(prepareLogEntry(entry)) + "\n",
+  );
+}
+
+// Its entries, oldest first; [] when there is no file. A torn line is skipped.
+export function loadPreSessionLog(agentId: string): LogEntry[] {
+  let content: string;
+  try {
+    content = readFileSync(preSessionLogPath(join(LOGS_DIR, agentId)), "utf8");
+  } catch {
+    return [];
+  }
+  const out: LogEntry[] = [];
+  for (const line of content.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line) as LogEntry;
+      if (typeof entry?.id === "string") out.push(entry);
+    } catch {
+      // A torn line (a crash mid-append) costs only that line.
+    }
+  }
+  return out;
+}
+
+// Replaces the file with `entries` (ephemeral ones left out); an empty list
+// deletes it.
+export function writePreSessionLog(agentId: string, entries: LogEntry[]): void {
+  const path = preSessionLogPath(join(LOGS_DIR, agentId));
+  const kept = entries.filter((e) => !e.ephemeral);
+  if (kept.length === 0) {
+    rmSync(path, { force: true });
+    return;
+  }
+  atomicWriteFileSync(
+    path,
+    kept.map((e) => JSON.stringify(prepareLogEntry(e)) + "\n").join(""),
+  );
 }
 
 export function loadLog(agentId: string, sessionId: string): LogEntry[] {

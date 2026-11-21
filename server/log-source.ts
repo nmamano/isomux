@@ -5,6 +5,9 @@
 //   <logsDir>/<agentId>/<sessionId>.jsonl  one log entry per line, or
 //   <logsDir>/<agentId>/<sessionId>.jsonl.gz  the same, compressed
 //                                             (server/transcript-files.ts)
+//   <logsDir>/<agentId>/pre-session.ndjson     the lines written while the
+//                                             agent had no session, read as
+//                                             the session PRE_SESSION_LOG_ID
 //
 // The logs directory is a CONSTRUCTOR ARGUMENT rather than a module-level
 // STATE_ROOT read, because the search scan runs inside a child process -
@@ -17,13 +20,17 @@
 // because one file was mid-write.
 
 import { join } from "path";
-import { readdir } from "fs/promises";
+import { existsSync } from "fs";
+import { readdir, stat } from "fs/promises";
 import type { LogEntry } from "../shared/types.ts";
 import { isSafeId, type LogSource, type SessionMeta } from "./log-search.ts";
+import { PRE_SESSION_LOG_ID } from "../shared/contract-shapes.ts";
 import {
+  preSessionLogPath,
   resolveTranscript,
   sessionIdOfTranscript,
   transcriptByteStream,
+  type TranscriptFile,
 } from "./transcript-files.ts";
 
 // Split a byte stream into lines without ever holding the whole file. A 35 MB
@@ -33,7 +40,10 @@ async function* streamFileLines(
   dir: string,
   sessionId: string,
 ): AsyncGenerator<string> {
-  const file = resolveTranscript(dir, sessionId);
+  const file =
+    sessionId === PRE_SESSION_LOG_ID
+      ? preSessionFile(dir)
+      : resolveTranscript(dir, sessionId);
   if (!file) return;
   const decoder = new TextDecoder();
   let buf = "";
@@ -48,6 +58,12 @@ async function* streamFileLines(
   }
   buf += decoder.decode();
   if (buf.length > 0) yield buf;
+}
+
+// The pre-session file as a plain transcript, or null when it is missing.
+function preSessionFile(dir: string): TranscriptFile | null {
+  const path = preSessionLogPath(dir);
+  return existsSync(path) ? { path, compressed: false } : null;
 }
 
 export function fileLogSource(logsDir: string): LogSource {
@@ -72,7 +88,7 @@ export function fileLogSource(logsDir: string): LogSource {
           const named = sessionIdOfTranscript(name);
           if (named) ids.add(named.sessionId);
         }
-        return [...ids].map((sessionId) => {
+        const sessions = [...ids].map((sessionId) => {
           const file = resolveTranscript(dir, sessionId);
           return {
             sessionId,
@@ -83,6 +99,11 @@ export function fileLogSource(logsDir: string): LogSource {
             mtime: file ? Bun.file(file.path).lastModified : 0,
           };
         });
+        // The pre-session lines, while there are any.
+        const pre = await stat(preSessionLogPath(dir)).catch(() => null);
+        if (pre && pre.size > 0)
+          sessions.push({ sessionId: PRE_SESSION_LOG_ID, mtime: pre.mtimeMs });
+        return sessions;
       } catch {
         return [];
       }

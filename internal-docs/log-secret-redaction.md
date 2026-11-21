@@ -23,6 +23,8 @@ emitRunErrorEntry covers errors without an active run. The disk writers
 appendLog and appendRunLog also call the wrapper, so direct callers are covered.
 appendLog uses the redacted content for the session's first-message preview.
 Pre-init entries reach the same writers on backfill or failed-run finalization.
+An agent's pre-init entries also go to its pre-session file
+(appendPreSessionLog and writePreSessionLog), which calls the wrapper too.
 
 The scanner copies string values in all entry kinds, including nested arrays,
 tool payloads and metadata. It preserves structural property names, undefined

@@ -1,6 +1,6 @@
 # Conversation history
 
-`GET /api/agents/:id/logs` lists sessions, newest first. A session can carry `summary`, a paragraph about its threads that can miss the latest messages. Add `limit` for a page, and `before=<lastModified>` of the last session listed for the next one; `truncated:true` means older sessions remain.
+`GET /api/agents/:id/logs` lists sessions, newest first. A session can carry `summary`, a paragraph about its threads that can miss the latest messages. Add `limit` for a page, and `before=<lastModified>` of the last session listed for the next one; `truncated:true` means older sessions remain. Lines an agent wrote with no session, for example a start that failed, are in session `pre-session` until its next session takes them.
 
 Add `q` to search decoded entries. Search results include session metadata, kind, snippet, and `{sessionId,entryId}`. Add `regex=1`, `limit`, `before`, `after`, or `kind`; `tier=prompts` returns incoming messages only, `tier=conversation` (default) adds replies without thinking and the messages you sent, and `tier=full` adds thinking and tool calls. `limit` defaults to 20 for search and 200 for retrieval; `before` and `after` are epoch ms. Search reports `totalMatches`. A broad search can stop early with `timedOut:true`, `totalMatches:null`, and `matchesFoundBeforeTimeout`, or fail with HTTP 504. Search also matches each session's summary and topic, and returns those sessions in `summaryHits` as `{sessionId,topic,lastModified,snippet}`.
 

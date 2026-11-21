@@ -69,6 +69,7 @@ import {
   ensureSessionClaudeConfigDir,
   getSessionClaudeConfigDir,
   loadLogWithAncestors,
+  loadPreSessionLog,
   prepareLogEntry,
   saveMessageQueues,
   type PersistedAgent,
@@ -116,6 +117,9 @@ export interface AgentRestoreDeps {
   ) => BackendSession;
   sessionManagerDeps: SessionManagerDeps<ManagedAgent>;
   logCache: Map<string, LogEntry[]>;
+  // Writes a chat line to disk where addLogEntry would (the session's
+  // transcript, or the pre-session file with no session id), with no emit.
+  writeChatLine: (agentId: string, entry: LogEntry) => void;
   taskStore: ReturnType<typeof createTaskStore>;
   initialLoadedAgents: Room[];
   resolveAgentUserId: (p: PersistedAgent) => string | null;
@@ -177,6 +181,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     createSession,
     sessionManagerDeps,
     logCache,
+    writeChatLine,
     taskStore,
     initialLoadedAgents,
     resolveAgentUserId,
@@ -542,21 +547,27 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     // while the server was down.
     deps.refreshSignIn(managed);
 
-    if (resumeSessionId) {
-      const history = loadLogWithAncestors(p.id, resumeSessionId);
-      if (history.length > 0) {
-        logCache.set(p.id, [...history]);
-      }
-    }
+    // With no session to resume, the chat is the pre-session lines (written
+    // while the agent had no session id); its first session takes them.
+    const history = resumeSessionId
+      ? loadLogWithAncestors(p.id, resumeSessionId)
+      : loadPreSessionLog(p.id);
+    if (history.length > 0) logCache.set(p.id, [...history]);
 
     // Messages accepted by a process the restart ended, in a turn the
     // engine never saved, go back to the head of the queue: those of the
     // dropped session, and those of a process that never reported a session
     // id. The boot replay below delivers them. A dropped session's chat is
-    // not loaded, and a record with no id has no chat on disk, so their
-    // delivery writes the entries.
+    // not loaded, so their delivery writes the entries. A record with no id
+    // has its lines in the pre-session file, loaded above: those are not
+    // written again.
     const dropped = p.lastSessionId && droppedState ? p.lastSessionId : null;
-    const resent = requeueUnsavedDelivery(p.id, managed, dropped, false);
+    const resent = requeueUnsavedDelivery(
+      p.id,
+      managed,
+      dropped,
+      dropped === null && !resumeSessionId && history.length > 0,
+    );
     if (dropped && droppedState)
       noteUnresumableSession(p.id, agentType, dropped, droppedState, resent);
     else if (resent > 0) noteUnsavedResent(p.id, resent);
@@ -663,6 +674,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       const cached = logCache.get(p.id) ?? [];
       cached.push(entry);
       logCache.set(p.id, cached);
+      // On disk too: a failed revive drops the chat, and the logs API then
+      // still says why.
+      writeChatLine(p.id, entry);
     }
 
     // Marker write: only after resume actually happened (fresh fallback

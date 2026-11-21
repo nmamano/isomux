@@ -16,10 +16,11 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach, beforeEach } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { preSessionLogPath } from "../transcript-files.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { _testResetSearchAdmission } from "../log-search-runner.ts";
 import { getUserByName, updateUserById } from "../users.ts";
@@ -423,6 +424,10 @@ describe("routes/logs REST: the three modes", () => {
       summary: "The marmalade importer was fixed for task 1234abcd.",
     };
     writeFileSync(join(dir, "sessions.json"), JSON.stringify(meta));
+    // The spawn's ready line is in the pre-session file (task 9a828336),
+    // which the index lists as a session of its own. This case is about the
+    // real sessions only.
+    rmSync(preSessionLogPath(dir));
 
     const index = await api(srv, `/api/agents/${agent.id}/logs`, { bearer });
     expect(index.status).toBe(200);

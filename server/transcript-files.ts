@@ -25,10 +25,17 @@ import {
 } from "fs";
 import { constants as zlibConstants, gunzipSync, gzip } from "zlib";
 import { isSafeId } from "./log-search.ts";
+import { PRE_SESSION_LOG_ID } from "../shared/contract-shapes.ts";
 
 export const TRANSCRIPT_SUFFIX = ".jsonl";
 export const COMPRESSED_TRANSCRIPT_SUFFIX = ".jsonl.gz";
 const TMP_SUFFIX = ".tmp";
+
+// The file of an agent's pre-session lines (PRE_SESSION_LOG_ID). Not a
+// transcript name, so no session listing reads it as a session.
+export function preSessionLogPath(agentDir: string): string {
+  return join(agentDir, `${PRE_SESSION_LOG_ID}.ndjson`);
+}
 
 export interface TranscriptFile {
   path: string;
