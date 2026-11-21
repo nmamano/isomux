@@ -44,6 +44,10 @@ function outcomeText(
       return answer
         ? rich("asks.dismissedReason", { reason: words(answer) })
         : t("asks.dismissed");
+    case "postponed":
+      return answer
+        ? rich("asks.postponedNote", { note: words(answer) })
+        : t("asks.postponed");
     case "filed":
       return answer
         ? rich("asks.filedAsTaskNote", {

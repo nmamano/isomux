@@ -61,18 +61,30 @@ const undoOf = (view: View, id: string) =>
   cardEl(view, id)!.querySelector<HTMLButtonElement>("[data-ask-undo]")!;
 
 type Kind = "reply" | "dismiss" | "file-task";
-// Types the text in the card's field and clicks the answer of that kind.
+// Types the text in the card's field and clicks the answer of that kind: a
+// dismiss and a filed task are a tag on the field (task 1466ea8b), sent by
+// the send button that names it. A card back from Undo keeps its tag.
 async function answerAsk(view: View, id: string, kind: Kind, text?: string) {
+  const card = cardEl(view, id)!;
+  const click = (selector: string) =>
+    act(async () =>
+      fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!),
+    );
+  const chip = card.querySelector<HTMLElement>("[data-ask-tag-chip]")?.dataset
+    .askTagChip;
+  if (kind === "dismiss" && chip !== "dismiss")
+    await click('[data-ask-tag="dismiss"]');
+  if (kind === "file-task" && chip !== "file") {
+    await click('[data-ask-tag="postpone"]');
+    await click('[data-ask-suggestion="file"]');
+  }
   if (text !== undefined)
     fireEvent.change(fieldOf(view, id), { target: { value: text } });
-  const card = cardEl(view, id)!;
-  const button =
+  await click(
     kind === "reply"
-      ? card.querySelector<HTMLButtonElement>('button[type="submit"]')!
-      : kind === "dismiss"
-        ? card.querySelector<HTMLButtonElement>('form button[type="button"]')!
-        : card.querySelector<HTMLButtonElement>("[data-ask-file-task]")!;
-  await act(async () => fireEvent.click(button));
+      ? 'button[type="submit"][data-ask-send="reply"]'
+      : `button[type="submit"][data-ask-send="${kind === "dismiss" ? "dismiss" : "file"}"]`,
+  );
 }
 
 // The line's × sends the held answer at once (task aa8a9ddb): the POST and

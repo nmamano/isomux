@@ -176,11 +176,18 @@ it("drops a group with its last card, then shows the empty state", async () => {
   await advance(ASK_UNDO_MS);
   expect(posts).toEqual(["/api/asks/onlyA/reply"]);
   expect(groupIds(view)).toEqual(["a2"]);
-  // The form's other button is Dismiss; Show more sits outside the form.
-  const dismiss = view.container
-    .querySelector('[data-ask="onlyB"]')!
-    .querySelector<HTMLButtonElement>('form button[type="button"]')!;
-  await act(async () => fireEvent.click(dismiss));
+  // A dismiss: the tag, then the send button that names it (task 1466ea8b).
+  const onlyB = view.container.querySelector('[data-ask="onlyB"]')!;
+  await act(async () =>
+    fireEvent.click(
+      onlyB.querySelector<HTMLButtonElement>('[data-ask-tag="dismiss"]')!,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(
+      onlyB.querySelector<HTMLButtonElement>('[data-ask-send="dismiss"]')!,
+    ),
+  );
   await advance(ASK_UNDO_MS);
   expect(posts).toEqual(["/api/asks/onlyA/reply", "/api/asks/onlyB/dismiss"]);
   expect(groupIds(view)).toEqual([]);

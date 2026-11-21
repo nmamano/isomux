@@ -871,8 +871,8 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     });
   }
 
-  // A reply, a dismiss, a filed task, or a simplify request or its withdrawal
-  // of an ask, delivered the way a typed member message is (an API token
+  // A reply, a dismiss, a postpone, a filed task, or a rewrite request or its
+  // withdrawal of an ask, delivered the way a typed member message is (an API token
   // through its own send record, as on the message route). Resolves at the
   // acceptance decision.
   function deliverAskAnswer(
@@ -883,6 +883,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       dismissed: boolean;
       simplify?: boolean;
       simplifyUndone?: boolean;
+      postponed?: boolean;
       taskId?: string;
       device: string | undefined;
     },
@@ -894,6 +895,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       ...(opts.dismissed ? { dismissed: true } : {}),
       ...(opts.simplify ? { simplify: true } : {}),
       ...(opts.simplifyUndone ? { simplifyUndone: true } : {}),
+      ...(opts.postponed ? { postponed: true } : {}),
       ...(opts.taskId ? { taskId: opts.taskId } : {}),
       ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
       ...(entry.app ? { app: { name: entry.app.name } } : {}),

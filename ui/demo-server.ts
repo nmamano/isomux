@@ -110,6 +110,7 @@ import type {
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  ASK_POSTPONED_TEXT,
   ASK_SIMPLIFY_TEXT,
   ASK_SIMPLIFY_UNDO_TEXT,
   LOBBY_ROOM_ID,
@@ -4923,10 +4924,18 @@ export async function demoApi(
   if (method === "GET" && /^\/api\/agents\/[^/]+\/sessions$/.test(pathname)) {
     return { sessions: [], currentSessionId: null };
   }
-  // asks.simplify - mark the ask as waiting for its rewrite and send the
-  // fixed words to its agent, as the server does. The ask stays open.
-  const simplifyMatch = pathname.match(/^\/api\/asks\/([^/]+)\/simplify$/);
+  // asks.simplify / asks.rewrite - mark the ask as waiting for its rewrite
+  // and send the member's words, or the fixed ones, to its agent, as the
+  // server does. The ask stays open.
+  const simplifyMatch = pathname.match(
+    /^\/api\/asks\/([^/]+)\/(?:simplify|rewrite)$/,
+  );
   if (simplifyMatch && method === "POST") {
+    const asked = (body as { text?: unknown } | undefined)?.text;
+    const words =
+      typeof asked === "string" && asked.trim() !== ""
+        ? asked
+        : ASK_SIMPLIFY_TEXT;
     const found = demoFindAsk(decodeURIComponent(simplifyMatch[1]));
     if (!found) throw new ApiError(404, "not_found", "No such open ask.");
     const { entry } = found;
@@ -4938,7 +4947,7 @@ export async function demoApi(
     });
     shimEmit({
       type: "log_entry",
-      entry: makeLogEntry(entry.agentId, "user_message", ASK_SIMPLIFY_TEXT, {
+      entry: makeLogEntry(entry.agentId, "user_message", words, {
         ask: { id: entry.id, prompt: entry.prompt, simplify: true },
       }),
     });
@@ -5091,17 +5100,19 @@ export async function demoApi(
     });
     return undefined;
   }
-  // asks.reply / asks.dismiss / asks.fileTask - close the ask and send
-  // the answer to its agent as a member message, as the server does. A filed
-  // ask also goes on the board, in the agent's room, titled by its first line.
+  // asks.reply / asks.dismiss / asks.postpone / asks.fileTask - close the
+  // ask and send the answer to its agent as a member message, as the server
+  // does. A filed ask also goes on the board, in the agent's room, titled by
+  // its first line.
   const askMatch = pathname.match(
-    /^\/api\/asks\/([^/]+)\/(reply|dismiss|file-task)$/,
+    /^\/api\/asks\/([^/]+)\/(reply|dismiss|postpone|file-task)$/,
   );
   if (askMatch && method === "POST") {
     const found = demoFindAsk(decodeURIComponent(askMatch[1]));
     if (!found) throw new ApiError(404, "not_found", "No such open ask.");
     const { entry } = found;
     const dismissed = askMatch[2] === "dismiss";
+    const postponed = askMatch[2] === "postpone";
     const filing = askMatch[2] === "file-task";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const typed = typeof sent === "string" ? sent : "";
@@ -5111,9 +5122,11 @@ export async function demoApi(
         ? typed
         : dismissed
           ? ASK_DISMISSED_TEXT
-          : filing
-            ? ASK_FILED_TEXT
-            : typed;
+          : postponed
+            ? ASK_POSTPONED_TEXT
+            : filing
+              ? ASK_FILED_TEXT
+              : typed;
     let task: TaskItem | undefined;
     if (filing) {
       const title =
@@ -5136,6 +5149,7 @@ export async function demoApi(
           id: entry.id,
           prompt: entry.prompt,
           ...(dismissed ? { dismissed: true } : {}),
+          ...(postponed ? { postponed: true } : {}),
           ...(task ? { taskId: task.id } : {}),
         },
       }),

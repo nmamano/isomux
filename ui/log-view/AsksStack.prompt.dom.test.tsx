@@ -65,22 +65,30 @@ it("scrolls nothing when an answer closes a card in the chat's stack", async () 
     scrolled.push(this.closest<HTMLElement>("[data-ask]")?.dataset.ask ?? "");
   };
   try {
-    for (const selector of [
-      "form button[type=submit]",
-      "form button[type=button]",
-      "[data-ask-file-task]",
+    // Reply, Dismiss and filing as a task (task 1466ea8b: the last two are
+    // a tag, then the send button).
+    for (const clicks of [
+      ["form button[type=submit]"],
+      ['[data-ask-tag="dismiss"]', "[data-ask-send]"],
+      [
+        '[data-ask-tag="postpone"]',
+        '[data-ask-suggestion="file"]',
+        "[data-ask-send]",
+      ],
     ]) {
+      const selector = clicks.join(" > ");
       posts = [];
       const view = mount(false);
       await waitFor(() => expect(cards(view.container).length).toBe(2));
-      await act(async () => {
-        fireEvent.click(
-          view.container.querySelector<HTMLButtonElement>(
-            `[data-ask="aaaa0001"] ${selector}`,
-          )!,
-        );
-        await new Promise((r) => setTimeout(r, 0));
-      });
+      for (const click of clicks)
+        await act(async () => {
+          fireEvent.click(
+            view.container.querySelector<HTMLButtonElement>(
+              `[data-ask="aaaa0001"] ${click}`,
+            )!,
+          );
+          await new Promise((r) => setTimeout(r, 0));
+        });
       expect([selector, posts.length, cards(view.container)]).toEqual([
         selector,
         1,
@@ -244,7 +252,8 @@ it("draws the prompt's text on the collapsed bar, the text the excerpt quotes, w
 });
 
 // A simplify request (task 30915188): the member asks the agent to rewrite
-// the ask, which stays open.
+// the ask, which stays open. Since task 1466ea8b it is the Rewrite tag with a
+// blank field, sent from the send button.
 const inCard = (root: HTMLElement, id: string, selector: string) =>
   root.querySelector<HTMLElement>(`[data-ask="${id}"] ${selector}`);
 
@@ -255,8 +264,8 @@ const ANSWER_CONTROLS = [
   "textarea",
   "[data-ask-reply-input]",
   "[data-ask-option]",
-  "[data-ask-simplify]",
-  "[data-ask-file-task]",
+  "[data-ask-tag]",
+  "[data-ask-suggestion]",
   "[data-ask-about]",
 ];
 const answerControls = (root: HTMLElement, id: string) =>
@@ -269,18 +278,22 @@ it("asks for a simpler ask with no text; the pushed mark puts the banner with Un
   expect(
     inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
   ).toBe(null);
-  // What the member typed is not a note: it stays in the field.
-  fireEvent.change(field(view.container, "qqqq0017"), {
-    target: { value: "too long" },
-  });
+  // The tag replaces the untouched default, so the field is blank and the
+  // request has no text.
   await act(async () => {
-    fireEvent.click(inCard(view.container, "qqqq0017", "[data-ask-simplify]")!);
+    fireEvent.click(
+      inCard(view.container, "qqqq0017", '[data-ask-tag="rewrite"]')!,
+    );
     await tick();
   });
-  expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
+  expect(posts).toEqual([]);
+  await act(async () => {
+    fireEvent.click(inCard(view.container, "qqqq0017", "[data-ask-send]")!);
+    await tick();
+  });
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/rewrite"]);
   expect("text" in posts[0].body).toBe(false);
   expect(cards(view.container)).toEqual(["ssss0019", "rrrr0018", "qqqq0017"]);
-  expect(field(view.container, "qqqq0017").value).toBe("too long");
 
   // With options, so the banner is seen to take their place too.
   const base = {
@@ -319,7 +332,7 @@ it("asks for a simpler ask with no text; the pushed mark puts the banner with Un
     await tick();
   });
   expect(posts.map((p) => p.path)).toEqual([
-    "/api/asks/qqqq0017/simplify",
+    "/api/asks/qqqq0017/rewrite",
     "/api/asks/qqqq0017/simplify/undo",
   ]);
   expect("text" in posts[1].body).toBe(false);
@@ -352,14 +365,19 @@ it("asks for a simpler ask with no text; the pushed mark puts the banner with Un
   expect(
     inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
   ).toBe(null);
-  expect(field(view.container, "qqqq0017").value).toBe("too long");
+  // The sent request started the field and its tag again: the untouched
+  // default of an ask with options and no pick is empty.
+  expect(field(view.container, "qqqq0017").value).toBe("");
+  expect(inCard(view.container, "qqqq0017", "[data-ask-tag-chip]")).toBe(null);
   expect(
     view.container.querySelectorAll('[data-ask="qqqq0017"] [data-ask-option]'),
   ).toHaveLength(2);
   expect(
-    inCard(view.container, "qqqq0017", "[data-ask-simplify]")?.hasAttribute(
-      "disabled",
-    ),
+    inCard(
+      view.container,
+      "qqqq0017",
+      '[data-ask-tag="rewrite"]',
+    )?.hasAttribute("disabled"),
   ).toBe(false);
   view.unmount();
 });
@@ -396,20 +414,22 @@ it("draws an ask still waiting for its rewrite with the banner in place of the r
   ).toBe(null);
   expect(field(view.container, "ssss0019")).not.toBe(null);
   expect(
-    inCard(view.container, "ssss0019", "[data-ask-simplify]")?.hasAttribute(
-      "disabled",
-    ),
+    inCard(
+      view.container,
+      "ssss0019",
+      '[data-ask-tag="rewrite"]',
+    )?.hasAttribute("disabled"),
   ).toBe(false);
   view.unmount();
 
   const secrets = mount(false, "a5");
   await waitFor(() => expect(cards(secrets.container).length).toBe(3));
-  expect(inCard(secrets.container, "gggg0007", "[data-ask-simplify]")).not.toBe(
-    null,
-  );
-  expect(inCard(secrets.container, "hhhh0008", "[data-ask-simplify]")).toBe(
-    null,
-  );
+  expect(
+    inCard(secrets.container, "gggg0007", '[data-ask-tag="rewrite"]'),
+  ).not.toBe(null);
+  expect(
+    inCard(secrets.container, "hhhh0008", '[data-ask-tag="rewrite"]'),
+  ).toBe(null);
   secrets.unmount();
 });
 
@@ -557,15 +577,19 @@ it("keeps the button live with the error when the server refuses a simplify, and
       "[data-asks-stack=collapsed] button",
     )!,
   );
+  await act(async () => {
+    fireEvent.click(
+      inCard(view.container, "qqqq0017", '[data-ask-tag="rewrite"]')!,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+  });
   const click = async () =>
     act(async () => {
-      fireEvent.click(
-        inCard(view.container, "qqqq0017", "[data-ask-simplify]")!,
-      );
+      fireEvent.click(inCard(view.container, "qqqq0017", "[data-ask-send]")!);
       await new Promise((r) => setTimeout(r, 0));
     });
   await click();
-  expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/rewrite"]);
   expect(cards(view.container)).toEqual(["ssss0019", "rrrr0018", "qqqq0017"]);
   expect(
     inCard(view.container, "qqqq0017", "[role=alert]")?.textContent,

@@ -429,7 +429,7 @@ describe("the fields of a JSON body", () => {
 describe("an edit that sends no prompt", () => {
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
 
-  it("keeps the prompt and its simplify mark, changes only the fields it sends, as JSON and as text/plain, and records no prompt change", async () => {
+  it("keeps the prompt, answers a waiting simplify request with its first change (task 1466ea8b), changes only the fields it sends, as JSON and as text/plain, and records no prompt change", async () => {
     const w = await world();
     const cwd = agentOf(w.srv, w.asker.id).cwd;
     writeFileSync(join(cwd, "before-after.png"), PNG);
@@ -447,6 +447,12 @@ describe("an edit that sends no prompt", () => {
       { json: {} },
     );
     expect(simplified.status).toBe(204);
+    expect(
+      typeof (
+        (await call(w.srv, "GET", `${base}/${id}`, w.as(w.asker.id)))
+          .body as AskEntry
+      ).simplifyRequestedAt,
+    ).toBe("number");
     const patch = (query: string, body: { json?: unknown; text?: string }) =>
       call(w.srv, "PATCH", `${base}/${id}${query}`, w.as(w.asker.id), body);
     const shape = (e: AskEntry) => ({
@@ -458,10 +464,12 @@ describe("an edit that sends no prompt", () => {
       simplifyPending: typeof e.simplifyRequestedAt === "number",
       originalPrompt: e.originalPrompt ?? null,
     });
+    // The first step changes the pick: that answers the request, and with
+    // the prompt kept there is no original to show.
     const kept = {
       prompt: "Ship it?",
       options: ["Yes", "No"],
-      simplifyPending: true,
+      simplifyPending: false,
       originalPrompt: null,
     };
 
@@ -2638,6 +2646,9 @@ describe("a secret request is an ask", () => {
       ["file-task", { text: VALUE }],
       ["simplify", {}],
       ["simplify/undo", {}],
+      // Task 1466ea8b: a rewrite or a postpone would carry typed words too.
+      ["rewrite", { text: VALUE }],
+      ["postpone", { text: VALUE }],
     ] as const) {
       const r = await call(
         w.srv,

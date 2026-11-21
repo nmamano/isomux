@@ -448,6 +448,35 @@ describe("the three shapes", () => {
       { ...BASE, memberUserId: "u1", messaging: { ...DRAFT, app: "telegram" } },
       true,
     ],
+    // A tag the agent recommends (task 1466ea8b): any non-empty name loads,
+    // so a tag a later release adds does not move the file aside on a
+    // downgrade; the card ignores a name it does not know.
+    ...(
+      [
+        [
+          "recommended tag with its text",
+          { recommendedTag: "dismiss", recommendedText: "Not needed" },
+          true,
+        ],
+        ["recommended tag with no text", { recommendedTag: "rewrite" }, true],
+        [
+          "recommended tag a later release adds",
+          { recommendedTag: "automate", recommendedText: "Decide alone" },
+          true,
+        ],
+        ["recommended tag that is empty", { recommendedTag: "" }, false],
+        ["recommended tag that is not a string", { recommendedTag: 1 }, false],
+        [
+          "recommended text that is not a string",
+          { recommendedTag: "dismiss", recommendedText: 1 },
+          false,
+        ],
+      ] as const
+    ).map(([label, fields, loads]): [string, unknown, boolean] => [
+      label,
+      { ...BASE, memberUserId: "u1", ...fields },
+      loads,
+    ]),
     ...(
       [
         ["draft that is not an object", "x"],

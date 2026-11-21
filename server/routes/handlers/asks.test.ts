@@ -179,11 +179,16 @@ describe("an answer in flight", () => {
     expect(store.get(entry.id)).not.toBeNull();
     const again = outcome(handlers["asks.reply"](ctx("Dwight")));
     const dismissed = outcome(handlers["asks.dismiss"](ctx()));
+    // Task 1466ea8b: a postpone and a rewrite share the guard.
+    const postponed = outcome(handlers["asks.postpone"](ctx()));
+    const rewritten = outcome(handlers["asks.rewrite"](ctx("More context")));
     // Checked before awaiting them: a second delivery would wait forever on
     // the held promise.
     expect(delivered).toHaveLength(1);
     expect(await again).toBe("409 ask_busy");
     expect(await dismissed).toBe("409 ask_busy");
+    expect(await postponed).toBe("409 ask_busy");
+    expect(await rewritten).toBe("409 ask_busy");
 
     held[0].resolve({ ok: true });
     expect(await first).toBe("noContent");
@@ -999,11 +1004,13 @@ describe("a WhatsApp reply draft", () => {
     expect(t.calls).toHaveLength(1);
   });
 
-  it("filing it as a task, a simplify request and its withdrawal are 409 messaging_draft: nothing filed, sent or told", async () => {
+  it("filing it as a task, a simplify or rewrite request, its withdrawal and a postpone are 409 messaging_draft: nothing filed, sent or told", async () => {
     const t = draftRig();
     for (const opId of [
       "asks.fileTask",
       "asks.simplify",
+      "asks.rewrite",
+      "asks.postpone",
       "asks.simplifyUndo",
     ] as const)
       expect(

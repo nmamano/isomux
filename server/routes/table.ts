@@ -224,6 +224,8 @@ import type {
   DeniedCommandRunReq,
   AskDismissReq,
   AskSimplifyReq,
+  AskRewriteReq,
+  AskPostponeReq,
   AskFileTaskReq,
   AskAgentWire,
   AskClosedWire,
@@ -1278,6 +1280,42 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [
       "ask_upserted",
       "others_ask_upserted",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
+    preconditions: ["officeNotEnterpriseLocked"],
+  }),
+  // The member asks the agent to rewrite the ask as they say (task
+  // 1466ea8b); the ask stays open. /simplify is the same with no text.
+  defineRoute<AskRewriteReq, NoContent>({
+    opId: "asks.rewrite",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/asks/:askId/rewrite",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
+    emits: [
+      "ask_upserted",
+      "others_ask_upserted",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
+    preconditions: ["officeNotEnterpriseLocked"],
+  }),
+  // The member puts the ask off (task 1466ea8b): it closes, and the agent
+  // asks again later.
+  defineRoute<AskPostponeReq, NoContent>({
+    opId: "asks.postpone",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/asks/:askId/postpone",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
+    emits: [
+      "ask_removed",
+      "others_ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",

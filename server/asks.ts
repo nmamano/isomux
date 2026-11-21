@@ -371,6 +371,14 @@ function isAskEntry(v: unknown): v is AskEntry {
     )
   )
     return false;
+  // A recommended tag (task 1466ea8b): any non-empty name, as for a link,
+  // so a tag a later release adds cannot fail the file.
+  if (
+    (r.recommendedTag !== undefined &&
+      !(typeof r.recommendedTag === "string" && r.recommendedTag !== "")) ||
+    (r.recommendedText !== undefined && typeof r.recommendedText !== "string")
+  )
+    return false;
   if (r.priority !== undefined && !isValidPriority(r.priority)) return false;
   // Chat affordances: the shape only, as for options.
   if (
@@ -685,6 +693,8 @@ export interface AskStore {
     link?: string;
     options?: string[];
     recommended?: string;
+    recommendedTag?: string;
+    recommendedText?: string;
     priority?: TaskPriority;
     affordances?: AskAffordances;
     sessionId?: string;
@@ -724,10 +734,19 @@ export interface AskStore {
     priority?: TaskPriority | null,
     // Who edited, for the edit's event: an app by name; absent = the agent.
     actor?: { app: string },
+    // The recommended tag and its text (task 1466ea8b), as link: undefined
+    // keeps, null removes. Removing the tag removes its text. The caller
+    // keeps the tag and the option mark apart.
+    tag?: { recommendedTag?: string | null; recommendedText?: string | null },
   ): AskEntry | null;
   // Marks the open entry as waiting for a simpler rewrite and records the
   // member who asked; null when the entry is gone.
-  requestSimplify(id: string, byUserId?: string): AskEntry | null;
+  // `text` is the rewrite the member asked for, absent on a bare request.
+  requestSimplify(
+    id: string,
+    byUserId?: string,
+    text?: string,
+  ): AskEntry | null;
   // Clears the simplify mark of the open entry and records the member who
   // withdrew it. Null, with nothing written, when the entry is gone or has no
   // mark (the agent's rewrite cleared it first).
@@ -1005,6 +1024,8 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       link,
       options,
       recommended,
+      recommendedTag,
+      recommendedText,
       priority,
       affordances,
       sessionId,
@@ -1047,6 +1068,8 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(link !== undefined ? { link } : {}),
         ...(options !== undefined ? { options } : {}),
         ...(recommended !== undefined ? { recommended } : {}),
+        ...(recommendedTag !== undefined ? { recommendedTag } : {}),
+        ...(recommendedText !== undefined ? { recommendedText } : {}),
         ...(priority !== undefined ? { priority } : {}),
         ...affordances,
         ...(sessionId ? { sessionId } : {}),
@@ -1113,23 +1136,27 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       recommended,
       priority,
       actor,
+      tag = {},
     ) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
       const entry: AskEntry = { ...prev, prompt, updatedAt: now() };
-      // The rewrite a simplify request asked for: the card keeps the prompt
-      // as it was before the first one.
-      if (prev.simplifyRequestedAt !== undefined && prompt !== prev.prompt) {
-        delete entry.simplifyRequestedAt;
-        entry.originalPrompt ??= prev.prompt;
-      }
       if (link === null) delete entry.link;
       else if (link !== undefined) entry.link = link;
       if (options === null) delete entry.options;
       else if (options !== undefined) entry.options = options;
       if (recommended === null || options === null) delete entry.recommended;
       else if (recommended !== undefined) entry.recommended = recommended;
+      const { recommendedTag, recommendedText } = tag;
+      if (recommendedTag === null) {
+        delete entry.recommendedTag;
+        delete entry.recommendedText;
+      } else if (recommendedTag !== undefined)
+        entry.recommendedTag = recommendedTag;
+      if (recommendedText === null) delete entry.recommendedText;
+      else if (recommendedText !== undefined)
+        entry.recommendedText = recommendedText;
       if (priority === null) delete entry.priority;
       else if (priority !== undefined) entry.priority = priority;
       const { commands, editFiles, readFiles } = affordances;
@@ -1147,16 +1174,27 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       else if (editFiles !== undefined) entry.editFiles = editFiles;
       if (readFiles === null) delete entry.readFiles;
       else if (readFiles !== undefined) entry.readFiles = readFiles;
-      if (!isAskEntry(entry)) throw new Error("not a valid ask");
-      commit(
-        entries.map((e) => (e.id === id ? entry : e)),
-        [{ kind: "upserted", entry }],
-      );
       // Each changed field as it was; an edit that changed none is no event.
       const before: Extract<AskEvent, { kind: "edited" }>["before"] = {};
       for (const key of ASK_EDITABLE_KEYS)
         if (JSON.stringify(prev[key]) !== JSON.stringify(entry[key]))
           Object.assign(before, { [key]: prev[key] ?? null });
+      // The rewrite a rewrite request asked for: any change answers it, as
+      // a request can be for new options or files, not new words (task
+      // 1466ea8b). The card keeps the prompt as it was before the first
+      // change of the prompt.
+      if (
+        prev.simplifyRequestedAt !== undefined &&
+        Object.keys(before).length > 0
+      ) {
+        delete entry.simplifyRequestedAt;
+        if (prompt !== prev.prompt) entry.originalPrompt ??= prev.prompt;
+      }
+      if (!isAskEntry(entry)) throw new Error("not a valid ask");
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
       if (Object.keys(before).length > 0)
         recordEvent(entry, {
           kind: "edited",
@@ -1166,7 +1204,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         });
       return { ...entry };
     },
-    requestSimplify(id, byUserId) {
+    requestSimplify(id, byUserId, text) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -1184,6 +1222,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         kind: "simplify_requested",
         at,
         ...(byUserId !== undefined ? { byUserId } : {}),
+        ...(text !== undefined ? { text } : {}),
       });
       return { ...entry };
     },
@@ -1540,7 +1579,7 @@ export function askTaskFields(
 // later session (after a clear, a handoff or /wrap-session) that never saw the
 // question, so the note quotes the whole prompt and, when the session that
 // opened the ask is not the current one, names it for a log search. An ask an
-// app opened names the app, so the agent knows it did not ask it. A simplify
+// app opened names the app, so the agent knows it did not ask it. A rewrite
 // request keeps the ask open: the agent rewrites it in place. The prompt
 // quoted here is not the member's typing, so its file mentions are defused.
 export function askReplyNote(
@@ -1564,8 +1603,12 @@ function askReplyNoteText(
     const subject = ref.app ? `App ${ref.app.name}'s` : "Your";
     return `[${subject} ask ${ref.id}${from} is now task ${ref.taskId}: ${quoted}] `;
   }
+  // A rewrite request, bare or in the member's words (task 1466ea8b): the
+  // note asks for an edit, so typed words are not read as an answer.
   if (ref.simplify)
-    return `[Simplify ${whose} ask ${ref.id}${from}: ${quoted}] `;
+    return `[Rewrite ${whose} ask ${ref.id}${from} in place, as asked here; do not answer in chat or open a new ask: ${quoted}] `;
+  if (ref.postponed)
+    return `[Postponed ${whose} ask ${ref.id}${from}, now closed: ${quoted}] `;
   if (ref.simplifyUndone)
     return `[Simplify request withdrawn for ${whose} ask ${ref.id}${from}: ${quoted}] `;
   const verb = ref.dismissed ? "Dismissed" : "Reply to";

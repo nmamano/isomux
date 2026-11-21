@@ -199,7 +199,7 @@ async function reply(view: View, id: string, text: string) {
 describe("another member's ask", () => {
   beforeEach(() => localStorage.clear());
 
-  it("is a full card that names the member: options, the reply field, file as task, Simplify and the command as buttons, as on the owner's own card", async () => {
+  it("is a full card that names the member: options, the reply field, the Dismiss, Postpone and Rewrite tags and the command as buttons, as on the owner's own card", async () => {
     const { view, focused } = mount(OWN, seed("owner"));
     choose(view, "data-asks-member", "all");
     const mine = card(view, "mine1")!;
@@ -216,8 +216,9 @@ describe("another member's ask", () => {
     for (const sel of [
       "[data-ask-reply-input]",
       'button[type="submit"]',
-      "[data-ask-file-task]",
-      "[data-ask-simplify]",
+      '[data-ask-tag="dismiss"]',
+      '[data-ask-tag="postpone"]',
+      '[data-ask-tag="rewrite"]',
       "[data-ask-command] button",
       "[data-ask-about]",
     ])
@@ -234,11 +235,14 @@ describe("another member's ask", () => {
     ).toEqual(["BUTTON:true", "BUTTON:false"]);
     act(() => void fireEvent.click(theirs.querySelector("[data-ask-about]")!));
     expect(focused).toEqual(["a1"]);
-    // Simplify asks the agent on the ask's own route.
+    // Rewrite asks the agent on the ask's own route.
     await act(async () =>
-      fireEvent.click(theirs.querySelector("[data-ask-simplify]")!),
+      fireEvent.click(theirs.querySelector('[data-ask-tag="rewrite"]')!),
     );
-    expect(posts).toEqual(["/api/asks/pat1/simplify"]);
+    await act(async () =>
+      fireEvent.click(theirs.querySelector("[data-ask-send]")!),
+    );
+    expect(posts).toEqual(["/api/asks/pat1/rewrite"]);
   });
 
   it("holds a reply for ASK_UNDO_MS, sends it on the ask's route, and the card stays gone in flight and once the POST lands, before any push", async () => {

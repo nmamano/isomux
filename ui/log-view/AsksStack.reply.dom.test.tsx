@@ -278,22 +278,30 @@ it("starts an ask with options and no recommendation empty, and Reply waits for 
     fireEvent.submit(card.querySelector("form")!);
   });
   expect(posts).toEqual([]);
-  // A dismiss of the untouched empty field sends no reason.
-  await act(async () => {
-    fireEvent.click(card.querySelector("form button[type=button]")!);
-    await new Promise((r) => setTimeout(r, 0));
-  });
+  // A dismiss of the untouched empty field sends no reason: the tag, then
+  // the send button that names it (task 1466ea8b).
+  for (const selector of [
+    '[data-ask-tag="dismiss"]',
+    '[data-ask-send="dismiss"]',
+  ])
+    await act(async () => {
+      fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
   expect(posts).toEqual([{ path: "/api/asks/ffff0006/dismiss", body: {} }]);
   view.unmount();
 });
 
-it("sends no dismiss reason for the recommended default, filled or typed again, and sends another option or typed text", async () => {
+// Task 1466ea8b: the Dismiss tag replaces the untouched default, so the
+// recommendation the card starts with goes as no reason; once the member
+// filled or typed the field, it goes as it is, the recommendation too.
+it("sends no dismiss reason for the untouched recommended default, and the field as it is once the member filled or typed it", async () => {
   // A tap on the option the field holds sends it, so the recommendation
   // comes back into the field by a tap after another option.
   for (const [label, step, body] of [
     ["untouched", null, {}],
-    ["filled the recommendation again", { taps: [0, 1] }, {}],
-    ["typed the recommendation again", { type: "No" }, {}],
+    ["filled the recommendation again", { taps: [0, 1] }, { text: "No" }],
+    ["typed the recommendation again", { type: "No" }, { text: "No" }],
     ["tapped the other option", { taps: [0] }, { text: "Yes" }],
     ["typed a reason", { type: "not now" }, { text: "not now" }],
   ] as const) {
@@ -315,10 +323,14 @@ it("sends no dismiss reason for the recommended default, filled or typed again, 
       fireEvent.change(input, { target: { value: "" } });
       fireEvent.change(input, { target: { value: step.type } });
     }
-    await act(async () => {
-      fireEvent.click(card.querySelector("form button[type=button]")!);
-      await new Promise((r) => setTimeout(r, 0));
-    });
+    for (const selector of [
+      '[data-ask-tag="dismiss"]',
+      '[data-ask-send="dismiss"]',
+    ])
+      await act(async () => {
+        fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!);
+        await new Promise((r) => setTimeout(r, 0));
+      });
     expect([label, posts]).toEqual([
       label,
       [{ path: "/api/asks/mmmm0013/dismiss", body }],
@@ -555,7 +567,9 @@ it("keeps Enter as a new line on a touch screen, where Reply sends", async () =>
   });
 });
 
-it("puts Reply, Dismiss and file-as-task in one row under the field, on a phone and on a desktop", async () => {
+// Since task 1466ea8b the row holds the send button and Discuss in chat; the
+// other answers are tags above the field.
+it("puts the send button and Discuss in chat in one row under the field, on a phone and on a desktop", async () => {
   for (const isMobile of [true, false]) {
     const view = mount(isMobile);
     await waitFor(() =>
@@ -574,10 +588,7 @@ it("puts Reply, Dismiss and file-as-task in one row under the field, on a phone 
     const input = field(view.container, "aaaa0001");
     const buttons = [
       card.querySelector<HTMLElement>("button[type=submit]")!,
-      card.querySelector<HTMLElement>(
-        "form button[type=button]:not([data-ask-file-task])",
-      )!,
-      card.querySelector<HTMLElement>("[data-ask-file-task]")!,
+      card.querySelector<HTMLElement>("[data-ask-about]")!,
     ];
     const row = buttons[0].parentElement!;
     expect({
@@ -595,11 +606,11 @@ it("puts Reply, Dismiss and file-as-task in one row under the field, on a phone 
       rowIsColumn: row.style.flexDirection === "column",
     }).toEqual({
       isMobile,
-      inForm: [true, true, true],
-      afterField: [true, true, true],
+      inForm: [true, true],
+      afterField: [true, true],
       // The field takes the form's width, the buttons a row of their own.
       column: true,
-      oneRow: [true, true, true],
+      oneRow: [true, true],
       rowHoldsField: false,
       rowIsColumn: false,
     });

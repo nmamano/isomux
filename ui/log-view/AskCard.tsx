@@ -1,18 +1,29 @@
-// One open ask: the agent's prompt, its age, a reply field, Reply, Dismiss
-// and "Not now; file as a task", which files the ask on the board; a secret
-// request has its masked form instead (SecretAskCard). The asks stack above
+// One open ask: the agent's prompt, its age, a reply field with its send
+// button, and the tags Dismiss, Postpone and Rewrite; a secret request has
+// its masked form instead (SecretAskCard). The asks stack above
 // the chat input and the Asks page both draw it, so a new kind of ask shows
 // on both. The card goes when the server accepts the answer, without waiting
 // for ask_removed. An ask with a link to an office page or an agent's chat has a
 // button that opens it (ui/office-link.tsx); the ask stays open. An action ask
 // shows its action with Apply instead (AskActionBlock). Every ask
-// has a "Discuss in chat" button (AskAboutButton), last but one in the bottom
-// row, that starts a chat message about it, and the ask stays open too.
-// Simplify, last in that row, asks the agent to rewrite the ask in plain
-// words: the ask stays open, and until the agent edits the prompt a banner
-// that says a rewrite is coming takes the place of the options and the reply
-// area, with Undo, which withdraws the request; then the card keeps the first
-// prompt behind "Show original". An ask with options has a button for
+// has a "Discuss in chat" button (AskAboutButton), last in the bottom row,
+// that starts a chat message about it, and the ask stays open too.
+//
+// Tags (task 1466ea8b): a row under the options with Dismiss, Postpone and
+// Rewrite, the answers every ask takes. A tap puts the tag on the reply
+// field as a chip at its start (× or Backspace at the field's start takes
+// it off); the send button takes its name and the tag's button sends, as an
+// option's does. At most one tag; a tap on an option takes it off. A tag
+// replaces the field's untouched default and keeps typed words, and the
+// field goes with the tag as it is (blank = no words). Postpone and Rewrite
+// show suggestions above the field: "File as a task" turns Postpone into
+// filing the ask on the board; the others add their words to the field. The
+// agent can recommend a tag with words (recommendedTag): an untouched card
+// starts with it, so Enter sends it. Rewrite asks the agent to rewrite the
+// ask as the field says: the ask stays open, and until the agent changes it
+// a banner that says a rewrite is coming takes the place of the options and
+// the reply area, with Undo, which withdraws the request; then the card
+// keeps the first prompt behind "Show original". An ask with options has a button for
 // each. A tap on the option the reply field holds sends it; a tap on any other
 // option puts it in the field (focused with a mouse; on a touch screen the
 // keyboard would move the buttons), and the button now sends. The button
@@ -29,8 +40,8 @@
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card, and an untouched field follows an edit of the ask. While the field
 // holds the untouched default, focus selects it (a tap on the focused field
-// places the caret), and Dismiss or filing as a task sends nothing more; a
-// typed note goes with either. The field grows with its text (fitComposer).
+// places the caret). The tag lives in the store too (askTags). The field
+// grows with its text (fitComposer).
 // Enter sends with a mouse and Shift+Enter is a new line; on a touch screen
 // Enter is a new line and Reply sends. Tab and Shift+Tab move
 // between the reply fields inside the list that draws the cards
@@ -80,16 +91,22 @@ import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import {
+  ASK_TAGS,
   isActionStep,
   type AskMemberWire,
   type AskReadFile,
+  type AskTag,
 } from "../../shared/types.ts";
 import type {
   AskDismissReq,
   AskFileTaskReq,
+  AskPostponeReq,
   AskReplyReq,
+  AskRewriteReq,
   AskSimplifyReq,
 } from "../../shared/contract-shapes.ts";
+import type { AskCardTag } from "./ask-tag.ts";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { AskPrompt } from "./AskPrompt.tsx";
 import { unplacedAskFiles } from "./ask-prompt-diff.ts";
 import { noTranslate } from "../no-translate.ts";
@@ -130,8 +147,38 @@ const PROMPT_LINES = 3;
 // without keepalive.
 const KEEPALIVE_MAX_BYTES = 60_000;
 
-type AnswerKind = "reply" | "dismiss" | "file-task";
-type AnswerBody = AskReplyReq | (AskDismissReq & AskFileTaskReq);
+type AnswerKind = "reply" | "dismiss" | "postpone" | "file-task";
+type AnswerBody =
+  AskReplyReq | (AskDismissReq & AskFileTaskReq & AskPostponeReq);
+
+// Each tag's name, on its button, its chip and the send button.
+const TAG_LABEL: Record<AskCardTag, PlainMessageKey> = {
+  dismiss: "asks.tag.dismiss",
+  postpone: "asks.tag.postpone",
+  file: "asks.tag.file",
+  rewrite: "asks.tag.rewrite",
+};
+// The suggestions above the field: "file" turns Postpone into filing the
+// ask; the others add their words to the field.
+const SUGGESTIONS: Partial<
+  Record<AskCardTag, { name: string; label: PlainMessageKey }[]>
+> = {
+  postpone: [
+    { name: "file", label: "asks.suggest.file" },
+    { name: "circle-back", label: "asks.suggest.circleBack" },
+  ],
+  rewrite: [
+    { name: "simplify", label: "asks.suggest.simplify" },
+    { name: "context", label: "asks.suggest.context" },
+    { name: "visuals", label: "asks.suggest.visuals" },
+    { name: "answer", label: "asks.suggest.answer" },
+  ],
+};
+SUGGESTIONS.file = SUGGESTIONS.postpone;
+
+// The tag button that a tag on the field makes the one that sends.
+const tagButtonOf = (tag: AskCardTag): AskTag =>
+  tag === "file" ? "postpone" : tag;
 
 // Where a held answer's Undo line goes: a toast over the list, or, with no
 // host, the card's own place.
@@ -441,12 +488,39 @@ function ReplyAskCard({
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
-  const { askDrafts, askErrors, agents, rooms, sessionContext, drafts } =
-    useAppState();
+  const {
+    askDrafts,
+    askTags,
+    askErrors,
+    agents,
+    rooms,
+    sessionContext,
+    drafts,
+  } = useAppState();
   const closedHere = useAsksClosedHere();
   const draft = askDrafts.get(entry.id);
   const untouched = draft === undefined;
-  const fallback = replyDefault(entry, t("asks.replyDefault"));
+  // An ask with no agent: a page from the office or an app (task 74e8fc07).
+  const noAgent = entry.agentId === "";
+  // The tags this ask takes: none with no agent (it has its own Dismiss),
+  // only Dismiss on a reply draft to a messaging contact, which the server
+  // neither postpones, files nor rewrites.
+  const offered: readonly AskTag[] = noAgent
+    ? []
+    : entry.messaging
+      ? ["dismiss"]
+      : ASK_TAGS;
+  // The agent's tag, when this card offers it; a later release's is ignored.
+  const recommendedTag =
+    offered.find((tag) => tag === entry.recommendedTag) ?? null;
+  const storedTag = askTags.get(entry.id);
+  // No stored tag: the card is untouched and shows the agent's.
+  const tag: AskCardTag | null =
+    storedTag === undefined ? recommendedTag : storedTag;
+  const fallback =
+    untouched && storedTag === undefined && recommendedTag !== null
+      ? (entry.recommendedText ?? "")
+      : replyDefault(entry, t("asks.replyDefault"));
   const reply = draft ?? fallback;
   const [busy, setBusy] = useState(false);
   // One answer at a time: a second submit in the same frame still sees busy
@@ -471,7 +545,7 @@ function ReplyAskCard({
   const undoHost = useContext(AskUndoHost);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
-  // A simplify request in flight, its refusal, and the original prompt shown.
+  // A rewrite request in flight, its refusal, and the original prompt shown.
   const [simplifying, setSimplifying] = useState(false);
   const [simplifyError, setSimplifyError] = useState<string | null>(null);
   const [undoingSimplify, setUndoingSimplify] = useState(false);
@@ -539,9 +613,9 @@ function ReplyAskCard({
       dispatch({ type: "set_ask_draft", askId: entry.id, text });
     },
     send: ({ text }) => {
-      if (sending.current || text.trim() === "") return false;
+      if (sending.current || (tag === null && text.trim() === "")) return false;
       dispatch({ type: "set_ask_draft", askId: entry.id, text });
-      commit("reply", text);
+      commitTagged(text);
       return true;
     },
     onDictated: () => {
@@ -557,10 +631,37 @@ function ReplyAskCard({
   const answerOff = busy || voiceHolds;
 
   // On a touch screen the focus opens the keyboard, which moves the option
-  // the member taps next to send.
+  // the member taps next to send. An option takes the tag off.
   function fillOption(option: string) {
     if (!touchPrimary) pendingFocus.current = true;
     dispatch({ type: "set_ask_draft", askId: entry.id, text: option });
+    if (tag !== null)
+      dispatch({ type: "set_ask_tag", askId: entry.id, tag: null });
+  }
+
+  // A tag replaces the untouched default and keeps typed words. `keep`
+  // keeps the untouched field's words too: a change between Postpone and
+  // filing, and the tag's removal, do not touch the words.
+  function setTag(next: AskCardTag | null, keep = next === null) {
+    if (untouched)
+      dispatch({
+        type: "set_ask_draft",
+        askId: entry.id,
+        text: keep ? reply : "",
+      });
+    dispatch({ type: "set_ask_tag", askId: entry.id, tag: next });
+    if (!touchPrimary) pendingFocus.current = true;
+  }
+
+  // A suggestion's words fill an empty field, or follow the typed words
+  // after a space.
+  function addWords(words: string) {
+    const text =
+      reply.trim() === ""
+        ? words
+        : `${reply}${/\s$/.test(reply) ? "" : " "}${words}`;
+    if (!touchPrimary) pendingFocus.current = true;
+    dispatch({ type: "set_ask_draft", askId: entry.id, text });
   }
 
   // The field grows with its text, an option tap, a restored draft and Undo
@@ -599,13 +700,6 @@ function ReplyAskCard({
   const age = since.kind === "now" ? t("common.justNow") : since.text;
   const fontSize = isMobile ? 14 : 13;
 
-  // What the member typed, unless it is blank or the default again.
-  function dismissReason(): string | null {
-    if (draft === undefined) return null;
-    const typed = draft.trim();
-    return typed === "" || typed === fallback.trim() ? null : draft;
-  }
-
   // While the field holds the untouched default, typing replaces it.
   function selectDefault(el: HTMLTextAreaElement) {
     if (untouched) el.setSelectionRange(0, el.value.length);
@@ -613,8 +707,6 @@ function ReplyAskCard({
 
   // A rewrite is pending: the banner takes the place of the reply area.
   const rewriting = entry.simplifyRequestedAt !== undefined;
-  // An ask with no agent: a page from the office or an app (task 74e8fc07).
-  const noAgent = entry.agentId === "";
 
   // Cite (task ad4b51ac): a selection inside the prompt shows the chat's
   // Cite pill (AskCitePill). It puts the selection into the agent's chat
@@ -647,6 +739,18 @@ function ReplyAskCard({
   // keeps the browser's Enter.
   function onReplyKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     tabToReplyField(e);
+    // Backspace at the field's start, with nothing selected, takes the tag
+    // off; over selected words it deletes them.
+    if (
+      e.key === "Backspace" &&
+      tag !== null &&
+      e.currentTarget.selectionStart === 0 &&
+      e.currentTarget.selectionEnd === 0
+    ) {
+      e.preventDefault();
+      setTag(null);
+      return;
+    }
     if (e.key !== "Enter" || touchPrimary || e.nativeEvent.isComposing) return;
     if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     e.preventDefault();
@@ -698,6 +802,31 @@ function ReplyAskCard({
     commit(kind, text);
   }
 
+  // The field with its tag: the answer the send button names. Not while an
+  // OpenAI clip records or transcribes, as answer.
+  function sendTagged(text: string = reply) {
+    if (voiceHolds) return;
+    commitTagged(text);
+  }
+
+  // A spoken submit sends from inside the clip's end.
+  function commitTagged(text: string) {
+    if (tag === "rewrite") {
+      void rewrite(text);
+      return;
+    }
+    commit(
+      tag === null
+        ? "reply"
+        : tag === "file"
+          ? "file-task"
+          : tag === "postpone"
+            ? "postpone"
+            : "dismiss",
+      text,
+    );
+  }
+
   function commit(kind: AnswerKind, text: string) {
     if (sending.current) return;
     if (kind === "reply" && text.trim() === "") return;
@@ -707,7 +836,8 @@ function ReplyAskCard({
     sending.current = true;
     dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
-    const reason = kind === "reply" ? null : dismissReason();
+    // The field goes with a tag as it is; blank is no words.
+    const reason = kind === "reply" || text.trim() === "" ? null : text;
     const body: AnswerBody =
       kind === "reply"
         ? { text, ...(device ? { device } : {}) }
@@ -731,16 +861,24 @@ function ReplyAskCard({
     dispatch({ type: "ask_answered", id: entry.id, phase: "undo" });
   }
 
-  // Asks the agent for a simpler ask. The card stays: the pushed ask brings
-  // the pending line, and later the rewrite.
-  async function simplify() {
-    if (simplifying) return;
+  // Asks the agent to rewrite the ask as the field says, in plain words when
+  // it is blank. Sent at once, with no Undo hold: the ask stays, the pushed
+  // ask brings the pending banner (with its own Undo), and later the
+  // rewrite. Once sent, the field and its tag start again.
+  async function rewrite(text: string) {
+    if (simplifying || sending.current) return;
     setSimplifying(true);
     setSimplifyError(null);
+    voice.stop(true);
     const device = getDevice() || undefined;
-    const body: AskSimplifyReq = device ? { device } : {};
+    const body: AskRewriteReq = {
+      ...(text.trim() !== "" ? { text } : {}),
+      ...(device ? { device } : {}),
+    };
     try {
-      await apiFetch("POST", `/api/asks/${entry.id}/simplify`, body);
+      await apiFetch("POST", `/api/asks/${entry.id}/rewrite`, body);
+      dispatch({ type: "set_ask_draft", askId: entry.id, text: null });
+      dispatch({ type: "set_ask_tag", askId: entry.id, tag: undefined });
     } catch (err) {
       setSimplifyError(
         err instanceof ApiError ? sendFailureText(t, err) : String(err),
@@ -858,8 +996,7 @@ function ReplyAskCard({
     fontWeight: 600,
     cursor: "pointer",
   } as const;
-  const simplifyOff = busy || simplifying;
-  // An answer's refusal, else a simplify request's, else an ack's.
+  // An answer's refusal, else a rewrite request's, else an ack's.
   const failure = error ?? simplifyError ?? ackError;
   const cardBox = {
     padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
@@ -912,9 +1049,13 @@ function ReplyAskCard({
               ? shown === null
                 ? t("asks.dismissed")
                 : rich("asks.dismissedReason", { reason: shown })
-              : shown === null
-                ? t("asks.filedAsTaskPending")
-                : rich("asks.filedAsTaskPendingNote", { note: shown })}
+              : held.kind === "postpone"
+                ? shown === null
+                  ? t("asks.postponed")
+                  : rich("asks.postponedNote", { note: shown })
+                : shown === null
+                  ? t("asks.filedAsTaskPending")
+                  : rich("asks.filedAsTaskPendingNote", { note: shown })}
         </span>
         <button
           type="button"
@@ -942,24 +1083,32 @@ function ReplyAskCard({
       </>
     );
   }
-  // Reply, Dismiss, filing as a task, Discuss in chat and Simplify: one group
-  // that wraps, under the field, which takes the card's width.
+  // An ask with no agent: Dismiss is its one answer, with no words.
   const dismissButton = (
     <button
       type="button"
       data-ask-dismiss=""
       disabled={answerOff}
-      onClick={() => answer("dismiss")}
+      onClick={() => answer("dismiss", "")}
       style={secondaryButton}
     >
       {t("asks.dismiss")}
     </button>
   );
+  // The answer the send button names: Reply, or the tag on the field.
+  const sendKind = tag ?? "reply";
+  // The send button and Discuss in chat: one group that wraps, under the
+  // field, which takes the card's width. Reply needs words; a tag does not.
   const replyButtons = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       <button
         type="submit"
-        disabled={answerOff || reply.trim() === ""}
+        data-ask-send={sendKind}
+        disabled={
+          answerOff ||
+          (tag === "rewrite" && simplifying) ||
+          (tag === null && reply.trim() === "")
+        }
         style={{
           padding: buttonPad,
           borderRadius: 8,
@@ -972,19 +1121,7 @@ function ReplyAskCard({
           flexShrink: 0,
         }}
       >
-        {t("asks.reply")}
-      </button>
-      {dismissButton}
-      {/* Closes the ask and files it on the board; the reply field's note
-          goes with it, as with Dismiss. */}
-      <button
-        type="button"
-        data-ask-file-task=""
-        disabled={answerOff}
-        onClick={() => answer("file-task")}
-        style={secondaryButton}
-      >
-        {t("asks.fileTask")}
+        {tag === null ? t("asks.reply") : t(TAG_LABEL[tag])}
       </button>
       <AskAboutButton
         entry={entry}
@@ -993,15 +1130,107 @@ function ReplyAskCard({
         onFocusAgent={onFocusAgent}
         onChatAgent={onChatAgent}
       />
-      <button
-        type="button"
-        data-ask-simplify=""
-        disabled={simplifyOff}
-        onClick={() => void simplify()}
-        style={secondaryButton}
-      >
-        {t("asks.simplify")}
-      </button>
+    </div>
+  );
+  // The tags' own hue, so they read as answers apart from the agent's
+  // options and never as greyed out: a purple tint, or filled with the send
+  // arrow on the tag that sends.
+  const tagRow = offered.length > 0 && (
+    <div
+      data-ask-tags=""
+      style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
+    >
+      {offered.map((name) => {
+        const sends = tag !== null && tagButtonOf(tag) === name;
+        const recommended = name === recommendedTag;
+        return (
+          <button
+            key={name}
+            type="button"
+            data-ask-tag={name}
+            {...(sends ? { "data-ask-tag-sends": "" } : {})}
+            {...(recommended
+              ? {
+                  "data-ask-tag-recommended": "",
+                  title: t("asks.recommended"),
+                }
+              : {})}
+            disabled={answerOff || (name === "rewrite" && simplifying)}
+            onClick={() => (sends ? sendTagged() : setTag(name))}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: buttonPad,
+              ...(recommended ? { paddingLeft: 10 } : {}),
+              borderRadius: 8,
+              border:
+                "1px solid color-mix(in srgb, var(--purple-text) 55%, transparent)",
+              // Filled as the options are: the text colour as the fill and
+              // the page's ground as the text, readable in both themes.
+              background: sends
+                ? "var(--purple-text)"
+                : "color-mix(in srgb, var(--purple) 14%, transparent)",
+              color: sends ? "var(--bg-base)" : "var(--purple-text)",
+              fontFamily: "var(--font-ui)",
+              fontSize: isMobile ? 14 : 12,
+              fontWeight: 600,
+              lineHeight: 1.35,
+              cursor: "pointer",
+            }}
+          >
+            <span>
+              {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
+              {t(TAG_LABEL[name])}
+            </span>
+            {/* The arrow's place is kept, so a fill moves no button. */}
+            <span
+              style={{
+                visibility: sends ? "visible" : "hidden",
+                display: "flex",
+              }}
+            >
+              <OptionMark sends size={isMobile ? 14 : 12} />
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+  const suggestionList = tag === null ? undefined : SUGGESTIONS[tag];
+  const suggestionRow = suggestionList && (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+      {suggestionList.map(({ name, label }) => {
+        const words = t(label);
+        const on = name === "file" && tag === "file";
+        return (
+          <button
+            key={name}
+            type="button"
+            data-ask-suggestion={name}
+            aria-pressed={name === "file" ? on : undefined}
+            disabled={answerOff}
+            onClick={() =>
+              name === "file"
+                ? setTag(tag === "file" ? "postpone" : "file", true)
+                : // A label that ends with a colon asks for words after it.
+                  addWords(words.endsWith(":") ? `${words} ` : words)
+            }
+            style={{
+              padding: isMobile ? "4px 9px" : "2px 8px",
+              borderRadius: 4,
+              border: "1px solid var(--accent-text)",
+              background: on ? "var(--accent-text)" : "var(--accent-bg)",
+              color: on ? "var(--bg-base)" : "var(--accent-text)",
+              fontFamily: "var(--font-ui)",
+              fontSize: isMobile ? 13 : 11,
+              cursor: "pointer",
+            }}
+          >
+            {words}
+          </button>
+        );
+      })}
     </div>
   );
 
@@ -1385,6 +1614,7 @@ function ReplyAskCard({
           })}
         </div>
       )}
+      {!rewriting && tagRow}
       {/* An ask with no agent (task 74e8fc07): nobody reads a reply, so it
           has only Dismiss, with Ack above while it rings. */}
       {noAgent ? (
@@ -1395,7 +1625,7 @@ function ReplyAskCard({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            answer("reply");
+            sendTagged();
           }}
           style={{
             display: "flex",
@@ -1419,51 +1649,127 @@ function ReplyAskCard({
               </div>
             )
           )}
+          {suggestionRow}
           <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
-            <textarea
-              ref={inputRef}
-              value={reply}
-              rows={1}
-              disabled={busy}
-              data-ask-reply-input=""
-              onChange={(e) =>
-                dispatch({
-                  type: "set_ask_draft",
-                  askId: entry.id,
-                  // Typed words join a running dictation, so its next result
-                  // does not write over them.
-                  text: voice.reconcileEdit(e.target.value),
-                })
-              }
-              onFocus={(e) => selectDefault(e.currentTarget)}
-              onPointerDown={(e) => {
-                clickFocuses.current =
-                  document.activeElement !== e.currentTarget;
-              }}
+            {/* The field's box: the tag's chip at its start, then the words. */}
+            <div
               onClick={(e) => {
-                if (clickFocuses.current) selectDefault(e.currentTarget);
-                clickFocuses.current = false;
+                if (e.target === e.currentTarget) inputRef.current?.focus();
               }}
-              onKeyDown={onReplyKeyDown}
-              aria-label={t("asks.reply")}
               style={{
                 flex: 1,
                 minWidth: 0,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 6,
                 boxSizing: "border-box",
-                padding: isMobile ? "8px 10px" : "5px 10px",
+                paddingLeft: tag === null ? 0 : 6,
                 background: "var(--bg-input)",
                 border: "1px solid var(--border-light)",
                 borderRadius: 8,
-                color: "var(--text-primary)",
-                fontFamily: "var(--font-ui)",
-                // 16px keeps iOS Safari from zooming into the field.
-                fontSize: isMobile ? 16 : 12,
-                lineHeight: isMobile ? "20px" : "16px",
-                resize: "none",
-                overflowY: "auto",
-                outline: "none",
               }}
-            />
+            >
+              {tag !== null && (
+                <span
+                  data-ask-tag-chip={tag}
+                  style={{
+                    flexShrink: 0,
+                    // On the first line of the words.
+                    marginTop: isMobile ? 7 : 5,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: isMobile ? "2px 4px 2px 8px" : "1px 3px 1px 7px",
+                    borderRadius: 5,
+                    background: "var(--purple-text)",
+                    color: "var(--bg-base)",
+                    fontFamily: "var(--font-ui)",
+                    fontSize: isMobile ? 13 : 11,
+                    fontWeight: 600,
+                    lineHeight: isMobile ? "18px" : "14px",
+                    whiteSpace: "nowrap",
+                    userSelect: "none",
+                  }}
+                >
+                  {t(TAG_LABEL[tag])}
+                  <button
+                    type="button"
+                    data-ask-tag-chip-remove=""
+                    aria-label={t("asks.removeTag")}
+                    title={t("asks.removeTag")}
+                    disabled={busy}
+                    onClick={() => setTag(null)}
+                    style={{
+                      display: "flex",
+                      padding: 1,
+                      border: "none",
+                      background: "none",
+                      color: "inherit",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      width={isMobile ? 13 : 11}
+                      height={isMobile ? 13 : 11}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </span>
+              )}
+              <textarea
+                ref={inputRef}
+                value={reply}
+                rows={1}
+                disabled={busy}
+                data-ask-reply-input=""
+                onChange={(e) =>
+                  dispatch({
+                    type: "set_ask_draft",
+                    askId: entry.id,
+                    // Typed words join a running dictation, so its next result
+                    // does not write over them.
+                    text: voice.reconcileEdit(e.target.value),
+                  })
+                }
+                onFocus={(e) => selectDefault(e.currentTarget)}
+                onPointerDown={(e) => {
+                  clickFocuses.current =
+                    document.activeElement !== e.currentTarget;
+                }}
+                onClick={(e) => {
+                  if (clickFocuses.current) selectDefault(e.currentTarget);
+                  clickFocuses.current = false;
+                }}
+                onKeyDown={onReplyKeyDown}
+                aria-label={t("asks.reply")}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                  padding: isMobile
+                    ? `8px 10px 8px ${tag === null ? 10 : 2}px`
+                    : `5px 10px 5px ${tag === null ? 10 : 2}px`,
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "var(--text-primary)",
+                  fontFamily: "var(--font-ui)",
+                  // 16px keeps iOS Safari from zooming into the field.
+                  fontSize: isMobile ? 16 : 12,
+                  lineHeight: isMobile ? "20px" : "16px",
+                  resize: "none",
+                  overflowY: "auto",
+                  outline: "none",
+                }}
+              />
+            </div>
             {voice.micShown && (
               <button
                 type="button"
@@ -1510,6 +1816,14 @@ function ReplyAskCard({
               </button>
             )}
           </div>
+          {tag === "rewrite" && (
+            <div
+              data-ask-rewrite-hint=""
+              style={{ color: "var(--text-dim)", fontSize: isMobile ? 12 : 11 }}
+            >
+              {t("asks.rewriteHint")}
+            </div>
+          )}
           {replyButtons}
         </form>
       )}

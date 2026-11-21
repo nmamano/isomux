@@ -201,13 +201,20 @@ describe("a sudo request through the routes", () => {
 
       // The ask is answered by its form only: a reply, a dismiss, a task, a
       // simplify and the agent's edit are refused, and it stays open.
-      for (const verb of ["reply", "dismiss", "file-task", "simplify"]) {
+      for (const verb of [
+        "reply",
+        "dismiss",
+        "file-task",
+        "simplify",
+        "rewrite",
+        "postpone",
+      ]) {
         const r = await call(
           w.srv,
           "POST",
           `/api/asks/${entry.id}/${verb}`,
           w.ownerSession,
-          verb === "reply" || verb === "file-task" ? { text: PASSWORD } : {},
+          verb === "dismiss" || verb === "simplify" ? {} : { text: PASSWORD },
         );
         expect(`${verb} ${r.status} ${r.code}`).toBe(
           `${verb} 409 sudo_request`,

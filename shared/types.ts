@@ -1669,6 +1669,13 @@ export interface AskEntry {
   // The prompt before the first rewrite a simplify request got, for the
   // card's "Show original". Set by the server, never by an edit.
   originalPrompt?: string;
+  // The built-in answer the agent suggests instead of an option (task
+  // 1466ea8b): one of ASK_TAGS, which the card preselects on an untouched
+  // reply field, and the field's text that goes with it. Never with
+  // `recommended`. Any non-empty name loads, so a tag a later release adds
+  // cannot fail the file; the card ignores one it does not know.
+  recommendedTag?: string;
+  recommendedText?: string;
   // A reply draft to a messaging contact (task d03a61d8): the text that goes
   // out through `app` when the row's member answers Send. Fixed after
   // create: the agent cannot edit or simplify the ask, only withdraw it.
@@ -1766,6 +1773,8 @@ export const ASK_OUTCOMES = [
   "replied",
   "dismissed",
   "filed",
+  // The member put the ask off (task 1466ea8b); the agent asks again later.
+  "postponed",
   // The agent's delete.
   "withdrawn",
   // A step ask closed itself: its step is done.
@@ -1805,6 +1814,8 @@ export const ASK_EDITABLE_KEYS = [
   "link",
   "options",
   "recommended",
+  "recommendedTag",
+  "recommendedText",
   "priority",
   "commands",
   "editFiles",
@@ -1828,8 +1839,9 @@ export type AskEvent =
       office?: string;
       before: { [K in AskEditableKey]?: AskEntry[K] | null };
     }
-  // The member asked the agent to simplify the ask.
-  | { kind: "simplify_requested"; at: number; byUserId?: string }
+  // The member asked the agent to rewrite the ask; `text` is what they
+  // asked for, absent on a bare simplify request.
+  | { kind: "simplify_requested"; at: number; byUserId?: string; text?: string }
   // The member withdrew the simplify request before the rewrite.
   | { kind: "simplify_withdrawn"; at: number; byUserId?: string }
   // A member acked a paged ask: its alarm stopped, the ask stays open.
@@ -1853,6 +1865,15 @@ export const ASK_FILED_TEXT = "Not now; filed as a task";
 export const ASK_SIMPLIFY_TEXT =
   "Rewrite this ask in plain words: what I must decide or do, and your pick, in at most two sentences, without internal names or ids. Edit it in place; do not open a new ask.";
 
+// The member message text of a bare postpone (task 1466ea8b). The chat shows
+// it translated from the entry's metadata; the agent reads these words.
+export const ASK_POSTPONED_TEXT = "Not now";
+
+// The built-in answers a member can tag a reply with (task 1466ea8b), and
+// the agent can recommend (AskEntry.recommendedTag).
+export const ASK_TAGS = ["dismiss", "postpone", "rewrite"] as const;
+export type AskTag = (typeof ASK_TAGS)[number];
+
 // The member message text that withdraws a simplify request. The chat shows
 // it translated from the entry's metadata; the agent reads these words.
 export const ASK_SIMPLIFY_UNDO_TEXT =
@@ -1869,6 +1890,8 @@ export interface AskRef {
   simplify?: boolean;
   // The member withdrew that request; the ask stays open as it is.
   simplifyUndone?: boolean;
+  // The member put the ask off; it is closed (task 1466ea8b).
+  postponed?: boolean;
   // The task the member filed the ask as, instead of an answer.
   taskId?: string;
   sessionId?: string;

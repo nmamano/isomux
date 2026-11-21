@@ -373,13 +373,14 @@ describe("a simplify request (task 30915188)", () => {
     expect(history.has("abcd9999")).toBe(false);
   });
 
-  it("keeps the request through an edit that keeps the prompt, and the rewrite clears it and keeps the first prompt across two rounds", () => {
+  it("an edit that keeps the prompt answers the request with no original (task 1466ea8b); the rewrite clears it and keeps the first prompt across two rounds", () => {
     const { history } = open();
     const { store, ask, at } = storeWith(history);
     const a = ask("a1", "u1", "Merge t-1 after the CI on f00d?");
     at(110);
     store.requestSimplify(a.id, "u1");
-    // Same prompt, new options: still waiting for the rewrite.
+    // Same prompt, new options: a request can be for new options, so the
+    // change answers it; with the prompt kept there is no original.
     at(120);
     store.edit(
       a.id,
@@ -389,9 +390,11 @@ describe("a simplify request (task 30915188)", () => {
       {},
       null,
     );
-    expect(store.get(a.id)?.simplifyRequestedAt).toBe(110);
+    expect(store.get(a.id)?.simplifyRequestedAt).toBeUndefined();
     expect(store.get(a.id)?.originalPrompt).toBeUndefined();
-    // The rewrite.
+    // Asked again, and the rewrite.
+    at(125);
+    store.requestSimplify(a.id, "u1");
     at(130);
     const first = store.edit(a.id, "Merge the fix now?");
     expect(first?.simplifyRequestedAt).toBeUndefined();
@@ -423,6 +426,7 @@ describe("a simplify request (task 30915188)", () => {
         at: 120,
         before: { options: ["Yes", "No"], recommended: "Yes" },
       },
+      { kind: "simplify_requested", at: 125, byUserId: "u1" },
       {
         kind: "edited",
         at: 130,

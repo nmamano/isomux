@@ -1102,6 +1102,10 @@ export interface AskCreateReq {
   options?: string[];
   // The option the agent recommends, by its text; one of `options`.
   recommended?: string;
+  // A built-in answer the agent recommends instead (task 1466ea8b): one of
+  // ASK_TAGS, never with `recommended`, and the reply field's text with it.
+  recommendedTag?: string;
+  recommendedText?: string;
   // One of P0-P4, the board's scale (TaskPriority). P1 for a paged ask that
   // sets none.
   priority?: string;
@@ -1121,8 +1125,12 @@ export interface AskEditReq {
   // Absent keeps the ask's options; [] removes them.
   options?: string[];
   // Goes with options: sent options without it clear the mark. With kept
-  // options, one of them; "" removes the mark.
+  // options, one of them; "" removes the mark. A mark removes the tag.
   recommended?: string;
+  // Absent keeps the tag; "" removes it with its text; a tag removes the
+  // option mark. The text needs a tag, sent or kept.
+  recommendedTag?: string;
+  recommendedText?: string;
   // Absent keeps the ask's priority; null or "" removes it.
   priority?: string | null;
   // For each: absent keeps the ask's list; [] removes it.
@@ -1155,6 +1163,18 @@ export interface AskDismissReq {
 export interface AskSimplifyReq {
   device?: string;
 }
+// A rewrite request (task 1466ea8b): what the member wants changed, as
+// typed. Blank or absent: the agent reads ASK_SIMPLIFY_TEXT.
+export interface AskRewriteReq {
+  text?: string;
+  device?: string;
+}
+// A postpone (task 1466ea8b): the member's note, for example when to ask
+// again. Blank or absent: the agent reads ASK_POSTPONED_TEXT.
+export interface AskPostponeReq {
+  text?: string;
+  device?: string;
+}
 export interface AskFileTaskReq {
   // What the member typed, sent to the agent and added to the task. Blank or
   // absent: the agent reads "Not now; filed as a task".
@@ -1179,7 +1199,7 @@ export type AskClosedWire = AskAgentWire & {
   // What happened before the close, oldest first (task 62aa552f).
   events: AskEventWire[];
 };
-// An ask event as a route sends it: the member who asked for a simplify,
+// An ask event as a route sends it: the member who asked for a rewrite,
 // withdrew it, or acked a paged ask, by username, null when gone.
 export type AskEventWire =
   | Exclude<
@@ -1190,6 +1210,8 @@ export type AskEventWire =
       kind: "simplify_requested" | "simplify_withdrawn" | "acked";
       at: number;
       by: string | null;
+      // A rewrite request's words (simplify_requested only).
+      text?: string;
     };
 export interface AskHistoryRes {
   asks: AskClosedWire[];

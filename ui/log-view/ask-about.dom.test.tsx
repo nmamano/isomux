@@ -257,8 +257,7 @@ it("has the button on a secret request too, quoting its own question", async () 
 });
 
 // Task 9fca01c0: the button is a button in the card's bottom row, after the
-// prompt's images and commands, not a link under the prompt. Simplify (task
-// 30915188) follows it, last: both keep the ask open.
+// prompt's images and commands, not a link under the prompt.
 const FOLLOWS = Node.DOCUMENT_POSITION_FOLLOWING;
 
 // happy-dom drops a border or background whose colour is color-mix(), which
@@ -300,51 +299,37 @@ function withRawStyles(run: () => void) {
   }
 }
 
-it("follows file-as-task in the reply row, after the ask's files, with Simplify last, styled like the buttons beside it", () => {
-  withRawStyles(styledLikeFileTask);
+// Since task 1466ea8b the row holds the send button and Discuss in chat
+// only: Dismiss, filing as a task and Simplify are tags above the field.
+it("follows the send button in the reply row, after the ask's files, last, a bordered button of the send button's size", () => {
+  withRawStyles(styledLikeSend);
 });
 
-function styledLikeFileTask() {
+function styledLikeSend() {
   const { view } = mount("");
   const card = view.container.querySelector('[data-ask="ask00003"]')!;
   const image = card.querySelector("img");
   const command = card.querySelector("[data-ask-command]");
-  const fileTask = card.querySelector<HTMLButtonElement>(
-    "button[data-ask-file-task]",
-  )!;
+  const send = card.querySelector<HTMLButtonElement>("button[data-ask-send]")!;
   // The ask shows its files and the row exists.
   expect(image).not.toBeNull();
   expect(command).not.toBeNull();
-  expect(fileTask).not.toBeNull();
+  expect(send).not.toBeNull();
   const about = aboutButton(view.container, "ask00003");
   // Booleans, not toBe on two nodes: a red run would serialise both.
-  expect(about.parentElement === fileTask.parentElement).toBe(true);
-  expect(fileTask.nextElementSibling === about).toBe(true);
-  const simplify = card.querySelector<HTMLButtonElement>(
-    "button[data-ask-simplify]",
-  );
-  expect(simplify).not.toBeNull();
-  expect(about.nextElementSibling === simplify).toBe(true);
-  expect(simplify!.nextElementSibling).toBeNull();
+  expect(about.parentElement === send.parentElement).toBe(true);
+  expect(send.nextElementSibling === about).toBe(true);
+  expect(about.nextElementSibling).toBeNull();
   expect(image!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
   expect(command!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
-  // Drawn as its neighbour is: a bordered button, not a bare link.
-  expect(fileTask.style.border).not.toBe("");
-  for (const key of [
-    "border",
-    "borderRadius",
-    "background",
-    "padding",
-    "fontSize",
-    "color",
-  ] as const) {
-    expect(`${key}: ${about.style[key]}`).toBe(
-      `${key}: ${fileTask.style[key]}`,
-    );
-    expect(`${key}: ${simplify!.style[key]}`).toBe(
-      `${key}: ${fileTask.style[key]}`,
-    );
-  }
+  // A bordered button, not a bare link, the size of the send button.
+  expect(about.style.border).not.toBe("");
+  expect(about.style.border).not.toBe("none");
+  // Every button has a background (AGENTS.md UI rules).
+  expect(about.style.background).not.toBe("");
+  expect(about.style.background).not.toBe("none");
+  for (const key of ["borderRadius", "padding", "fontSize"] as const)
+    expect(`${key}: ${about.style[key]}`).toBe(`${key}: ${send.style[key]}`);
   view.unmount();
 }
 

@@ -77,8 +77,8 @@ it("shows an office page with its feature's name, Ack and Dismiss, and nothing t
     "[data-ask-reply-input]",
     'button[type="submit"]',
     "[data-ask-options]",
-    "[data-ask-file-task]",
-    "[data-ask-simplify]",
+    "[data-ask-tag]",
+    "[data-ask-suggestion]",
     "[data-ask-about]",
   ].filter((sel) => el!.querySelector(sel) !== null);
   expect(answers).toEqual([]);
@@ -111,7 +111,8 @@ it("an agent's ask still shows Dismiss with its marker, and its reply field", as
   const view = await openInbox();
   const el = card(view, "q2");
   expect(el).not.toBeNull();
-  expect(el!.querySelector("button[data-ask-dismiss]")).not.toBeNull();
+  // A tag since task 1466ea8b.
+  expect(el!.querySelector('button[data-ask-tag="dismiss"]')).not.toBeNull();
   expect(el!.querySelector('button[type="submit"]')).not.toBeNull();
 });
 

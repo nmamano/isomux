@@ -80,6 +80,7 @@ import type {
   UnavailableFeatures,
 } from "../shared/types.ts";
 import { cronjobRunStreamId } from "../shared/types.ts";
+import type { AskCardTag } from "./log-view/ask-tag.ts";
 import {
   type UserView,
   upsertUserView,
@@ -238,6 +239,9 @@ export interface AppState {
   // askId → the member's reply draft. No entry: the field still shows the
   // untouched default. "" is a kept value (the member cleared the field).
   askDrafts: Map<string, string>;
+  // askId → the tag on the reply field (task 1466ea8b). No entry: the card
+  // shows the agent's recommended tag, if any; null: the member removed it.
+  askTags: Map<string, AskCardTag | null>;
   // agentId → which side panel was open (terminal/editor) when the user last
   // viewed this agent. Persists across LogView remount on agent switch so
   // the panel reopens automatically when the member returns. `undefined` means
@@ -564,6 +568,8 @@ export type Action =
   | DraftAttachmentAction
   // null deletes the draft.
   | { type: "set_ask_draft"; askId: string; text: string | null }
+  // undefined deletes the entry (the card is untouched again).
+  | { type: "set_ask_tag"; askId: string; tag: AskCardTag | null | undefined }
   | {
       type: "set_side_panel";
       agentId: string;
@@ -1462,6 +1468,12 @@ function reduceAction(state: AppState, action: Action): AppState {
       else draftAttachments.delete(action.agentId);
       return { ...state, draftAttachments };
     }
+    case "set_ask_tag": {
+      const askTags = new Map(state.askTags);
+      if (action.tag === undefined) askTags.delete(action.askId);
+      else askTags.set(action.askId, action.tag);
+      return { ...state, askTags };
+    }
     case "set_ask_draft": {
       const askDrafts = new Map(state.askDrafts);
       if (action.text === null) askDrafts.delete(action.askId);
@@ -1841,6 +1853,7 @@ function reduceAction(state: AppState, action: Action): AppState {
           action.entries,
           state.othersAsks,
         ),
+        askTags: keepOpenAsks(state.askTags, action.entries, state.othersAsks),
         answeredAsks: keepOpenAsks(
           state.answeredAsks,
           action.entries,
@@ -1888,6 +1901,7 @@ function reduceAction(state: AppState, action: Action): AppState {
         answeringAsks: withoutId(state.answeringAsks, action.id),
         asks: state.asks.filter((e) => e.id !== action.id),
         askDrafts: without(state.askDrafts, action.id),
+        askTags: without(state.askTags, action.id),
         answeredAsks: without(state.answeredAsks, action.id),
         askErrors: without(state.askErrors, action.id),
         asksRevision: state.asksRevision + 1,
@@ -1927,6 +1941,7 @@ function reduceAction(state: AppState, action: Action): AppState {
         othersAsks: action.entries,
         othersAsksLoadFailed: false,
         askDrafts: keepOpenAsks(state.askDrafts, state.asks, action.entries),
+        askTags: keepOpenAsks(state.askTags, state.asks, action.entries),
         answeredAsks: keepOpenAsks(
           state.answeredAsks,
           state.asks,
@@ -1952,6 +1967,7 @@ function reduceAction(state: AppState, action: Action): AppState {
         ...state,
         othersAsks: state.othersAsks.filter((e) => e.id !== action.id),
         askDrafts: without(state.askDrafts, action.id),
+        askTags: without(state.askTags, action.id),
         answeredAsks: without(state.answeredAsks, action.id),
         askErrors: without(state.askErrors, action.id),
         othersAsksRevision: state.othersAsksRevision + 1,
@@ -2344,6 +2360,7 @@ export const initialState: AppState = {
   drafts: new Map(),
   draftAttachments: new Map(),
   askDrafts: new Map(),
+  askTags: new Map(),
   sidePanels: new Map(),
   pendingEditorPaths: new Map(),
   pendingTerminalCommands: new Map(),

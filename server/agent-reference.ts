@@ -50,7 +50,7 @@ export const AGENT_REFERENCE_TOPICS = {
   "browser-reads":
     "You read or act in a child frame, read one element of a long page, or a snapshot leaves out text you expect",
   "ask-replies":
-    "A member dismisses your ask, asks a question about it, or asks you to simplify it",
+    "A member dismisses or postpones your ask, asks a question about it, or asks you to rewrite it",
   "ask-steps":
     "A member must sign in to Claude, Codex or an MCP server, pair Chrome, or set the room's GitHub issue link",
   "route-asks":

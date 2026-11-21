@@ -251,10 +251,21 @@ it("drops the mic when the member answers with a click", async () => {
 
   fireEvent.click(micOf(card(view, "q2"))!);
   const other = Recognition.instances.at(-1)!;
-  const dismiss = card(view, "q2")!.querySelector<HTMLButtonElement>(
-    "[data-ask-dismiss]",
-  )!;
-  await act(async () => fireEvent.click(dismiss));
+  // A dismiss: the tag, then the send button that names it (task 1466ea8b).
+  await act(async () =>
+    fireEvent.click(
+      card(view, "q2")!.querySelector<HTMLButtonElement>(
+        '[data-ask-tag="dismiss"]',
+      )!,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(
+      card(view, "q2")!.querySelector<HTMLButtonElement>(
+        '[data-ask-send="dismiss"]',
+      )!,
+    ),
+  );
   expect(other.abortCalls).toBe(1);
   view.unmount();
 });
@@ -415,8 +426,8 @@ it("does not answer while an OpenAI clip records or transcribes, then sends the 
   );
   const answerButtons = () => [
     replyOf(view, "q1"),
-    card(view, "q1")!.querySelector<HTMLButtonElement>("[data-ask-dismiss]")!,
-    card(view, "q1")!.querySelector<HTMLButtonElement>("[data-ask-file-task]")!,
+    // The tags (task 1466ea8b), which answer from their own buttons.
+    ...card(view, "q1")!.querySelectorAll<HTMLButtonElement>("[data-ask-tag]"),
     ...card(view, "q1")!.querySelectorAll<HTMLButtonElement>(
       "[data-ask-option]",
     ),
@@ -425,6 +436,7 @@ it("does not answer while an OpenAI clip records or transcribes, then sends the 
   // Enabling condition: before the mic, each answer button works, and the
   // option the field holds sends.
   expect(answerButtons().map((b) => b.disabled)).toEqual([
+    false,
     false,
     false,
     false,
@@ -440,6 +452,7 @@ it("does not answer while an OpenAI clip records or transcribes, then sends the 
   expect(FakeRecorder.instances.length).toBe(1);
   expect(FakeRecorder.instances[0].state).toBe("recording");
   expect(answerButtons().map((b) => b.disabled)).toEqual([
+    true,
     true,
     true,
     true,

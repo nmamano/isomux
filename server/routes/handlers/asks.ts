@@ -62,7 +62,9 @@ import { RUN_NOT_YOURS } from "../../identity/member-reach.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  ASK_POSTPONED_TEXT,
   ASK_SIMPLIFY_TEXT,
+  ASK_TAGS,
   ASK_SIMPLIFY_UNDO_TEXT,
   isValidPriority,
   type AskCloseInput,
@@ -107,6 +109,7 @@ import {
   ASK_AFFORDANCES_MAX,
   ASK_MAX_OPEN_PER_AGENT,
   ASK_PAGES_MAX_OPEN_PER_SOURCE,
+  ASK_PROMPT_MAX,
   type AskAffordanceEdit,
   type AskAffordances,
   checkOptions,
@@ -262,6 +265,8 @@ export interface AsksDeps {
       simplify?: boolean;
       // The member withdrew a simplify request: the ask stays open.
       simplifyUndone?: boolean;
+      // The member put the ask off (task 1466ea8b): it closes.
+      postponed?: boolean;
       taskId?: string;
       device: string | undefined;
     },
@@ -397,7 +402,14 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     event.kind === "simplify_requested" ||
     event.kind === "simplify_withdrawn" ||
     event.kind === "acked"
-      ? { kind: event.kind, at: event.at, by: byName(event.byUserId) }
+      ? {
+          kind: event.kind,
+          at: event.at,
+          by: byName(event.byUserId),
+          ...(event.kind === "simplify_requested" && event.text !== undefined
+            ? { text: event.text }
+            : {}),
+        }
       : event;
   // A closed ask: who answered is named as they are now, null when gone.
   const closedWire = ({
@@ -695,14 +707,63 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     return { ok: true, affordances: out };
   }
 
+  // The tag the agent recommends and its text (task 1466ea8b), as sent. On
+  // a create, absent is none; on an edit, absent keeps and "" removes (the
+  // tag's "" removes its text too). The text needs a tag; on an edit the
+  // caller checks the kept one.
+  const tagWithOption =
+    "recommendedTag and recommended are two picks; send one";
+  const textWithoutTag = "recommendedText goes with a recommendedTag";
+  const tagRefused = "this ask takes no recommendedTag";
+  const checkTagFields = (
+    body: Record<string, unknown>,
+    mode: "create" | "edit",
+  ):
+    | {
+        ok: true;
+        recommendedTag?: string | null;
+        recommendedText?: string | null;
+      }
+    | { ok: false; message: string } => {
+    const { recommendedTag: tag, recommendedText: text } = body;
+    let recommendedTag: string | null | undefined;
+    if (tag !== undefined) {
+      if (mode === "edit" && tag === "") recommendedTag = null;
+      else if (
+        typeof tag !== "string" ||
+        !(ASK_TAGS as readonly string[]).includes(tag)
+      )
+        return {
+          ok: false,
+          message: `recommendedTag must be one of: ${ASK_TAGS.join(", ")}`,
+        };
+      else recommendedTag = tag;
+    }
+    let recommendedText: string | null | undefined;
+    if (text !== undefined) {
+      if (typeof text !== "string")
+        return { ok: false, message: "recommendedText must be a string" };
+      if (text.length > ASK_PROMPT_MAX)
+        return {
+          ok: false,
+          message: `recommendedText must be at most ${ASK_PROMPT_MAX} characters`,
+        };
+      recommendedText = mode === "edit" && text === "" ? null : text;
+      if (mode === "create" && recommendedTag === undefined)
+        return { ok: false, message: textWithoutTag };
+    }
+    return { ok: true, recommendedTag, recommendedText };
+  };
+
   // The checks every answer shares: the body's device and text, the open
   // ask the caller may answer, not a secret request, not already being
-  // answered. A reply needs text; a dismiss or a filed task may carry the
-  // member's note, and a blank one counts as none; a simplify request takes
-  // none.
+  // answered. A reply needs text; a dismiss, a postpone or a filed task may
+  // carry the member's note, and a blank one counts as none; a rewrite
+  // request may carry what to change, as a note but bounded; a bare simplify
+  // request takes none.
   const answerable = (
     ctx: Parameters<RouteHandler>[0],
-    textRule: "required" | "note" | "none",
+    textRule: "required" | "note" | "rewrite" | "none",
     // A dismiss: the one answer an ask with no agent takes.
     dismiss = false,
   ):
@@ -731,6 +792,14 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     } else if (body.text !== undefined) {
       if (typeof body.text !== "string")
         return refuse(fail(400, "invalid_text", "text must be a string"));
+      if (textRule === "rewrite" && body.text.length > ASK_PROMPT_MAX)
+        return refuse(
+          fail(
+            400,
+            "invalid_text",
+            `text must be at most ${ASK_PROMPT_MAX} characters`,
+          ),
+        );
       if (body.text.trim().length > 0) text = body.text;
     }
     const entry = readableBy(ctx.identity, ctx.params.askId);
@@ -946,14 +1015,20 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     );
   };
 
-  // Ask the agent to rewrite the ask in plain words; the ask stays open and
-  // is marked once the agent has the message, so the card shows the rewrite
-  // is coming. A refused message leaves it unmarked. One request at a time:
-  // the agent's edit of the prompt clears the mark.
-  const simplify: RouteHandler = async (ctx) => {
-    const checked = answerable(ctx, "none");
+  // Ask the agent to rewrite the ask: as the member's words say (rewrite,
+  // task 1466ea8b), or in plain words when there are none (simplify, and a
+  // blank rewrite). The ask stays open and is marked once the agent has the
+  // message, so the card shows the rewrite is coming. A refused message
+  // leaves it unmarked. One request at a time: the agent's next change of
+  // the ask clears the mark. Both carry the simplify ref, so a server that
+  // knows no rewrite frames a queued one as a rewrite request too.
+  const requestRewrite = async (
+    ctx: Parameters<RouteHandler>[0],
+    textRule: "rewrite" | "none",
+  ): Promise<HandlerResult> => {
+    const checked = answerable(ctx, textRule);
     if (!checked.ok) return checked.result;
-    const { entry, device } = checked;
+    const { entry, device, text: words } = checked;
     if (entry.messaging) return messagingDraft();
     if (entry.simplifyRequestedAt !== undefined)
       return fail(
@@ -966,20 +1041,50 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       const result = await deps.deliver(
         ctx.identity,
         entry,
-        ASK_SIMPLIFY_TEXT,
+        words ?? ASK_SIMPLIFY_TEXT,
         { dismissed: false, simplify: true, device },
       );
       if (!result.ok) return fail(result.status, result.code, result.message);
       // The agent has the message; a retry would send it twice, so a failed
       // write is logged, as in close. An ask withdrawn meanwhile stays gone.
       try {
-        store.requestSimplify(entry.id, ctx.identity.userId ?? undefined);
+        store.requestSimplify(
+          entry.id,
+          ctx.identity.userId ?? undefined,
+          words,
+        );
       } catch (err) {
         console.error(
           `[asks] ${entry.id} was sent for a rewrite but could not be marked:`,
           err,
         );
       }
+      return noContent();
+    } finally {
+      delivering.delete(entry.id);
+    }
+  };
+
+  const simplify: RouteHandler = (ctx) => requestRewrite(ctx, "none");
+  const rewrite: RouteHandler = (ctx) => requestRewrite(ctx, "rewrite");
+
+  // Put the ask off (task 1466ea8b): it closes as postponed, and the agent
+  // reads the member's note, for example when to ask again, or "Not now".
+  const postpone: RouteHandler = async (ctx) => {
+    const checked = answerable(ctx, "note");
+    if (!checked.ok) return checked.result;
+    const { entry, text: note, device } = checked;
+    if (entry.messaging) return messagingDraft();
+    delivering.add(entry.id);
+    try {
+      const result = await deps.deliver(
+        ctx.identity,
+        entry,
+        note ?? ASK_POSTPONED_TEXT,
+        { dismissed: false, postponed: true, device },
+      );
+      if (!result.ok) return fail(result.status, result.code, result.message);
+      close(entry, { outcome: "postponed", ...answeredBy(ctx.identity, note) });
       return noContent();
     } finally {
       delivering.delete(entry.id);
@@ -1096,6 +1201,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (!checkedMark.ok) return invalidOptions(checkedMark.message);
       recommended = checkedMark.recommended;
     }
+    const tag = checkTagFields(body, "create");
+    if (!tag.ok) return invalidOptions(tag.message);
+    if (tag.recommendedTag !== undefined && recommended !== undefined)
+      return invalidOptions(tagWithOption);
     if (body.priority !== undefined && !isValidPriority(body.priority))
       return invalidPriority();
     // A paged ask (task 74e8fc07): it rings until a member acks or answers it.
@@ -1201,6 +1310,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ...(step ? { step: step.step } : {}),
       ...(options ? { options } : {}),
       ...(recommended !== undefined ? { recommended } : {}),
+      ...(tag.recommendedTag ? { recommendedTag: tag.recommendedTag } : {}),
+      ...(tag.recommendedText ? { recommendedText: tag.recommendedText } : {}),
       ...(body.priority !== undefined
         ? { priority: body.priority }
         : page
@@ -1311,6 +1422,28 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (!checkedMark.ok) return invalidOptions(checkedMark.message);
       recommended = checkedMark.recommended;
     }
+    // A new pick replaces the old one (task 1466ea8b): an option mark
+    // removes the tag and its text, a tag removes the mark; both is refused.
+    const tag = checkTagFields(body, "edit");
+    if (!tag.ok) return invalidOptions(tag.message);
+    if (
+      typeof tag.recommendedTag === "string" &&
+      typeof recommended === "string"
+    )
+      return invalidOptions(tagWithOption);
+    if (
+      typeof tag.recommendedText === "string" &&
+      (tag.recommendedTag === null ||
+        (tag.recommendedTag === undefined && prev.recommendedTag === undefined))
+    )
+      return invalidOptions(textWithoutTag);
+    if (typeof recommended === "string") {
+      tag.recommendedTag = null;
+      tag.recommendedText = null;
+    } else if (typeof tag.recommendedTag === "string") recommended = null;
+    // An ask with no agent takes no answer but a dismiss.
+    if (typeof tag.recommendedTag === "string" && askAgentId(prev) === null)
+      return invalidOptions(tagRefused);
     const lists = affordanceLists(body, prev);
     if (!lists.ok) return lists.result;
     // Paths resolve for the agent that holds the ask.
@@ -1325,6 +1458,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       recommended,
       priority,
       actor,
+      {
+        recommendedTag: tag.recommendedTag,
+        recommendedText: tag.recommendedText,
+      },
     );
     return entry ? ok(wire(entry)) : notFound();
   };
@@ -1849,6 +1986,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.dismiss": guarded(answer(true)),
     "asks.fileTask": guarded(fileTask),
     "asks.simplify": guarded(simplify),
+    "asks.rewrite": guarded(rewrite),
+    "asks.postpone": guarded(postpone),
     "asks.ack": guarded(ackPage),
     "asks.simplifyUndo": guarded(simplifyUndo),
     // A file the ask references where it is, for the ask's member. An office

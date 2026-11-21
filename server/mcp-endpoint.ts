@@ -637,11 +637,14 @@ function registerAskTools(
       "open_ask",
       {
         description:
-          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make: an agent's access level (agent-access), one room of a member's room access (member-room; grant true gives it, false takes it), a member's role (member-role), a member's permission pack (member-pack; pack null for none), your manager's own preferences (member-preferences) or room lists (member-view; list shown, tucked, notif or push), the office settings (office-settings), the backup settings (backup-settings), a member's sign-in link (sign-in-link), a member's sign-out on every device (member-sessions), one session of a member ended (session-revoke; sessionPrefix as GET /api/users/:username/sessions lists it), a member's pending sign-in links taken back (sign-in-links-revoke), a personal API token for the member (api-token), an API token revoked (api-token-revoke), the office's outside access (office-access), a member removed (member-remove), restored (member-restore) or deleted for good (member-purge), the office updated to the latest release (office-update), old files deleted (storage-prune) or compressed (storage-compress), one of the member's WhatsApp chats routed to an agent (whatsapp-route; chatName is a part of the chat's name, phone the contact's number when you know it, and the member picks the chat on the card), a place of the member's Discord bots routed to an agent (discord-route; placeName is a part of the channel, category or server name, scope narrows it, and the member picks the place on the card), some settings of one of the member's WhatsApp or Discord routes (messaging-route; routeId from the head line of a delivery, set holds the keys of the route's PATCH), or the ages of the daily automatic cleanup (storage-retention); set holds the keys to change. The card has an Apply button, and the ask closes when the change is made. A sign-in link or token shows only on the member's card, never to you.",
+          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), or recommendedTag a built-in answer you suggest instead (dismiss, postpone or rewrite) with recommendedText for the reply field, priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make: an agent's access level (agent-access), one room of a member's room access (member-room; grant true gives it, false takes it), a member's role (member-role), a member's permission pack (member-pack; pack null for none), your manager's own preferences (member-preferences) or room lists (member-view; list shown, tucked, notif or push), the office settings (office-settings), the backup settings (backup-settings), a member's sign-in link (sign-in-link), a member's sign-out on every device (member-sessions), one session of a member ended (session-revoke; sessionPrefix as GET /api/users/:username/sessions lists it), a member's pending sign-in links taken back (sign-in-links-revoke), a personal API token for the member (api-token), an API token revoked (api-token-revoke), the office's outside access (office-access), a member removed (member-remove), restored (member-restore) or deleted for good (member-purge), the office updated to the latest release (office-update), old files deleted (storage-prune) or compressed (storage-compress), one of the member's WhatsApp chats routed to an agent (whatsapp-route; chatName is a part of the chat's name, phone the contact's number when you know it, and the member picks the chat on the card), a place of the member's Discord bots routed to an agent (discord-route; placeName is a part of the channel, category or server name, scope narrows it, and the member picks the place on the card), some settings of one of the member's WhatsApp or Discord routes (messaging-route; routeId from the head line of a delivery, set holds the keys of the route's PATCH), or the ages of the daily automatic cleanup (storage-retention); set holds the keys to change. The card has an Apply button, and the ask closes when the change is made. A sign-in link or token shows only on the member's card, never to you.",
         inputSchema: {
           prompt: z.string().min(1),
           options: ASK_OPTIONS.optional(),
           recommended: z.string().min(1).optional(),
+          // Checked by the route, which names the tags in its refusal.
+          recommendedTag: z.string().optional(),
+          recommendedText: z.string().optional(),
           priority: TASK_PRIORITY.optional(),
           step: z
             .discriminatedUnion("kind", [
@@ -807,12 +810,14 @@ function registerAskTools(
       "edit_ask",
       {
         description:
-          "Change one of your open asks. An absent field keeps its value; options [] removes them; priority null removes it.",
+          'Change one of your open asks. An absent field keeps its value; options [] removes them; priority null removes it; recommendedTag "" removes it with its text. recommended and recommendedTag replace each other.',
         inputSchema: {
           askId: z.string().min(1),
           prompt: z.string().min(1).optional(),
           options: z.array(z.string().min(1)).max(10).optional(),
           recommended: z.string().optional(),
+          recommendedTag: z.string().optional(),
+          recommendedText: z.string().optional(),
           priority: TASK_PRIORITY.nullable().optional(),
         },
       },

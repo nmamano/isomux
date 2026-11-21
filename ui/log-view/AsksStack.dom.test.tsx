@@ -137,13 +137,15 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="bbbb0002"]',
   )!;
-  const dismiss = card.querySelector<HTMLButtonElement>(
-    "form button[type=button]",
-  )!;
-  await act(async () => {
-    fireEvent.click(dismiss);
-    await new Promise((r) => setTimeout(r, 0));
-  });
+  // A dismiss: the tag, then the send button that names it (task 1466ea8b).
+  for (const selector of [
+    '[data-ask-tag="dismiss"]',
+    '[data-ask-send="dismiss"]',
+  ])
+    await act(async () => {
+      fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/bbbb0002/dismiss"]);
   expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
@@ -363,30 +365,39 @@ const field = (root: HTMLElement, id: string) =>
   root.querySelector<HTMLTextAreaElement>(
     `[data-ask="${id}"] form [data-ask-reply-input]`,
   )!;
-it("sends a typed note with a dismiss or a file-task, and nothing for the default or a blank field, and closes the card", async () => {
-  const buttons = {
-    dismiss: '[data-ask="aaaa0001"] form button[type=button]',
-    "file-task": '[data-ask="aaaa0001"] [data-ask-file-task]',
+it("sends a typed note with a dismiss or a file-task, and nothing for a blank field or the untouched one, and closes the card", async () => {
+  // A tag, then the send button that names it (task 1466ea8b).
+  const clicks = {
+    dismiss: ['[data-ask-tag="dismiss"]'],
+    "file-task": ['[data-ask-tag="postpone"]', '[data-ask-suggestion="file"]'],
   };
   // Both verbs read one note rule, so the blank fields run on dismiss only.
-  // An untouched dismiss is in "sends no dismiss reason for the recommended
-  // default".
   const cases = [
     ["dismiss", "  not this week ", { text: "  not this week " }],
     ["dismiss", "", {}],
     ["dismiss", "   ", {}],
-    // The member deleted the default and typed it again: no note.
-    ["dismiss", "DEFAULT", {}],
+    // The member typed the old default: the field goes as it is (task
+    // 1466ea8b dropped the "changed from the prefill" rule).
+    ["dismiss", "DEFAULT", { text: "DEFAULT" }],
     ["file-task", "  not this week ", { text: "  not this week " }],
     ["file-task", null, {}],
   ] as const;
-  for (const [verb, typed, body] of cases) {
-    const selector = buttons[verb];
+  for (const [verb, typed, want] of cases) {
     posts = [];
     const view = mount(false);
     await waitFor(() => expect(cards(view.container).length).toBe(2));
     const input = field(view.container, "aaaa0001");
     const prefilled = input.value;
+    const body =
+      "text" in want && want.text === "DEFAULT" ? { text: prefilled } : want;
+    for (const click of clicks[verb])
+      await act(async () => {
+        fireEvent.click(
+          view.container.querySelector<HTMLButtonElement>(
+            `[data-ask="aaaa0001"] ${click}`,
+          )!,
+        );
+      });
     if (typed !== null) {
       fireEvent.change(input, { target: { value: "" } });
       if (typed !== "")
@@ -394,7 +405,9 @@ it("sends a typed note with a dismiss or a file-task, and nothing for the defaul
           target: { value: typed === "DEFAULT" ? prefilled : typed },
         });
     }
-    const button = view.container.querySelector<HTMLButtonElement>(selector)!;
+    const button = view.container.querySelector<HTMLButtonElement>(
+      '[data-ask="aaaa0001"] [data-ask-send]',
+    )!;
     await act(async () => {
       fireEvent.click(button);
       await new Promise((r) => setTimeout(r, 0));
@@ -425,12 +438,17 @@ it("keeps the card with the error when the server refuses a file-task, and draws
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="aaaa0001"]',
   )!;
-  await act(async () => {
-    fireEvent.click(
-      card.querySelector<HTMLButtonElement>("[data-ask-file-task]")!,
-    );
-    await new Promise((r) => setTimeout(r, 0));
-  });
+  // Filing: the Postpone tag, its File as a task suggestion, then the send
+  // button (task 1466ea8b).
+  for (const selector of [
+    '[data-ask-tag="postpone"]',
+    '[data-ask-suggestion="file"]',
+    '[data-ask-send="file"]',
+  ])
+    await act(async () => {
+      fireEvent.click(card.querySelector<HTMLButtonElement>(selector)!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/aaaa0001/file-task"]);
   expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
