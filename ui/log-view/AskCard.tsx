@@ -1176,6 +1176,9 @@ function ReplyAskCard({
     };
   }, [undoMs]);
 
+  // One text size for every button on the card, on phone and desktop:
+  // the buttons above the field are the size of Reply under it.
+  const buttonFont = 12;
   const buttonPad = isMobile ? "8px 14px" : "5px 14px";
   // A recommended button: tight space on the star's left, as on its right.
   // One shorthand either way: a longhand that comes and goes beside it is
@@ -1189,7 +1192,7 @@ function ReplyAskCard({
     border: filledSecondaryBtn.border,
     background: filledSecondaryBtn.background,
     color: filledSecondaryBtn.color,
-    fontSize: 12,
+    fontSize: buttonFont,
     cursor: "pointer",
     flexShrink: 0,
   } as const;
@@ -1329,7 +1332,7 @@ function ReplyAskCard({
           border: "none",
           background: "var(--accent-text)",
           color: "var(--bg-base)",
-          fontSize: 12,
+          fontSize: buttonFont,
           fontWeight: 600,
           cursor: "pointer",
           flexShrink: 0,
@@ -1400,17 +1403,17 @@ function ReplyAskCard({
                 : "color-mix(in srgb, var(--ask-tag) 14%, transparent)",
               color: sends ? "var(--bg-base)" : "var(--ask-tag-text)",
               fontFamily: "var(--font-ui)",
-              fontSize: isMobile ? 14 : 12,
+              fontSize: buttonFont,
               fontWeight: 600,
               lineHeight: 1.35,
               cursor: "pointer",
             }}
           >
             <span>
-              {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
+              {recommended && <RecommendedStar size={11} />}
               {t(TAG_LABEL[name])}
             </span>
-            <OptionMark sends={sends} size={isMobile ? 14 : 12} />
+            <OptionMark sends={sends} size={12} />
           </button>
         );
       })}
@@ -1438,7 +1441,7 @@ function ReplyAskCard({
               background: "var(--accent-bg)",
               color: "var(--accent-text)",
               fontFamily: "var(--font-ui)",
-              fontSize: isMobile ? 13 : 11,
+              fontSize: buttonFont,
               cursor: "pointer",
             }}
           >
@@ -1800,7 +1803,7 @@ function ReplyAskCard({
               background: sends ? "var(--accent-text)" : "var(--accent-bg)",
               color: sends ? "var(--bg-base)" : "var(--accent-text)",
               fontFamily: "var(--font-ui)",
-              fontSize: isMobile ? 14 : 12,
+              fontSize: buttonFont,
               fontWeight: 600,
               lineHeight: 1.35,
               textAlign: "left",
@@ -1818,11 +1821,11 @@ function ReplyAskCard({
                 style={{ ...style, cursor: "pointer" }}
               >
                 <span style={{ minWidth: 0 }}>
-                  {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
+                  {recommended && <RecommendedStar size={11} />}
                   {/* The agent's words; the recommended mark stays translatable. */}
                   <span {...noTranslate()}>{option}</span>
                 </span>
-                <OptionMark sends={sends} size={isMobile ? 14 : 12} />
+                <OptionMark sends={sends} size={12} />
               </button>
             );
           })}
@@ -2110,7 +2113,7 @@ function ReplyAskCard({
                   background: "var(--accent-bg)",
                   color: "var(--accent-text)",
                   fontFamily: "var(--font-ui)",
-                  fontSize: isMobile ? 13 : 11,
+                  fontSize: buttonFont,
                   cursor: "pointer",
                 }}
               >
@@ -2167,13 +2170,13 @@ function ReplyAskCard({
                 border: "none",
                 background: "var(--accent-text)",
                 color: "var(--bg-base)",
-                fontSize: 12,
+                fontSize: buttonFont,
                 fontWeight: 600,
                 cursor: "pointer",
               }}
             >
               {t(AUTOMATE_LABEL[sendKind])}
-              <OptionMark sends size={isMobile ? 14 : 12} />
+              <OptionMark sends size={12} />
             </button>
           </div>
         </div>
