@@ -931,6 +931,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "update.screen.done": "This office now runs {version}.",
   "update.screen.failed":
     "The update did not finish. This office runs {version}.",
+  "update.screen.nextSteps":
+    "To get help, copy the details and <issue>open a GitHub issue</issue> or <discord>ask in the Isomux Discord</discord>.",
   "update.screen.reload": "Reload",
   "update.screen.hide": "Hide",
   "update.outcome.title": "Notes from the update",

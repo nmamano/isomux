@@ -943,6 +943,8 @@ Cosas que puedes hacer por él:
   "update.screen.done": "Esta oficina ahora ejecuta {version}.",
   "update.screen.failed":
     "La actualización no terminó. Esta oficina ejecuta {version}.",
+  "update.screen.nextSteps":
+    "Para obtener ayuda, copia los detalles y <issue>abre una incidencia en GitHub</issue> o <discord>pregunta en el Discord de Isomux</discord>.",
   "update.screen.reload": "Recargar",
   "update.screen.hide": "Ocultar",
   "update.outcome.title": "Notas de la actualización",

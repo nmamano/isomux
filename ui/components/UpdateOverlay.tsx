@@ -10,6 +10,7 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { reloadBrowser } from "../reload-browser.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { DISCORD_URL, REPO_URL } from "../repo.ts";
 import {
   updateScreen,
   visibleScreen,
@@ -152,6 +153,37 @@ function FailureDetails({ screen }: { screen: FailedScreen }) {
   );
 }
 
+// Where an owner gets help with a failed update. Both links open a new tab,
+// so the office tab stays on this screen.
+function HelpLinks() {
+  const { rich } = useI18n();
+  const link = (href: string) => (inner: React.ReactNode) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ color: "var(--accent-text)" }}
+    >
+      {inner}
+    </a>
+  );
+  return (
+    <p
+      style={{
+        fontSize: 12,
+        color: "var(--text-dim)",
+        lineHeight: 1.6,
+        margin: "12px 0 0",
+      }}
+    >
+      {rich("update.screen.nextSteps", {
+        issue: link(`${REPO_URL}/issues/new`),
+        discord: link(DISCORD_URL),
+      })}
+    </p>
+  );
+}
+
 export function UpdateOverlay() {
   const { updateWatch, updateInfo, connected, sessionContext } = useAppState();
   const dispatch = useDispatch();
@@ -268,7 +300,10 @@ export function UpdateOverlay() {
           />
         )}
         {shown.kind === "failed" && failure && (
-          <FailureDetails screen={failure} />
+          <>
+            <FailureDetails screen={failure} />
+            <HelpLinks />
+          </>
         )}
         <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
           {shown.kind === "done" && (

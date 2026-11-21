@@ -938,6 +938,8 @@ Coses que pots fer per ell:
   "update.screen.done": "Aquesta oficina ara executa {version}.",
   "update.screen.failed":
     "L'actualització no ha acabat. Aquesta oficina executa {version}.",
+  "update.screen.nextSteps":
+    "Per obtenir ajuda, copia els detalls i <issue>obre una incidència a GitHub</issue> o <discord>pregunta al Discord d'Isomux</discord>.",
   "update.screen.reload": "Recarrega",
   "update.screen.hide": "Amaga",
   "update.outcome.title": "Notes de l'actualització",

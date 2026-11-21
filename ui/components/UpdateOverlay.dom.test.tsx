@@ -9,6 +9,7 @@ const { StateCtx, DispatchCtx, initialState, reducer } =
 const browser = await import("../reload-browser.ts");
 const { UpdateOverlay } = await import("./UpdateOverlay.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { REPO_URL } = await import("../repo.ts");
 const { initialUpdateWatch, watchOnClicked, watchOnStatus } =
   await import("../update-watch.ts");
 
@@ -264,6 +265,82 @@ describe("failed update details", () => {
       view.queryByText(t("update.screen.failed", { version: OLD })),
     ).not.toBeNull();
     expect(copyButton(view)).toBeNull();
+  });
+});
+
+// An owner's failed screen says where to get help: a new GitHub issue or the
+// Isomux Discord (task c3c866e8). Only where the copy button is, so the
+// owner has a report to take there.
+describe("failed update help links", () => {
+  const failedP = (over: Partial<Progress> = {}): Progress => ({
+    attempt: A1,
+    phase: "validate",
+    result: "failed",
+    target: NEW,
+    message: "checkout is dirty: /opt/isomux",
+    ...over,
+  });
+  const links = (view: ReturnType<typeof show>) =>
+    Array.from(view.container.querySelectorAll("a"));
+  // One link to the repo's issues and one to a Discord invite, each with a
+  // name, each in a new tab so the office tab stays.
+  function expectHelpLinks(view: ReturnType<typeof show>) {
+    const all = links(view);
+    const issue = all.filter((a) =>
+      (a.getAttribute("href") ?? "").startsWith(`${REPO_URL}/issues`),
+    );
+    const discord = all.filter((a) =>
+      /^https:\/\/discord\.gg\/\w+$/.test(a.getAttribute("href") ?? ""),
+    );
+    expect(issue.length).toBe(1);
+    expect(discord.length).toBe(1);
+    for (const a of [issue[0]!, discord[0]!]) {
+      expect((a.textContent ?? "").trim().length > 0).toBe(true);
+      expect(a.getAttribute("target")).toBe("_blank");
+      expect(a.getAttribute("rel") ?? "").toContain("noopener");
+    }
+  }
+
+  it("an owner gets both links with the updater's message", () => {
+    expectHelpLinks(show(watching(false), status(OLD, failedP())));
+  });
+
+  it("an owner gets both links when the updater sent no message", () => {
+    expectHelpLinks(
+      show(watching(false), status(OLD, failedP({ message: undefined }))),
+    );
+  });
+
+  it("a member gets no links", () => {
+    const view = show(watching(false), status(OLD, failedP()), "member");
+    expect(
+      view.queryByText(t("update.screen.failed", { version: OLD })),
+    ).not.toBeNull();
+    expect(links(view).length).toBe(0);
+  });
+
+  it("with no step (no report to copy), no links", () => {
+    let w = watchOnStatus(initialUpdateWatch, status(OLD, null));
+    w = watchOnStatus(
+      w,
+      status(OLD, { attempt: null, phase: null, result: "requested" }),
+    );
+    w = watchOnStatus(w, status(OLD, null));
+    const view = show(w, status(OLD, null));
+    expect(
+      view.queryByText(t("update.screen.failed", { version: OLD })),
+    ).not.toBeNull();
+    expect(links(view).length).toBe(0);
+  });
+
+  it("a running or finished update shows no links", () => {
+    const busy = show(watching(false), status(OLD, running("build")));
+    expect(busy.queryByText(t("update.screen.install"))).not.toBeNull();
+    expect(links(busy).length).toBe(0);
+    busy.unmount();
+    const done = show(watching(false), status(NEW, ok, true));
+    expect(done.queryByText(t("update.outcome.title"))).not.toBeNull();
+    expect(links(done).length).toBe(0);
   });
 });
 
