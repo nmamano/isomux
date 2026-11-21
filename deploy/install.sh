@@ -183,7 +183,9 @@ APT_KILL_GRACE_SECONDS=30
 # whether the service account can; server images ship sshd without the client.
 # python3, build-essential, ffmpeg, ripgrep, tmux: tools for agent workloads, not
 # isomux runtime dependencies.
-APT_PACKAGES=(curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd openssh-client python3 build-essential ffmpeg ripgrep tmux)
+# acl: setfacl, which shares a folder with a member's own OS user
+# (server/member-folder-hint.ts); stock Ubuntu server images lack it.
+APT_PACKAGES=(curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd openssh-client python3 build-essential ffmpeg ripgrep tmux acl)
 # Set once this run has refreshed apt's package lists.
 APT_LISTS_FRESH=""
 

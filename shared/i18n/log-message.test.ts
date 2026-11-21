@@ -797,7 +797,12 @@ describe("logEntrySegments: the line a reader sees, values kept apart", () => {
         }),
       ]),
     );
-    expect(marked(segments)).toEqual([
+    // Only the segments from the params: the template may carry code of
+    // its own.
+    const fromParams = marked(segments).filter(
+      (s) => s.text === "ada" || s.text.includes("/home/ada"),
+    );
+    expect(fromParams).toEqual([
       { kind: "value", text: "ada" },
       { kind: "value", text: "/home/ada/proj" },
       { kind: "code", text: "chmod o+x /home/ada" },

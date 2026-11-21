@@ -213,13 +213,13 @@ As built (slice 2c, `server/identity/member-reach.ts`):
 
 ### 3.2 Shared folders
 
-- **ACLs, not groups.** Groups need root, so agents cannot make them. The owner of a folder grants another user access with an access ACL and a default ACL (`setfacl -R -m u:<user>:rX,d:u:<user>:rX <dir>`; `rwX` for write) and `x` on each ancestor. The other agent adds the repo to its own `git config --global safe.directory`. No shared folder is imposed (Nil, 2026-11-14).
+- **ACLs, not groups.** Groups need root, so agents cannot make them. The owner of a folder grants another user access with an access ACL and a default ACL (`setfacl -R -m u:<user>:rX,d:u:<user>:rX <dir>`; `rwX` for write) and `x` on each ancestor. The other agent adds the repo to its own `git config --global safe.directory`. No shared folder is imposed (Nil, 2026-11-14). The installer and the images install the `acl` package (setfacl), which stock Ubuntu server images lack. The `x` on an ancestor also opens every entry in it that is open to other users, so a folder outside any home is the safer one to share; else close those entries (`chmod o-rwx`). A folder at, below or above the office home or `STATE_ROOT` cannot be shared: the member checks fail once the member user reaches either.
 - **Read sharing is safe; write sharing with an office-user agent is not.** git config (`core.fsmonitor`, hooks), `.claude/settings.json`, package scripts and tests in a repo run as every user that works in it, and `safe.directory` turns off git's one guard. So when an isolated member can write a folder that an office-user agent works in, the member's code runs as the office user, and the isolation is gone for that member. Write sharing between two isolated members is fine: each can only reach the other.
 - **System prompt.** Once one member has an OS user, every agent gets one line: share with ACLs; read sharing is safe; write sharing with an agent on another user lets that user run code as you. An isolated agent is told its user name.
 
 ### 3.3 An agent's folder that the new user cannot reach
 
-The agent does not start there: its turn fails with the folder and the ACL command for read sharing, and the member or an office agent shares the folder or changes the agent's folder. The enable command lists these folders.
+The agent does not start there: its turn fails with the folder and the ACL command for read sharing (no command for a folder at, below or above the office home or `STATE_ROOT`), and the member or an office agent shares the folder or changes the agent's folder. The enable command lists these folders.
 
 ## 4. Hosting
 

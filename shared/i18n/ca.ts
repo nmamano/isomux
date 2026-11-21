@@ -4568,7 +4568,9 @@ Coses que pots fer per ell:
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no és vàlid: no es pot accedir a {path}: {message}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
   "systemEntries.memberFolderUnreachable":
-    "Aquest agent s'executa com l'usuari del sistema {user}, que no pot obrir la seva carpeta {path}. Per donar-li accés de lectura, executa aquestes ordres com a root o com a propietari de les carpetes: {commands}. O fes clic al nom de l'agent a la capçalera de la vista del registre per triar una altra carpeta.",
+    "Aquest agent s'executa com l'usuari del sistema {user}, que no pot obrir la seva carpeta {path}. Per donar-li accés de lectura, executa aquestes ordres com a root o com a propietari de les carpetes: {commands}. Aquestes ordres també permeten a aquest usuari obrir qualsevol carpeta que tots els usuaris poden obrir dins de les carpetes superiors. Per evitar-ho, fes servir una carpeta fora de qualsevol carpeta personal, o tanca aquestes carpetes amb `chmod o-rwx`. O fes clic al nom de l'agent a la capçalera de la vista del registre per triar una altra carpeta.",
+  "systemEntries.memberFolderOfficeOnly":
+    "Aquest agent s'executa com l'usuari del sistema {user}, que no pot obrir la seva carpeta {path}. Aquesta carpeta és dins de la carpeta personal o de dades de l'oficina, o en conté una, així que {user} no la pot obrir. Fes clic al nom de l'agent a la capçalera de la vista del registre per triar una altra carpeta.",
   "systemEntries.memberSkillUnreadable":
     "No s'ha pogut llegir l'habilitat de projecte /{name} de la carpeta d'aquest agent.",
   "systemEntries.folderNotAllowed":

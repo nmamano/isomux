@@ -13,7 +13,7 @@
 //
 // What each test pins, and the mutant it was seen red on, is named above it.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import type { AgentFileStat, AgentFs, AgentHost } from "../agent-host.ts";
@@ -22,6 +22,7 @@ import {
   officeAgentHost,
   setOfficeAgentHost,
 } from "../agent-host.ts";
+import { STATE_ROOT } from "../config.ts";
 import { resolveCwd } from "../cwd-utils.ts";
 import { hostFor } from "../member-hosts.ts";
 import { forgetMemberOsUser, recordMemberOsUser } from "../member-os-users.ts";
@@ -296,6 +297,79 @@ describe("the folder line after a member's failed turn", () => {
       odd: null,
       office: null,
       notReady: null,
+    });
+  });
+
+  // Task b06b2edf. The member checks fail when the member's OS user can
+  // search the office home or reach the state root at all (member-hosts.ts,
+  // office-home-closed and state-root-closed), so the ACL commands for a
+  // folder at, below or above either one would break the member's runner at
+  // its next connect. Such a folder gets a line with no command. The preload
+  // puts STATE_ROOT in a temp dir, outside the home, so the two are apart.
+  // MUTANTS: the home only (no state root); at or below only (no above); a
+  // string-prefix compare (the -other paths).
+  it("gives no ACL command for a folder at, below or above the office home or the state root", async () => {
+    const real = (path: string) => {
+      try {
+        return realpathSync(path);
+      } catch {
+        return path;
+      }
+    };
+    const home = real(homedir());
+    const state = real(STATE_ROOT);
+    expect(state.startsWith(`${home}/`)).toBe(false);
+    const cases = {
+      home,
+      underHome: join(home, "proj", "sub"),
+      aboveHome: join(home, ".."),
+      state,
+      underState: join(state, "logs"),
+      aboveState: join(state, ".."),
+      homeSibling: `${home}-other/proj`,
+      stateSibling: `${state}-other`,
+      elsewhere: join(scratch, "locked"),
+    };
+    for (const path of Object.values(cases)) {
+      memberOnly.set(path, dirStat);
+      noEnter.set(path, errno("EACCES"));
+    }
+    const got: Record<string, unknown> = {};
+    for (const [name, path] of Object.entries(cases)) {
+      const line = (await memberFolderHint(path, alice)) as {
+        key?: string;
+        params?: Record<string, unknown>;
+      } | null;
+      got[name] = {
+        key: line?.key ?? null,
+        user: line?.params?.user,
+        path: line?.params?.path,
+        // The command an owner would run (a protocol value).
+        acl: JSON.stringify(line?.params ?? {}).includes("setfacl"),
+      };
+    }
+    const officeOnly = (path: string) => ({
+      key: "systemEntries.memberFolderOfficeOnly",
+      user: "isomux-test-member",
+      path,
+      acl: false,
+    });
+    const share = (path: string) => ({
+      key: "systemEntries.memberFolderUnreachable",
+      user: "isomux-test-member",
+      path,
+      acl: true,
+    });
+    expect(got).toEqual({
+      home: officeOnly(cases.home),
+      underHome: officeOnly(cases.underHome),
+      aboveHome: officeOnly(cases.aboveHome),
+      state: officeOnly(cases.state),
+      underState: officeOnly(cases.underState),
+      aboveState: officeOnly(cases.aboveState),
+      homeSibling: share(cases.homeSibling),
+      stateSibling: share(cases.stateSibling),
+      elsewhere: share(cases.elsewhere),
     });
   });
 

@@ -192,6 +192,7 @@ describe("install.sh escalation: template unit + placement", () => {
     for (const [pkg, why] of [
       ["polkitd", "the in-UI update trigger is a polkit rule"],
       ["openssh-client", "the root-reachability gate probes over ssh"],
+      ["acl", "the folder-share command of member OS users is setfacl"],
     ]) {
       // The one package list (install-deps-skip.test.ts runs it).
       const listed = new RegExp(
