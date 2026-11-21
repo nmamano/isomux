@@ -43,6 +43,7 @@ import type { StepRunDeps } from "./step-asks.ts";
 import { loadBackupSettings } from "./backup.ts";
 import { loadLogRetentionSettings } from "./storage-retention.ts";
 import { getUser, getUserById, wouldDeleteLeaveNoOwner } from "./users.ts";
+import { versionOf } from "../shared/blob-version.ts";
 import { getRemovedMember, listRemovedMembers } from "./removed-members.ts";
 import { getUpdateStatus } from "./update-checker.ts";
 import type { StorageOps } from "./office-storage-routes.ts";
@@ -168,6 +169,18 @@ export function officeStepRuns(deps: {
     logRetention: loadLogRetentionSettings,
     roomName: (roomId) =>
       agentManager.getRooms().find((room) => room.id === roomId)?.name ?? null,
+    // Each scope's text as its GET .../instructions reads it.
+    instructions: (scope, targetId) => {
+      const text =
+        scope === "agent"
+          ? agentManager.getAgent(targetId)?.customInstructions
+          : scope === "room"
+            ? agentManager.getRooms().find((room) => room.id === targetId)
+                ?.prompt
+            : getUserById(targetId)?.memberPrompt;
+      if (text === undefined) return null;
+      return { text, version: versionOf(text ?? "") };
+    },
     memberIdByName: (username) => getUser(username)?.id ?? null,
     roomOpen: (roomId) =>
       roomId === LOBBY_ROOM_ID ||

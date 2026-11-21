@@ -301,6 +301,7 @@ function withRawStyles(run: () => void) {
 
 // Since task 1466ea8b the row holds the send button and Discuss in chat
 // only: Dismiss, filing as a task and Simplify are tags above the field.
+// Task 33891b5b puts "<send> and automate" between them.
 it("follows the send button in the reply row, after the ask's files, last, a bordered button of the send button's size", () => {
   withRawStyles(styledLikeSend);
 });
@@ -318,8 +319,17 @@ function styledLikeSend() {
   const about = aboutButton(view.container, "ask00003");
   // Booleans, not toBe on two nodes: a red run would serialise both.
   expect(about.parentElement === send.parentElement).toBe(true);
-  expect(send.nextElementSibling === about).toBe(true);
-  expect(about.nextElementSibling).toBeNull();
+  // The row (task 33891b5b): send, "<send> and automate", Discuss in chat.
+  const row = [...send.parentElement!.children].map((el) =>
+    el === send
+      ? "send"
+      : el === about
+        ? "about"
+        : el.hasAttribute("data-ask-automate-open")
+          ? "automate"
+          : el.tagName,
+  );
+  expect(row).toEqual(["send", "automate", "about"]);
   expect(image!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
   expect(command!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
   // A bordered button, not a bare link, the size of the send button.

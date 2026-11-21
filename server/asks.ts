@@ -56,6 +56,8 @@ import type { AskAgentWire } from "../shared/contract-shapes.ts";
 
 // Sanity bounds only.
 export const ASK_PROMPT_MAX = 4000;
+// The longest line an instructions-line step adds (task 33891b5b).
+export const ASK_RULE_LINE_MAX = 500;
 export const ASK_MAX_OPEN_PER_AGENT = 500;
 // Open paged asks one source (an agent, or an app) may hold, apart from
 // ASK_MAX_OPEN_PER_AGENT (task 74e8fc07).
@@ -376,7 +378,9 @@ function isAskEntry(v: unknown): v is AskEntry {
   if (
     (r.recommendedTag !== undefined &&
       !(typeof r.recommendedTag === "string" && r.recommendedTag !== "")) ||
-    (r.recommendedText !== undefined && typeof r.recommendedText !== "string")
+    (r.recommendedText !== undefined &&
+      typeof r.recommendedText !== "string") ||
+    (r.automateText !== undefined && typeof r.automateText !== "string")
   )
     return false;
   if (r.priority !== undefined && !isValidPriority(r.priority)) return false;
@@ -695,6 +699,7 @@ export interface AskStore {
     recommended?: string;
     recommendedTag?: string;
     recommendedText?: string;
+    automateText?: string;
     priority?: TaskPriority;
     affordances?: AskAffordances;
     sessionId?: string;
@@ -737,15 +742,24 @@ export interface AskStore {
     // The recommended tag and its text (task 1466ea8b), as link: undefined
     // keeps, null removes. Removing the tag removes its text. The caller
     // keeps the tag and the option mark apart.
-    tag?: { recommendedTag?: string | null; recommendedText?: string | null },
+    // The automate rule's prefill (task 33891b5b), as link; and a new step,
+    // which the caller allows only on a rule ask (instructions-line).
+    tag?: {
+      recommendedTag?: string | null;
+      recommendedText?: string | null;
+      automateText?: string | null;
+      step?: AskStep;
+    },
   ): AskEntry | null;
   // Marks the open entry as waiting for a simpler rewrite and records the
   // member who asked; null when the entry is gone.
   // `text` is the rewrite the member asked for, absent on a bare request.
+  // `automate`: a "Rewrite and automate" (task 33891b5b), on the event.
   requestSimplify(
     id: string,
     byUserId?: string,
     text?: string,
+    automate?: string,
   ): AskEntry | null;
   // Clears the simplify mark of the open entry and records the member who
   // withdrew it. Null, with nothing written, when the entry is gone or has no
@@ -1026,6 +1040,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       recommended,
       recommendedTag,
       recommendedText,
+      automateText,
       priority,
       affordances,
       sessionId,
@@ -1070,6 +1085,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(recommended !== undefined ? { recommended } : {}),
         ...(recommendedTag !== undefined ? { recommendedTag } : {}),
         ...(recommendedText !== undefined ? { recommendedText } : {}),
+        ...(automateText !== undefined ? { automateText } : {}),
         ...(priority !== undefined ? { priority } : {}),
         ...affordances,
         ...(sessionId ? { sessionId } : {}),
@@ -1157,6 +1173,10 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       if (recommendedText === null) delete entry.recommendedText;
       else if (recommendedText !== undefined)
         entry.recommendedText = recommendedText;
+      if (tag.automateText === null) delete entry.automateText;
+      else if (tag.automateText !== undefined)
+        entry.automateText = tag.automateText;
+      if (tag.step !== undefined) entry.step = tag.step;
       if (priority === null) delete entry.priority;
       else if (priority !== undefined) entry.priority = priority;
       const { commands, editFiles, readFiles } = affordances;
@@ -1179,6 +1199,9 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       for (const key of ASK_EDITABLE_KEYS)
         if (JSON.stringify(prev[key]) !== JSON.stringify(entry[key]))
           Object.assign(before, { [key]: prev[key] ?? null });
+      // A rule ask's step (task 33891b5b), the one step an edit replaces.
+      if (JSON.stringify(prev.step) !== JSON.stringify(entry.step))
+        before.step = prev.step ?? null;
       // The rewrite a rewrite request asked for: any change answers it, as
       // a request can be for new options or files, not new words (task
       // 1466ea8b). The card keeps the prompt as it was before the first
@@ -1204,7 +1227,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         });
       return { ...entry };
     },
-    requestSimplify(id, byUserId, text) {
+    requestSimplify(id, byUserId, text, automate) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -1223,6 +1246,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         at,
         ...(byUserId !== undefined ? { byUserId } : {}),
         ...(text !== undefined ? { text } : {}),
+        ...(automate !== undefined ? { automate } : {}),
       });
       return { ...entry };
     },
@@ -1593,6 +1617,16 @@ function askReplyNoteText(
   ref: AskRef,
   currentSessionId: string | null,
 ): string {
+  const note = answerNoteText(ref, currentSessionId);
+  // "... and automate" (task 33891b5b): a second note after the answer's,
+  // with the member's words for the rule, or none for the agent to propose.
+  if (ref.automate === undefined) return note;
+  const rule = ref.automate.trim();
+  const after = ref.simplify ? "rewrite the ask" : "act on this answer";
+  return `${note}[Automate asks like this${rule === "" ? "; propose the rule" : `: ${JSON.stringify(rule)}`}. First ${after}, then open one rule ask for the line to save] `;
+}
+
+function answerNoteText(ref: AskRef, currentSessionId: string | null): string {
   const from =
     ref.sessionId && ref.sessionId !== currentSessionId
       ? ` (opened in session ${ref.sessionId})`
@@ -1606,7 +1640,7 @@ function askReplyNoteText(
   // A rewrite request, bare or in the member's words (task 1466ea8b): the
   // note asks for an edit, so typed words are not read as an answer.
   if (ref.simplify)
-    return `[Rewrite ${whose} ask ${ref.id}${from} in place, as asked here; do not answer in chat or open a new ask: ${quoted}] `;
+    return `[Rewrite ${whose} ask ${ref.id}${from} in place, as asked here; do not answer in chat or open a new ask in its place: ${quoted}] `;
   if (ref.postponed)
     return `[Postponed ${whose} ask ${ref.id}${from}, now closed: ${quoted}] `;
   if (ref.simplifyUndone)

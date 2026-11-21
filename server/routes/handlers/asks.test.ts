@@ -1502,3 +1502,156 @@ describe("a command run from the card (task c3b91695)", () => {
     expect(t.store.get(askId)).not.toBeNull();
   });
 });
+
+// "... and automate" (task 33891b5b): only an ask the agent could decide
+// alone next time takes it. Everywhere else every answer route refuses
+// `automate` before anything happens: nothing sent to a contact or the
+// agent, no task filed, the ask still open. Without `automate` the same
+// answers keep working as before (the dismiss of an ask with no agent).
+describe("an answer with automate on an ask that cannot be automated", () => {
+  const DRAFT = { app: "whatsapp", routeId: "r1", text: "see you at 5" };
+  const settle = () => new Promise((r) => setImmediate(r));
+  const quick = (p: Promise<string>) =>
+    Promise.race([p, settle().then(() => "still pending")]);
+  const ROUTES = [
+    ["asks.reply", { text: "Yes" }],
+    ["asks.dismiss", {}],
+    ["asks.postpone", {}],
+    ["asks.fileTask", {}],
+    ["asks.rewrite", {}],
+  ] as const;
+
+  function automateRig() {
+    const contactSends: string[] = [];
+    const t = rig({
+      messaging: {
+        answer: async (entry) => {
+          contactSends.push(entry.id);
+          return { kind: "deliver", text: "SENT", outcome: "replied" };
+        },
+      },
+    });
+    const make = (fields: Record<string, unknown>) => {
+      const made = t.store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Which one?",
+        ...fields,
+      } as Parameters<typeof t.store.create>[0]);
+      if (!made.ok) throw new Error(made.code);
+      return made.entry;
+    };
+    const asks = {
+      app: make({ app: { name: "one", createdAt: 1 } }),
+      draft: make({ options: ["Send", "Don't send"], messaging: DRAFT }),
+      step: make({ step: { kind: "browser-pairing" } }),
+      noAgent: make({
+        agentId: "",
+        office: { feature: "whatsapp", name: "WhatsApp" },
+        page: { recipients: ["u1"] },
+      }),
+    };
+    const send = (opId: string, askId: string, body: Record<string, unknown>) =>
+      quick(
+        t.outcome(
+          t.handlers[opId]({
+            ...t.ctx(),
+            params: { askId },
+            body,
+          }),
+        ),
+      );
+    return { ...t, asks, contactSends, send };
+  }
+
+  it("every answer route is 409 automate_not_offered on an app's ask, a messaging draft, a step ask and an ask with no agent, words or blank; nothing sent, filed or closed", async () => {
+    const t = automateRig();
+    for (const [kind, entry] of Object.entries(t.asks))
+      for (const [opId, body] of ROUTES)
+        for (const automate of ["Always pick the same", ""])
+          expect(
+            `${kind} ${opId} ${await t.send(opId, entry.id, { ...body, automate })}`,
+          ).toBe(`${kind} ${opId} 409 automate_not_offered`);
+    expect([t.delivered, t.filed, t.contactSends]).toEqual([[], [], []]);
+    for (const entry of Object.values(t.asks))
+      expect(t.store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
+    expect(
+      Object.values(t.asks).filter((e) => t.store.get(e.id) === null),
+    ).toHaveLength(0);
+  });
+
+  it("a draft the caller may not answer stays 404 with automate: no 409 tells an owner, a token or an agent that it exists", async () => {
+    const t = automateRig();
+    const others: Identity[] = [
+      { ...member, userId: "u-owner", role: "owner" },
+      {
+        scope: "api",
+        userId: "u1",
+        role: "member",
+        apiTokenId: "tok1",
+        apiTokenName: "laptop",
+        capabilities: API_CAPABILITIES,
+      },
+      {
+        scope: "agent",
+        userId: "u1",
+        agentId: "a1",
+        role: "member",
+        capabilities: AGENT_CAPABILITIES,
+      },
+    ];
+    for (const identity of others)
+      for (const [opId, body] of ROUTES) {
+        const r = await quick(
+          t.outcome(
+            t.handlers[opId]({
+              ...t.ctx(),
+              identity,
+              params: { askId: t.asks.draft.id },
+              body: { ...body, automate: "x" },
+            }),
+          ),
+        );
+        expect(`${identity.scope} ${opId} ${r}`).toBe(
+          `${identity.scope} ${opId} 404 not_found`,
+        );
+      }
+    expect([t.delivered, t.contactSends]).toEqual([[], []]);
+  });
+
+  it("without automate, the ask with no agent still closes on a dismiss (the refusal is automate's, not the ask's)", async () => {
+    const t = automateRig();
+    expect(await t.send("asks.dismiss", t.asks.noAgent.id, {})).toBe(
+      "noContent",
+    );
+    expect(t.store.get(t.asks.noAgent.id)).toBeNull();
+  });
+
+  it("automateOffered: an agent's plain ask only; not an app's ask, a draft, an ask with no agent, a step, a secret or a sudo request", async () => {
+    const { automateOffered } = await import("../../../shared/types.ts");
+    const plain = { agentId: "a1" };
+    expect(
+      [
+        plain,
+        { ...plain, app: { name: "one", createdAt: 1 } },
+        { ...plain, messaging: DRAFT },
+        { agentId: "" },
+        { ...plain, step: { kind: "browser-pairing" as const } },
+        {
+          ...plain,
+          secret: {
+            requestId: "r1",
+            name: "GH_TOKEN",
+            hosts: ["api.github.com"],
+            form: { kind: "authorization" as const },
+            reason: "PR",
+          },
+        },
+        {
+          ...plain,
+          sudo: { requestId: "r2", command: "apt update", cwd: "/w" },
+        },
+      ].map((e) => automateOffered(e as Parameters<typeof automateOffered>[0])),
+    ).toEqual([true, false, false, false, false, false, false]);
+  });
+});

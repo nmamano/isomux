@@ -77,6 +77,9 @@ export interface EventFanoutDeps {
   ) => boolean;
   restartLogReplays: (agentId: string) => void;
   forgetAgentLogs: (agentId: string) => void;
+  // An agent's or a room's instructions changed (task 33891b5b): a rule ask
+  // may wait for a line in them.
+  instructionsChanged: () => void;
 }
 
 export function createEventFanout(deps: EventFanoutDeps) {
@@ -102,6 +105,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
     liveLogAllowed,
     restartLogReplays,
     forgetAgentLogs,
+    instructionsChanged,
   } = deps;
 
   // Per-WS dispatch for events that touch a specific room or agent.
@@ -236,6 +240,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
           roomId: event.roomId,
           prompt: event.prompt,
         });
+        instructionsChanged();
         break;
       case "room_pet_updated":
         liveEmit("room_pet_updated", {
@@ -262,6 +267,8 @@ export function createEventFanout(deps: EventFanoutDeps) {
         liveEmit("room_closed", { roomId: event.roomId });
         break;
       case "agent_updated":
+        if (event.changes.customInstructions !== undefined)
+          instructionsChanged();
         // NON-move updates project via agentLookup on the agent's CURRENT room.
         // A MOVE is discriminated by a present `roomId` in changes; it needs the
         // old∪new audience the domain event can't supply yet, so it rides the

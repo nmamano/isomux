@@ -2345,6 +2345,20 @@ Coses que pots fer per ell:
   "asks.suggest.context": "Més context",
   "asks.suggest.visuals": "Fes servir elements visuals",
   "asks.suggest.answer": "Respon això:",
+  "asks.automateAs.reply": "Respon i automatitza",
+  "asks.automateAs.dismiss": "Descarta i automatitza",
+  "asks.automateAs.postpone": "Ajorna i automatitza",
+  "asks.automateAs.rewrite": "Reescriu i automatitza",
+  "asks.automate.title": "Automatitza preguntes com aquesta",
+  "asks.automate.guide":
+    "Quines preguntes com aquesta pot decidir l'agent sol la propera vegada, i com? Respon aquesta amb la teva resposta i després t'envia la regla per desar-la.",
+  "asks.automate.close": "Tanca",
+  "asks.automate.box": "Regla per a preguntes com aquesta",
+  "asks.automate.suggest.pick": "Tria tu i avisa'm després",
+  "asks.automate.suggest.same": "Tria sempre el mateix",
+  "asks.automate.held": "Automatitza",
+  "asks.automateLine": "Automatitza preguntes com aquesta: {rule}",
+  "asks.automateLineBare": "Automatitza preguntes com aquesta",
   "asks.rewriteHint": "Reescriure deixa la petició oberta.",
   "asks.textReplaced": "Text substituït.",
   "asks.postponed": "Ajornada",
@@ -2440,6 +2454,11 @@ Coses que pots fer per ell:
   "asks.action.packNone": "Sense paquet de permisos",
   "asks.action.packCeiling": "Paquet de permisos: agents fins a {stop}",
   "asks.action.yourPreferences": "Les teves preferències",
+  "asks.action.instructionsAgent": "Instruccions de {agent}",
+  "asks.action.instructionsRoom":
+    "Instruccions de la sala {room}, per a tots els seus agents",
+  "asks.action.instructionsMember":
+    "Instruccions de {member}, per a tots els seus agents",
   "asks.action.languageNone": "Sense triar",
   "asks.action.alertsStop":
     "El seu so i les seves notificacions push també s'aturen.",
@@ -4288,6 +4307,8 @@ Coses que pots fer per ell:
     "El xat de WhatsApp {chat} ara va a {agent}.",
   "systemEntries.stepAsk.messagingRouteSet": "Ruta {route} canviada.",
   "systemEntries.stepAsk.storageRetentionSet": "Neteja automàtica canviada.",
+  "systemEntries.stepAsk.instructionsLineAdded":
+    "Línia afegida a les instruccions.",
   "systemEntries.stepAsk.discordRouted":
     "El lloc de Discord {place} ara va a {agent}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",

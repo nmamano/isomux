@@ -1265,6 +1265,9 @@ export type AskStep = StepAskRequest | ActionStepRequest;
 
 export type {
   ActionStepRequest,
+  InstructionsLineStep,
+  InstructionsLineStepRun,
+  InstructionsScope,
   BackupSettingsSet,
   MemberPreferencesSet,
   MemberViewList,
@@ -1676,6 +1679,10 @@ export interface AskEntry {
   // cannot fail the file; the card ignores one it does not know.
   recommendedTag?: string;
   recommendedText?: string;
+  // The rule the agent suggests for "... and automate" (task 33891b5b):
+  // the card starts the automate box with it. Never on an ask that cannot
+  // be automated (automateOffered).
+  automateText?: string;
   // A reply draft to a messaging contact (task d03a61d8): the text that goes
   // out through `app` when the row's member answers Send. Fixed after
   // create: the agent cannot edit or simplify the ask, only withdraw it.
@@ -1803,6 +1810,9 @@ export interface AskCloseInput {
   taskId?: string;
   // The app that withdrew the ask; absent when the agent did.
   app?: string;
+  // The member also asked the agent to automate asks like this one (task
+  // 33891b5b): their words for the rule, "" when the agent proposes it.
+  automate?: string;
 }
 export interface AskClosure extends AskCloseInput {
   at: number;
@@ -1816,6 +1826,7 @@ export const ASK_EDITABLE_KEYS = [
   "recommended",
   "recommendedTag",
   "recommendedText",
+  "automateText",
   "priority",
   "commands",
   "editFiles",
@@ -1837,11 +1848,21 @@ export type AskEvent =
       app?: string;
       // The office feature that re-raised its paged ask (task 74e8fc07).
       office?: string;
-      before: { [K in AskEditableKey]?: AskEntry[K] | null };
+      // `step`: a rule ask's step the edit replaced (task 33891b5b).
+      before: { [K in AskEditableKey]?: AskEntry[K] | null } & {
+        step?: AskStep | null;
+      };
     }
   // The member asked the agent to rewrite the ask; `text` is what they
   // asked for, absent on a bare simplify request.
-  | { kind: "simplify_requested"; at: number; byUserId?: string; text?: string }
+  // `automate`: a "Rewrite and automate" (task 33891b5b), as on a closure.
+  | {
+      kind: "simplify_requested";
+      at: number;
+      byUserId?: string;
+      text?: string;
+      automate?: string;
+    }
   // The member withdrew the simplify request before the rewrite.
   | { kind: "simplify_withdrawn"; at: number; byUserId?: string }
   // A member acked a paged ask: its alarm stopped, the ask stays open.
@@ -1874,6 +1895,26 @@ export const ASK_POSTPONED_TEXT = "Not now";
 export const ASK_TAGS = ["dismiss", "postpone", "rewrite"] as const;
 export type AskTag = (typeof ASK_TAGS)[number];
 
+// Whether an answer to the ask may carry "... and automate", and the ask its
+// automateText (task 33891b5b): only an ask the agent could decide alone next
+// time. Not an app's ask, a messaging draft, an ask with no agent, a step ask
+// (only the member can do it), a secret or a sudo request.
+export function automateOffered(
+  entry: Pick<
+    AskEntry,
+    "agentId" | "app" | "messaging" | "step" | "secret" | "sudo"
+  >,
+): boolean {
+  return (
+    entry.agentId !== "" &&
+    !entry.app &&
+    !entry.messaging &&
+    !entry.step &&
+    !entry.secret &&
+    !entry.sudo
+  );
+}
+
 // The member message text that withdraws a simplify request. The chat shows
 // it translated from the entry's metadata; the agent reads these words.
 export const ASK_SIMPLIFY_UNDO_TEXT =
@@ -1901,6 +1942,9 @@ export interface AskRef {
   recommended?: string;
   // The app that opened the ask, when an app did.
   app?: { name: string };
+  // "... and automate" (task 33891b5b): the member's words for the rule,
+  // "" when the agent proposes it.
+  automate?: string;
 }
 
 export function generateAskId(existing?: string[]): string {

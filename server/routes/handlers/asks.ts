@@ -65,6 +65,7 @@ import {
   ASK_POSTPONED_TEXT,
   ASK_SIMPLIFY_TEXT,
   ASK_TAGS,
+  automateOffered,
   ASK_SIMPLIFY_UNDO_TEXT,
   isValidPriority,
   type AskCloseInput,
@@ -269,6 +270,8 @@ export interface AsksDeps {
       postponed?: boolean;
       taskId?: string;
       device: string | undefined;
+      // "... and automate" (task 33891b5b): the member's words for the rule.
+      automate?: string;
     },
   ): Promise<UserSendAcceptance>;
   // The agent's display name, for the filed task's description.
@@ -409,6 +412,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           ...(event.kind === "simplify_requested" && event.text !== undefined
             ? { text: event.text }
             : {}),
+          ...(event.kind === "simplify_requested" &&
+          event.automate !== undefined
+            ? { automate: event.automate }
+            : {}),
         }
       : event;
   // A closed ask: who answered is named as they are now, null when gone.
@@ -501,6 +508,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       req,
     );
   };
+
+  // The member's automate words, for the message and the record, when sent.
+  const automateOf = (automate: string | undefined) =>
+    automate !== undefined ? { automate } : {};
 
   // Who answered and their words, for the closed ask's record. A bare
   // dismiss or filed task has no words.
@@ -755,6 +766,44 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     return { ok: true, recommendedTag, recommendedText };
   };
 
+  // The automate rule's prefill (task 33891b5b), as sent: absent keeps (none
+  // on a create), "" removes on an edit. Only on an ask the agent could
+  // decide alone next time (automateOffered). Every refusal is 422
+  // invalid_automate, as the tag's are 422.
+  const invalidAutomate = (message: string) =>
+    fail(422, "invalid_automate", message);
+  const checkAutomateText = (
+    body: Record<string, unknown>,
+    mode: "create" | "edit",
+    offered: boolean,
+  ):
+    | { ok: true; automateText?: string | null }
+    | { ok: false; result: HandlerResult } => {
+    const text = body.automateText;
+    if (text === undefined) return { ok: true };
+    if (typeof text !== "string")
+      return {
+        ok: false,
+        result: invalidAutomate("automateText must be a string"),
+      };
+    if (text.length > ASK_PROMPT_MAX)
+      return {
+        ok: false,
+        result: invalidAutomate(
+          `automateText must be at most ${ASK_PROMPT_MAX} characters`,
+        ),
+      };
+    if (mode === "edit" && text === "") return { ok: true, automateText: null };
+    if (!offered)
+      return {
+        ok: false,
+        result: invalidAutomate(
+          "this ask takes no automateText: the agent cannot decide asks like it alone",
+        ),
+      };
+    return { ok: true, automateText: text === "" ? undefined : text };
+  };
+
   // The checks every answer shares: the body's device and text, the open
   // ask the caller may answer, not a secret request, not already being
   // answered. A reply needs text; a dismiss, a postpone or a filed task may
@@ -767,7 +816,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // A dismiss: the one answer an ask with no agent takes.
     dismiss = false,
   ):
-    | { ok: true; entry: AskEntry; text?: string; device?: string }
+    | {
+        ok: true;
+        entry: AskEntry;
+        text?: string;
+        device?: string;
+        automate?: string;
+      }
     | { ok: false; result: HandlerResult } => {
     const refuse = (result: HandlerResult) => ({ ok: false as const, result });
     const body = (ctx.body ?? {}) as Record<string, unknown>;
@@ -802,8 +857,41 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         );
       if (body.text.trim().length > 0) text = body.text;
     }
+    // "... and automate" (task 33891b5b): the member's words for the rule,
+    // "" for the agent to propose it.
+    const automate = body.automate;
+    if (
+      automate !== undefined &&
+      (typeof automate !== "string" || automate.length > ASK_PROMPT_MAX)
+    )
+      return refuse(
+        fail(
+          400,
+          "invalid_automate",
+          `automate must be a string of at most ${ASK_PROMPT_MAX} characters`,
+        ),
+      );
+    // A bare simplify request and its withdrawal answer nothing to automate.
+    if (textRule === "none" && automate !== undefined)
+      return refuse(
+        fail(400, "invalid_automate", "simplify takes no automate"),
+      );
     const entry = readableBy(ctx.identity, ctx.params.askId);
     if (!entry) return refuse(closedOrNotFound(ctx.identity, ctx.params.askId));
+    // Before any other refusal of the ask, so every route answers it alike.
+    // A draft the caller may not answer stays a 404 below.
+    if (
+      automate !== undefined &&
+      !automateOffered(entry) &&
+      !(entry.messaging && !draftAnswerer(ctx.identity, entry))
+    )
+      return refuse(
+        fail(
+          409,
+          "automate_not_offered",
+          "The agent cannot decide asks like this one alone: answer without automate.",
+        ),
+      );
     // A secret request is answered with its masked form only: a reply would
     // carry what the member typed into the chat and to the agent.
     if (entry.secret)
@@ -819,14 +907,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // A reply draft to a messaging contact (task d03a61d8): only the row's
     // member, from the office, answers it. No agent, owner, app, schedule or API token
     // can make the tap that sends a message from the member's phone.
-    if (
-      entry.messaging &&
-      !(
-        ctx.identity.scope === "user" &&
-        ctx.identity.userId !== null &&
-        ctx.identity.userId === entry.memberUserId
-      )
-    )
+    if (entry.messaging && !draftAnswerer(ctx.identity, entry))
       return refuse(notFound());
     // An ask with no agent (task 74e8fc07): nobody reads an answer.
     if (askAgentId(entry) === null && !dismiss)
@@ -841,8 +922,20 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return refuse(
         fail(409, "ask_busy", "An answer to this ask is being sent."),
       );
-    return { ok: true, entry, text, device: body.device };
+    return {
+      ok: true,
+      entry,
+      text,
+      device: body.device,
+      ...(typeof automate === "string" ? { automate } : {}),
+    };
   };
+  // Whether the caller answers a messaging draft: the row's member, signed
+  // in.
+  const draftAnswerer = (identity: Identity, entry: AskEntry) =>
+    identity.scope === "user" &&
+    identity.userId !== null &&
+    identity.userId === entry.memberUserId;
 
   // Close an answered ask. The agent has the message; a retry would send it
   // twice, so a failed write is logged and the entry stays open until the
@@ -923,16 +1016,19 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         }
       }
       const text = checked.text ?? ASK_DISMISSED_TEXT;
+      const automate = automateOf(checked.automate);
       delivering.add(entry.id);
       try {
         const result = await deps.deliver(ctx.identity, entry, text, {
           dismissed,
           device,
+          ...automate,
         });
         if (!result.ok) return fail(result.status, result.code, result.message);
         close(entry, {
           outcome: dismissed ? "dismissed" : "replied",
           ...answeredBy(ctx.identity, checked.text),
+          ...automate,
         });
         return noContent();
       } finally {
@@ -948,6 +1044,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const checked = answerable(ctx, "note");
     if (!checked.ok) return checked.result;
     const { entry, text: note, device } = checked;
+    const automate = automateOf(checked.automate);
     if (entry.messaging) return messagingDraft();
     const agent = deps.agent(entry.agentId);
     if (!agent) return notFound();
@@ -974,7 +1071,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           ctx.identity,
           entry,
           note ?? ASK_FILED_TEXT,
-          { dismissed: false, taskId: task.id, device },
+          { dismissed: false, taskId: task.id, device, ...automate },
         );
       } catch (err) {
         deps.deleteTask(task.id);
@@ -988,6 +1085,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         outcome: "filed",
         taskId: task.id,
         ...answeredBy(ctx.identity, note),
+        ...automate,
       });
       return created(task);
     } finally {
@@ -1042,7 +1140,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ctx.identity,
         entry,
         words ?? ASK_SIMPLIFY_TEXT,
-        { dismissed: false, simplify: true, device },
+        {
+          dismissed: false,
+          simplify: true,
+          device,
+          ...automateOf(checked.automate),
+        },
       );
       if (!result.ok) return fail(result.status, result.code, result.message);
       // The agent has the message; a retry would send it twice, so a failed
@@ -1052,6 +1155,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           entry.id,
           ctx.identity.userId ?? undefined,
           words,
+          checked.automate,
         );
       } catch (err) {
         console.error(
@@ -1081,10 +1185,19 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ctx.identity,
         entry,
         note ?? ASK_POSTPONED_TEXT,
-        { dismissed: false, postponed: true, device },
+        {
+          dismissed: false,
+          postponed: true,
+          device,
+          ...automateOf(checked.automate),
+        },
       );
       if (!result.ok) return fail(result.status, result.code, result.message);
-      close(entry, { outcome: "postponed", ...answeredBy(ctx.identity, note) });
+      close(entry, {
+        outcome: "postponed",
+        ...answeredBy(ctx.identity, note),
+        ...automateOf(checked.automate),
+      });
       return noContent();
     } finally {
       delivering.delete(entry.id);
@@ -1205,6 +1318,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     if (!tag.ok) return invalidOptions(tag.message);
     if (tag.recommendedTag !== undefined && recommended !== undefined)
       return invalidOptions(tagWithOption);
+
     if (body.priority !== undefined && !isValidPriority(body.priority))
       return invalidPriority();
     // A paged ask (task 74e8fc07): it rings until a member acks or answers it.
@@ -1220,6 +1334,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const asker = resolve(body);
     if (!asker.ok) return asker.result;
     const { agentId, agent } = asker;
+    // An app's ask and a step ask are never automated (automateOffered).
+    const automateText = checkAutomateText(
+      body,
+      "create",
+      body.step === undefined && !asker.app,
+    );
+    if (!automateText.ok) return automateText.result;
     // Everyone it is for, the stored member first.
     let memberUserIds: string[];
     if (room) {
@@ -1312,6 +1433,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ...(recommended !== undefined ? { recommended } : {}),
       ...(tag.recommendedTag ? { recommendedTag: tag.recommendedTag } : {}),
       ...(tag.recommendedText ? { recommendedText: tag.recommendedText } : {}),
+      ...(automateText.automateText
+        ? { automateText: automateText.automateText }
+        : {}),
       ...(body.priority !== undefined
         ? { priority: body.priority }
         : page
@@ -1397,9 +1521,38 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return sudoRequest(
         "A sudo request cannot be edited. Delete it to withdraw it.",
       );
-    // A step and its link are fixed after create (task c71cb60f).
-    if (body.step !== undefined)
-      return fail(400, "invalid_request", "an ask's step cannot be edited");
+    // A step and its link are fixed after create (task c71cb60f), but for a
+    // rule ask's line and scope, which the agent tunes in place (task
+    // 33891b5b), checked as at create.
+    let step: AskStep | undefined;
+    if (body.step !== undefined) {
+      const sent = body.step;
+      if (
+        prev.step?.kind !== "instructions-line" ||
+        typeof sent !== "object" ||
+        sent === null ||
+        !("kind" in sent) ||
+        sent.kind !== "instructions-line"
+      )
+        return fail(
+          400,
+          "invalid_request",
+          "an ask's step cannot be edited, except a rule ask's line and scope",
+        );
+      const agent = deps.agent(prev.agentId);
+      if (!agent || !prev.memberUserId) return notFound();
+      const checkedStep = await deps.steps.check({
+        step: body.step,
+        agentId: prev.agentId,
+        roomId: agent.roomId,
+        managerUserId: agent.managerUserId,
+        memberUserId: prev.memberUserId,
+        memberNamed: true,
+      });
+      if (!checkedStep.ok)
+        return fail(checkedStep.status, checkedStep.code, checkedStep.message);
+      step = checkedStep.step;
+    }
     if (prev.step && body.link !== undefined)
       return fail(400, "invalid_request", "a step ask's link cannot be edited");
     if (
@@ -1444,6 +1597,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // An ask with no agent takes no answer but a dismiss.
     if (typeof tag.recommendedTag === "string" && askAgentId(prev) === null)
       return invalidOptions(tagRefused);
+    const automateText = checkAutomateText(body, "edit", automateOffered(prev));
+    if (!automateText.ok) return automateText.result;
     const lists = affordanceLists(body, prev);
     if (!lists.ok) return lists.result;
     // Paths resolve for the agent that holds the ask.
@@ -1461,6 +1616,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       {
         recommendedTag: tag.recommendedTag,
         recommendedText: tag.recommendedText,
+        automateText: automateText.automateText,
+        ...(step ? { step } : {}),
       },
     );
     return entry ? ok(wire(entry)) : notFound();

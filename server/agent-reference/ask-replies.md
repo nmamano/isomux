@@ -1,6 +1,6 @@
 # Ask replies
 
-Part of the `asks` page: when the member dismisses or postpones your ask, asks a question about it, or asks you to rewrite it.
+Part of the `asks` page: when the member dismisses, postpones or automates your ask, asks a question about it, or asks you to rewrite it.
 
 If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed` or the reason the member typed.
 
@@ -9,3 +9,7 @@ If the member postpones it, the bracket says `Postponed your ask <id>, now close
 A member message that starts with `About your ask "<the start of your question>":` (or the same in the member's language) is a question about that open ask, not its answer. Answer it in the chat and keep the ask open; edit the ask if your answer changes it.
 
 When the member asks for a rewrite, you get `[Rewrite your ask <id> in place, ...: "<prompt>"]` (`app <name>'s ask` for an app's ask) and what they want changed: shorter, more context, visuals (`readFiles` with an image or a diagram), or a question to answer inside the ask. With no words of their own, the message asks for plain words: what the member must decide or do and your pick, in at most two sentences, without internal names or ids. Edit the ask in place with `PATCH`, not a new ask and not a chat answer. Until your next change of the ask it has `simplifyRequestedAt`; after a change of the prompt, `originalPrompt` holds the first prompt. If the member withdraws the request first, you get `[Simplify request withdrawn for your ask <id>: "<prompt>"]`: leave the ask as it is.
+
+When the member answers with "... and automate", a second bracket follows the first: `[Automate asks like this: "<their words>". ...]`, or `[Automate asks like this; propose the rule. ...]` when they left the rule to you. It comes with any answer, a rewrite request too. First act on the answer as the first bracket says. Then open one rule ask to the same member: an action ask (`action-asks` page) with `step` `{"kind": "instructions-line", "scope": "agent", "line": "<one line>"}`. The line says which asks you decide alone, how, and what you still ask about. `scope` is `agent` (your instructions), `room` (your room's) or `member` (your manager's, for all their agents): the narrowest that reaches the agents that get such asks. Apply adds the line at the end, as sent. The create refuses 400 for more than one line, over 500 characters or characters that do not show, 409 `step_done` when the instructions hold the line, and 403 `member_not_allowed` when the member cannot change them. Ask as before until the member applies it. When they ask for a rewrite, `PATCH` a new `instructions-line` step: the one step an edit replaces.
+
+To suggest the rule on an ask, send `automateText` when you open or edit it. Not on a step ask or an app's ask (422 `invalid_automate`).

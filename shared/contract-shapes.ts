@@ -1106,6 +1106,9 @@ export interface AskCreateReq {
   // ASK_TAGS, never with `recommended`, and the reply field's text with it.
   recommendedTag?: string;
   recommendedText?: string;
+  // The rule the agent suggests for "... and automate" (task 33891b5b).
+  // Refused on an ask that cannot be automated.
+  automateText?: string;
   // One of P0-P4, the board's scale (TaskPriority). P1 for a paged ask that
   // sets none.
   priority?: string;
@@ -1131,6 +1134,11 @@ export interface AskEditReq {
   // option mark. The text needs a tag, sent or kept.
   recommendedTag?: string;
   recommendedText?: string;
+  // Absent keeps it; "" removes it.
+  automateText?: string;
+  // An instructions-line step only (task 33891b5b): the agent's tuned rule.
+  // Every other step is fixed after create.
+  step?: unknown;
   // Absent keeps the ask's priority; null or "" removes it.
   priority?: string | null;
   // For each: absent keeps the ask's list; [] removes it.
@@ -1140,6 +1148,9 @@ export interface AskEditReq {
 }
 export interface AskReplyReq {
   text: string;
+  // "... and automate" (task 33891b5b): the member's words for the rule;
+  // "" asks the agent to propose it. Absent: no automate.
+  automate?: string;
   // The member's device label, as on a chat message (user sessions only).
   device?: string;
 }
@@ -1158,6 +1169,9 @@ export interface AskDismissReq {
   // What the member typed, sent as the dismissal's reason. Blank or absent:
   // the agent reads "Dismissed".
   text?: string;
+  // "... and automate" (task 33891b5b): the member's words for the rule;
+  // "" asks the agent to propose it. Absent: no automate.
+  automate?: string;
   device?: string;
 }
 export interface AskSimplifyReq {
@@ -1167,18 +1181,27 @@ export interface AskSimplifyReq {
 // typed. Blank or absent: the agent reads ASK_SIMPLIFY_TEXT.
 export interface AskRewriteReq {
   text?: string;
+  // "... and automate" (task 33891b5b): the member's words for the rule;
+  // "" asks the agent to propose it. Absent: no automate.
+  automate?: string;
   device?: string;
 }
 // A postpone (task 1466ea8b): the member's note, for example when to ask
 // again. Blank or absent: the agent reads ASK_POSTPONED_TEXT.
 export interface AskPostponeReq {
   text?: string;
+  // "... and automate" (task 33891b5b): the member's words for the rule;
+  // "" asks the agent to propose it. Absent: no automate.
+  automate?: string;
   device?: string;
 }
 export interface AskFileTaskReq {
   // What the member typed, sent to the agent and added to the task. Blank or
   // absent: the agent reads "Not now; filed as a task".
   text?: string;
+  // "... and automate" (task 33891b5b): the member's words for the rule;
+  // "" asks the agent to propose it. Absent: no automate.
+  automate?: string;
   device?: string;
 }
 // What an agent reads back: the member wire plus the target's username.
@@ -1195,6 +1218,9 @@ export type AskClosedWire = AskAgentWire & {
     answer?: string;
     taskId?: string;
     app?: string;
+    // "... and automate" (task 33891b5b): the member's words for the rule,
+    // "" when the agent proposes it.
+    automate?: string;
   };
   // What happened before the close, oldest first (task 62aa552f).
   events: AskEventWire[];
@@ -1212,6 +1238,8 @@ export type AskEventWire =
       by: string | null;
       // A rewrite request's words (simplify_requested only).
       text?: string;
+      // A "Rewrite and automate" (task 33891b5b): the rule's words.
+      automate?: string;
     };
 export interface AskHistoryRes {
   asks: AskClosedWire[];

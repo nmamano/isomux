@@ -34,6 +34,8 @@ Updating the office to the latest release: `step` is `{"kind": "office-update"}`
 
 Deleting old files: `step` is `{"kind": "storage-prune", "target": "<target>", "olderThanDays": 90, "keepPerAgent": 2}`, with the fields `POST /api/storage/prune` takes, less `apply`. `target` is `transcripts`, `attachments`, `token-logs` or `terminal-recordings`; a transcripts prune states `keepPerAgent`. Compressing old conversations: `{"kind": "storage-compress", "olderThanDays": 30}`. Only an office owner can apply them. Both refuse 409 `step_done` when nothing matches now, and an apply refuses 409 `storage_busy` while a cleanup runs. The ages of the daily automatic cleanup: `{"kind": "storage-retention", "set": {...}}`, with the keys `PUT /api/storage/retention` takes. Only an office owner can apply it.
 
+Adding one line to your instructions, your room's or your manager's: the `instructions-line` step, on the `ask-replies` page.
+
 Routing one of the member's WhatsApp chats or Discord places to an agent, or changing the settings of one of their routes: fetch the `route-asks` page.
 
 There is an action step for each setting that no agent can change. For a setting a privileged agent can change, ask for the privileged level with `agent-access` instead.

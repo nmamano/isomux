@@ -517,14 +517,17 @@ export function AskActionBlock({
         `/api/asks/${askId}/action`,
         step.kind === "whatsapp-route"
           ? { chat: waChosen }
-          : step.kind === "discord-route" && dcChosen
-            ? {
-                botId: dcChosen.botId,
-                guildId: dcChosen.guildId,
-                scope: dcChosen.scope,
-                targetId: dcChosen.targetId,
-              }
-            : undefined,
+          : step.kind === "instructions-line"
+            ? // The line as the card shows it: a changed rule is refused.
+              { scope: step.scope, line: step.line }
+            : step.kind === "discord-route" && dcChosen
+              ? {
+                  botId: dcChosen.botId,
+                  guildId: dcChosen.guildId,
+                  scope: dcChosen.scope,
+                  targetId: dcChosen.targetId,
+                }
+              : undefined,
       );
       // Through the store, as this card may be gone: the ask closed as the
       // link or token was made.
@@ -1399,6 +1402,51 @@ export function AskActionBlock({
     };
   }
 
+  // The rule ask of "... and automate" (task 33891b5b): whose instructions
+  // get the line, and the line as Apply writes it.
+  function instructionsLineView(s: Step<"instructions-line">): ActionView {
+    const name =
+      s.scope === "agent"
+        ? t("asks.action.instructionsAgent", {
+            agent: agents.find((a) => a.id === s.targetId)?.name ?? s.targetId,
+          })
+        : s.scope === "room"
+          ? t("asks.action.instructionsRoom", {
+              room:
+                (
+                  rooms.find((r) => r.id === s.targetId) ??
+                  allRooms.find((r) => r.id === s.targetId)
+                )?.name ?? s.targetId,
+            })
+          : t("asks.action.instructionsMember", {
+              member:
+                [...users.values()].find((u) => u.id === s.targetId)?.name ??
+                s.targetId,
+            });
+    return {
+      name,
+      lines: [
+        <div
+          key="line"
+          data-ask-action-line=""
+          {...noTranslate()}
+          style={{
+            paddingLeft: 8,
+            borderLeft: "2px solid var(--border-light)",
+            color: "var(--text-primary)",
+            fontSize: isMobile ? 13 : 12,
+            overflowWrap: "anywhere",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {s.line}
+        </div>,
+      ],
+      marks: {},
+      gone: null,
+    };
+  }
+
   function storageCompressView(s: Step<"storage-compress">): ActionView {
     return {
       name: t("settings.storage.compressSection"),
@@ -2049,6 +2097,8 @@ export function AskActionBlock({
         return messagingRouteView(step);
       case "storage-retention":
         return storageRetentionView(step);
+      case "instructions-line":
+        return instructionsLineView(step);
     }
   })();
 

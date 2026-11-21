@@ -886,6 +886,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       postponed?: boolean;
       taskId?: string;
       device: string | undefined;
+      automate?: string;
     },
   ): Promise<UserSendAcceptance> {
     const username = attributionFor(identity).username;
@@ -904,6 +905,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       ...(entry.recommended !== undefined
         ? { recommended: entry.recommended }
         : {}),
+      ...(opts.automate !== undefined ? { automate: opts.automate } : {}),
     };
     const send = (device: string | undefined) =>
       sendMemberMessage(entry.agentId, text, username, device, undefined, {

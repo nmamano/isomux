@@ -50,6 +50,7 @@ export function askRefOf(entry: LogEntry): AskRef | null {
     ...(typeof r.recommended === "string"
       ? { recommended: r.recommended }
       : {}),
+    ...(typeof r.automate === "string" ? { automate: r.automate } : {}),
   };
 }
 
@@ -60,9 +61,21 @@ export function askRefOf(entry: LogEntry): AskRef | null {
  * <id>", with the member's note when they typed one; for a rewrite request
  * and its withdrawal, the translated label in place of the fixed words the
  * agent reads, or "Asked to rewrite: <words>"; for a postpone, "Postponed",
- * with the member's note when they typed one.
+ * with the member's note when they typed one. An answer with "... and
+ * automate" (task 33891b5b) adds a line with the member's words for the rule.
  */
 export function askAnswerText(
+  t: Translator["t"],
+  ask: AskRef | null | undefined,
+  content: string,
+): string {
+  const text = answerText(t, ask, content);
+  if (ask?.automate === undefined) return text;
+  const rule = ask.automate.trim();
+  return `${text}\n\n${rule === "" ? t("asks.automateLineBare") : t("asks.automateLine", { rule })}`;
+}
+
+function answerText(
   t: Translator["t"],
   ask: AskRef | null | undefined,
   content: string,

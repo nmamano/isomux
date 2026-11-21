@@ -184,6 +184,24 @@ function ReadOnlyAsk({ ask, isMobile }: { ask: ReadAsk; isMobile: boolean }) {
       >
         {closed ? outcomeText(i18n, closed, taskChip) : t("asks.stillOpen")}
       </div>
+      {/* "... and automate" (task 33891b5b): the member's words for the
+          rule, or none when the agent proposes it. */}
+      {closed?.closed.automate !== undefined && (
+        <div
+          data-ask-closed-automate=""
+          style={{ ...small, whiteSpace: "pre-wrap" }}
+        >
+          {closed.closed.automate.trim() === ""
+            ? t("asks.automateLineBare")
+            : rich("asks.automateLine", {
+                rule: (
+                  <span {...noTranslate()}>
+                    {closed.closed.automate.trim()}
+                  </span>
+                ),
+              })}
+        </div>
+      )}
       {closed?.closed.by && (
         <div style={small}>
           {rich("asks.answeredBy", {

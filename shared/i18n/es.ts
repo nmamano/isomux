@@ -2341,6 +2341,20 @@ Cosas que puedes hacer por él:
   "asks.suggest.context": "Más contexto",
   "asks.suggest.visuals": "Usa elementos visuales",
   "asks.suggest.answer": "Responde a esto:",
+  "asks.automateAs.reply": "Responder y automatizar",
+  "asks.automateAs.dismiss": "Descartar y automatizar",
+  "asks.automateAs.postpone": "Aplazar y automatizar",
+  "asks.automateAs.rewrite": "Reescribir y automatizar",
+  "asks.automate.title": "Automatizar preguntas como esta",
+  "asks.automate.guide":
+    "¿Qué preguntas como esta puede decidir el agente solo la próxima vez, y cómo? Responde a esta con tu respuesta y luego te envía la regla para guardarla.",
+  "asks.automate.close": "Cerrar",
+  "asks.automate.box": "Regla para preguntas como esta",
+  "asks.automate.suggest.pick": "Elige tú y avísame después",
+  "asks.automate.suggest.same": "Elige siempre lo mismo",
+  "asks.automate.held": "Automatizar",
+  "asks.automateLine": "Automatizar preguntas como esta: {rule}",
+  "asks.automateLineBare": "Automatizar preguntas como esta",
   "asks.rewriteHint": "Reescribir deja la petición abierta.",
   "asks.textReplaced": "Texto reemplazado.",
   "asks.postponed": "Aplazada",
@@ -2438,6 +2452,11 @@ Cosas que puedes hacer por él:
   "asks.action.packNone": "Sin paquete de permisos",
   "asks.action.packCeiling": "Paquete de permisos: agentes hasta {stop}",
   "asks.action.yourPreferences": "Tus preferencias",
+  "asks.action.instructionsAgent": "Instrucciones de {agent}",
+  "asks.action.instructionsRoom":
+    "Instrucciones de la sala {room}, para todos sus agentes",
+  "asks.action.instructionsMember":
+    "Instrucciones de {member}, para todos sus agentes",
   "asks.action.languageNone": "Sin elegir",
   "asks.action.alertsStop":
     "Su sonido y sus notificaciones push también se detienen.",
@@ -4289,6 +4308,8 @@ Cosas que puedes hacer por él:
     "El chat de WhatsApp {chat} ahora va a {agent}.",
   "systemEntries.stepAsk.messagingRouteSet": "Ruta {route} cambiada.",
   "systemEntries.stepAsk.storageRetentionSet": "Limpieza automática cambiada.",
+  "systemEntries.stepAsk.instructionsLineAdded":
+    "Línea añadida a las instrucciones.",
   "systemEntries.stepAsk.discordRouted":
     "El lugar de Discord {place} ahora va a {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",

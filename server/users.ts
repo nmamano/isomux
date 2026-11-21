@@ -622,6 +622,14 @@ export function setOnUserAccessChanged(
   onUserAccessChangedHook = cb;
 }
 
+// A member's instructions changed (task 33891b5b): a rule ask may wait for
+// a line in them. Defaults to no-op, as the access hook.
+let onMemberPromptChangedHook: () => void = () => {};
+
+export function setOnMemberPromptChanged(cb: () => void): void {
+  onMemberPromptChangedHook = cb;
+}
+
 function sameRoomSet(a: readonly string[], b: readonly string[]): boolean {
   const set = new Set(a);
   return set.size === new Set(b).size && b.every((id) => set.has(id));
@@ -903,6 +911,12 @@ export function updateUserById(
     throw err;
   }
   notifyAccessChange(id, existing, next);
+  if (existing.memberPrompt !== next.memberPrompt)
+    try {
+      onMemberPromptChangedHook();
+    } catch (err) {
+      console.error("[users] onMemberPromptChangedHook threw:", err);
+    }
   return { ok: true, user: next };
 }
 

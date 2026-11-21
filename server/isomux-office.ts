@@ -199,6 +199,7 @@ import {
   updateUserById,
   wouldDeleteLeaveNoOwner,
   setOnUserAccessChanged,
+  setOnMemberPromptChanged,
 } from "./users.ts";
 import { nextRecentAgents, pinnedAgentsToStore } from "./sidebar-agents.ts";
 import { homedir, hostname as osHostname, userInfo } from "os";
@@ -1197,6 +1198,8 @@ function registerBootHooks(): void {
   // of access change is the live room set itself, which owners reach by rule;
   // rooms.close re-projects that for everyone. A member's room access or
   // role may also be the change a step ask waits for.
+  // A member's instructions may hold the line a rule ask waits for.
+  setOnMemberPromptChanged(stepsChanged);
   setOnUserAccessChanged((userId, changed) => {
     try {
       onUserAccessChanged(userId, changed);
@@ -1584,6 +1587,7 @@ const { wireEventSinks } = createEventFanout({
   liveLogAllowed,
   restartLogReplays,
   forgetAgentLogs,
+  instructionsChanged: () => stepsChanged(),
 });
 // The session context carries the Claude families limited in the member's own
 // env and the models they run, so it goes out again when office or personal
@@ -7366,6 +7370,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnInviteConsumed(() => {});
   setOnSessionsChanged(() => {});
   setOnUserAccessChanged(() => {});
+  setOnMemberPromptChanged(() => {});
   setOnOwnerCreated(async () => {});
   setInviteSeatGate(null);
   setAppOwnerAgentResolver(() => null);

@@ -1799,6 +1799,13 @@ function demoDiscordRouteUpdated(
   return next;
 }
 
+// "... and automate" (task 33891b5b): the member's words for the rule, as
+// the server puts them on the answer.
+function demoAutomate(body: unknown): { automate?: string } {
+  const automate = (body as { automate?: unknown } | undefined)?.automate;
+  return typeof automate === "string" ? { automate } : {};
+}
+
 // Asks to the viewer. Michael's are the ones his chat shows him
 // opening: short prompts and a long one, so the stack shows its clamp and,
 // on a desktop, its maximum height. Built on the first list so they can
@@ -4948,7 +4955,12 @@ export async function demoApi(
     shimEmit({
       type: "log_entry",
       entry: makeLogEntry(entry.agentId, "user_message", words, {
-        ask: { id: entry.id, prompt: entry.prompt, simplify: true },
+        ask: {
+          id: entry.id,
+          prompt: entry.prompt,
+          simplify: true,
+          ...demoAutomate(body),
+        },
       }),
     });
     demoChatReply(entry.agentId);
@@ -5116,6 +5128,7 @@ export async function demoApi(
     const filing = askMatch[2] === "file-task";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const typed = typeof sent === "string" ? sent : "";
+    const automate = demoAutomate(body);
     // A dismiss or a filed task carries the member's note when they typed one.
     const text =
       typed.trim() !== ""
@@ -5151,6 +5164,7 @@ export async function demoApi(
           ...(dismissed ? { dismissed: true } : {}),
           ...(postponed ? { postponed: true } : {}),
           ...(task ? { taskId: task.id } : {}),
+          ...automate,
         },
       }),
     });

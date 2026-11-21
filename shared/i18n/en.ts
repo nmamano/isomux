@@ -2287,6 +2287,20 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.suggest.context": "More context",
   "asks.suggest.visuals": "Use visuals",
   "asks.suggest.answer": "Answer this:",
+  "asks.automateAs.reply": "Reply and automate",
+  "asks.automateAs.dismiss": "Dismiss and automate",
+  "asks.automateAs.postpone": "Postpone and automate",
+  "asks.automateAs.rewrite": "Rewrite and automate",
+  "asks.automate.title": "Automate asks like this",
+  "asks.automate.guide":
+    "Which asks like this can the agent decide alone next time, and how? It answers this one with your reply, then sends you the rule to save.",
+  "asks.automate.close": "Close",
+  "asks.automate.box": "Rule for asks like this",
+  "asks.automate.suggest.pick": "Go with your pick, tell me after",
+  "asks.automate.suggest.same": "Always pick the same",
+  "asks.automate.held": "Automate",
+  "asks.automateLine": "Automate asks like this: {rule}",
+  "asks.automateLineBare": "Automate asks like this",
   "asks.rewriteHint": "Rewrite keeps the ask open.",
   "asks.textReplaced": "Text replaced.",
   "asks.postponed": "Postponed",
@@ -2382,6 +2396,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.packNone": "No permission pack",
   "asks.action.packCeiling": "Permission pack: agents up to {stop}",
   "asks.action.yourPreferences": "Your preferences",
+  "asks.action.instructionsAgent": "Instructions of {agent}",
+  "asks.action.instructionsRoom":
+    "Instructions of room {room}, for all its agents",
+  "asks.action.instructionsMember":
+    "Instructions of {member}, for all their agents",
   "asks.action.languageNone": "Not set",
   "asks.action.alertsStop": "Its sound and push notifications stop too.",
   "asks.action.notifOn": "Its sound turns on too.",
@@ -4193,6 +4212,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "WhatsApp chat {chat} now goes to {agent}.",
   "systemEntries.stepAsk.messagingRouteSet": "Route {route} changed.",
   "systemEntries.stepAsk.storageRetentionSet": "Automatic cleanup changed.",
+  "systemEntries.stepAsk.instructionsLineAdded":
+    "Line added to the instructions.",
   "systemEntries.stepAsk.discordRouted":
     "Discord place {place} now goes to {agent}.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",

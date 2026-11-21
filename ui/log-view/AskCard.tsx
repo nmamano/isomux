@@ -92,6 +92,7 @@ import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import {
   ASK_TAGS,
+  automateOffered,
   isActionStep,
   type AskMemberWire,
   type AskReadFile,
@@ -171,15 +172,102 @@ const SUGGESTIONS: Partial<
   ],
 };
 
+// "... and automate" (task 33891b5b): the opener and the section's send
+// button, named after what the card sends.
+const AUTOMATE_LABEL: Record<AskTag | "reply", PlainMessageKey> = {
+  reply: "asks.automateAs.reply",
+  dismiss: "asks.automateAs.dismiss",
+  postpone: "asks.automateAs.postpone",
+  rewrite: "asks.automateAs.rewrite",
+};
+const AUTOMATE_SUGGESTIONS: { name: string; label: PlainMessageKey }[] = [
+  { name: "pick", label: "asks.automate.suggest.pick" },
+  { name: "same", label: "asks.automate.suggest.same" },
+];
+
+// A replacing tap's Undo (task 9d79a544): what the box held before the
+// first tap that erased the member's words, and what the taps left. A tap
+// while the line shows keeps the first `before`, so Undo brings back the
+// member's words after a chain of taps. The reply field and the automate box
+// each keep one.
+type Replaced<B, A> = { before: B; after: A };
+function afterReplacingTap<B, A>(
+  shown: Replaced<B, A> | null,
+  erases: boolean,
+  before: B,
+  after: A,
+): Replaced<B, A> | null {
+  return shown
+    ? { before: shown.before, after }
+    : erases
+      ? { before, after }
+      : null;
+}
+
+// The line under a box whose words a tap replaced, with Undo.
+function ReplacedLine({
+  automate,
+  disabled,
+  isMobile,
+  onUndo,
+}: {
+  // The automate box's line, apart from the reply field's.
+  automate?: boolean;
+  disabled: boolean;
+  isMobile: boolean;
+  onUndo: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      {...(automate
+        ? { "data-ask-automate-replaced": "" }
+        : { "data-ask-replaced": "" })}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 6,
+        color: "var(--text-dim)",
+        fontSize: isMobile ? 12 : 11,
+      }}
+    >
+      {t("asks.textReplaced")}
+      <button
+        type="button"
+        {...(automate
+          ? { "data-ask-automate-replaced-undo": "" }
+          : { "data-ask-replaced-undo": "" })}
+        disabled={disabled}
+        onClick={onUndo}
+        style={{
+          padding: 0,
+          border: "none",
+          background: "none",
+          color: "var(--accent-text)",
+          fontFamily: "var(--font-ui)",
+          fontSize: "inherit",
+          fontWeight: 600,
+          cursor: "pointer",
+        }}
+      >
+        {t("asks.undo")}
+      </button>
+    </div>
+  );
+}
+
 // Where a held answer's Undo line goes: a toast over the list, or, with no
 // host, the card's own place.
 export const AskUndoHost = createContext<HTMLElement | null>(null);
 
 // An answer the card holds for the undo window. `shown` is the reply, or the
-// note that goes with a dismiss or a filing (null for none).
+// note that goes with a dismiss or a filing (null for none); `automate`,
+// whether it goes with "... and automate".
 interface HeldAnswer {
   kind: AnswerKind;
   shown: string | null;
+  automate: boolean;
   body: AnswerBody;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -482,6 +570,7 @@ function ReplyAskCard({
   const {
     askDrafts,
     askTags,
+    askAutomate,
     askErrors,
     agents,
     rooms,
@@ -515,13 +604,26 @@ function ReplyAskCard({
   const reply = draft ?? fallback;
   // The field and tag before a tap replaced the member's words, and what the
   // taps left (replaceWords).
-  const [replaced, setReplaced] = useState<{
-    before: { draft: string | undefined; tag: AskTag | null | undefined };
-    text: string;
-    tag: AskTag | null;
-  } | null>(null);
+  const [replaced, setReplaced] = useState<Replaced<
+    { draft: string | undefined; tag: AskTag | null | undefined },
+    { text: string; tag: AskTag | null }
+  > | null>(null);
   const replacedShown =
-    replaced !== null && reply === replaced.text && tag === replaced.tag;
+    replaced !== null &&
+    reply === replaced.after.text &&
+    tag === replaced.after.tag;
+  // "... and automate" (task 33891b5b): open, the section's send is the
+  // card's one send. Its words start as the agent's automateText.
+  const automateDraft = askAutomate.get(entry.id);
+  const automateWords = automateDraft?.text ?? entry.automateText ?? "";
+  // The automate box's replacing tap, as the field's: its words before the
+  // first tap (undefined: the agent's automateText), and what the taps left.
+  const [automateReplaced, setAutomateReplaced] = useState<Replaced<
+    string | undefined,
+    string
+  > | null>(null);
+  const automateReplacedShown =
+    automateReplaced !== null && automateWords === automateReplaced.after;
   const [busy, setBusy] = useState(false);
   // One answer at a time: a second submit in the same frame still sees busy
   // false.
@@ -614,7 +716,12 @@ function ReplyAskCard({
       dispatch({ type: "set_ask_draft", askId: entry.id, text });
     },
     send: ({ text }) => {
-      if (sending.current || (tag === null && text.trim() === "")) return false;
+      if (
+        sending.current ||
+        automateOpen ||
+        (tag === null && text.trim() === "")
+      )
+        return false;
       dispatch({ type: "set_ask_draft", askId: entry.id, text });
       commitTagged(text);
       return true;
@@ -649,11 +756,12 @@ function ReplyAskCard({
   function replaceWords(text: string, next: AskTag | null) {
     const erases = !untouched && reply.trim() !== "" && reply !== text;
     setReplaced(
-      replacedShown
-        ? { ...replaced, text, tag: next }
-        : erases
-          ? { before: { draft, tag: storedTag }, text, tag: next }
-          : null,
+      afterReplacingTap(
+        replacedShown ? replaced : null,
+        erases,
+        { draft, tag: storedTag },
+        { text, tag: next },
+      ),
     );
     dispatch({ type: "set_ask_draft", askId: entry.id, text });
     dispatch({ type: "set_ask_tag", askId: entry.id, tag: next });
@@ -682,6 +790,55 @@ function ReplyAskCard({
     });
     setReplaced(null);
     if (!touchPrimary) pendingFocus.current = true;
+  }
+
+  // An automate suggestion's words replace the box's. Only words the member
+  // typed count as erased: not the agent's automateText, nor a suggestion's.
+  function replaceAutomateWords(text: string) {
+    const typed =
+      automateDraft?.text !== undefined &&
+      !AUTOMATE_SUGGESTIONS.some(({ label }) => t(label) === automateWords);
+    const erases =
+      typed && automateWords.trim() !== "" && automateWords !== text;
+    setAutomateReplaced(
+      afterReplacingTap(
+        automateReplacedShown ? automateReplaced : null,
+        erases,
+        automateDraft?.text,
+        text,
+      ),
+    );
+    setAutomate(true, text);
+  }
+
+  function undoAutomateReplace() {
+    if (!automateReplaced) return;
+    const before = automateReplaced.before;
+    dispatch({
+      type: "set_ask_automate",
+      askId: entry.id,
+      automate: {
+        open: true,
+        ...(before !== undefined ? { text: before } : {}),
+      },
+    });
+    setAutomateReplaced(null);
+  }
+
+  // The automate section (task 33891b5b): open or closed, and its words.
+  function setAutomate(open: boolean, text?: string) {
+    dispatch({
+      type: "set_ask_automate",
+      askId: entry.id,
+      automate: {
+        open,
+        ...(text !== undefined
+          ? { text }
+          : automateDraft?.text !== undefined
+            ? { text: automateDraft.text }
+            : {}),
+      },
+    });
   }
 
   // The field grows with its text, an option tap, a restored draft and Undo
@@ -727,6 +884,11 @@ function ReplyAskCard({
 
   // A rewrite is pending: the banner takes the place of the reply area.
   const rewriting = entry.simplifyRequestedAt !== undefined;
+  // "... and automate" only where the agent could decide asks like this
+  // alone (automateOffered), and not while a rewrite is pending. While the
+  // section is open, its button is the card's one send.
+  const automateShown = !noAgent && !rewriting && automateOffered(entry);
+  const automateOpen = automateShown && automateDraft?.open === true;
 
   // Cite (task ad4b51ac): a selection inside the prompt shows the chat's
   // Cite pill (AskCitePill). It puts the selection into the agent's chat
@@ -774,7 +936,18 @@ function ReplyAskCard({
     if (e.key !== "Enter" || touchPrimary || e.nativeEvent.isComposing) return;
     if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     e.preventDefault();
+    // The automate section's button is the one send while it is open.
+    if (automateOpen) return;
     e.currentTarget.form?.requestSubmit();
+  }
+
+  // Enter in the automate box sends with automate, as the field's Enter.
+  function onAutomateKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key !== "Enter" || touchPrimary || e.nativeEvent.isComposing) return;
+    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    if (automateSendOff) return;
+    sendTagged(reply, automateWords);
   }
 
   // fetch() is reached in the same task as the call: a page event must start
@@ -824,24 +997,26 @@ function ReplyAskCard({
 
   // The field with its tag: the answer the send button names. Not while an
   // OpenAI clip records or transcribes, as answer.
-  function sendTagged(text: string = reply) {
+  // `automate`: the automate box's words, with "... and automate".
+  function sendTagged(text: string = reply, automate?: string) {
     if (voiceHolds) return;
-    commitTagged(text);
+    commitTagged(text, automate);
   }
 
   // A spoken submit sends from inside the clip's end.
-  function commitTagged(text: string) {
+  function commitTagged(text: string, automate?: string) {
     if (tag === "rewrite") {
-      void rewrite(text);
+      void rewrite(text, automate);
       return;
     }
     commit(
       tag === null ? "reply" : tag === "postpone" ? "postpone" : "dismiss",
       text,
+      automate,
     );
   }
 
-  function commit(kind: AnswerKind, text: string) {
+  function commit(kind: AnswerKind, text: string, automate?: string) {
     if (sending.current) return;
     if (kind === "reply" && text.trim() === "") return;
     // The browser recognizer stops and drops its pending words, which would
@@ -849,16 +1024,19 @@ function ReplyAskCard({
     voice.stop(true);
     sending.current = true;
     setReplaced(null);
+    setAutomateReplaced(null);
     dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
     // The field goes with a tag as it is; blank is no words.
     const reason = kind === "reply" || text.trim() === "" ? null : text;
+    const withAutomate = automate !== undefined ? { automate } : {};
     const body: AnswerBody =
       kind === "reply"
-        ? { text, ...(device ? { device } : {}) }
+        ? { text, ...(device ? { device } : {}), ...withAutomate }
         : {
             ...(reason !== null ? { text: reason } : {}),
             ...(device ? { device } : {}),
+            ...withAutomate,
           };
     if (undoMs === undefined) {
       setBusy(true);
@@ -868,6 +1046,7 @@ function ReplyAskCard({
     const pending: HeldAnswer = {
       kind,
       shown: kind === "reply" ? text : reason,
+      automate: automate !== undefined,
       body,
       timer: setTimeout(() => flushRef.current(false), undoMs),
     };
@@ -880,7 +1059,7 @@ function ReplyAskCard({
   // it is blank. Sent at once, with no Undo hold: the ask stays, the pushed
   // ask brings the pending banner (with its own Undo), and later the
   // rewrite. Once sent, the field and its tag start again.
-  async function rewrite(text: string) {
+  async function rewrite(text: string, automate?: string) {
     if (simplifying || sending.current) return;
     setSimplifying(true);
     setSimplifyError(null);
@@ -889,12 +1068,19 @@ function ReplyAskCard({
     const body: AskRewriteReq = {
       ...(text.trim() !== "" ? { text } : {}),
       ...(device ? { device } : {}),
+      ...(automate !== undefined ? { automate } : {}),
     };
     try {
       await apiFetch("POST", `/api/asks/${entry.id}/rewrite`, body);
       dispatch({ type: "set_ask_draft", askId: entry.id, text: null });
       dispatch({ type: "set_ask_tag", askId: entry.id, tag: undefined });
       setReplaced(null);
+      setAutomateReplaced(null);
+      dispatch({
+        type: "set_ask_automate",
+        askId: entry.id,
+        automate: undefined,
+      });
     } catch (err) {
       setSimplifyError(
         err instanceof ApiError ? sendFailureText(t, err) : String(err),
@@ -1072,6 +1258,12 @@ function ReplyAskCard({
                 : shown === null
                   ? t("asks.filedAsTaskPending")
                   : rich("asks.filedAsTaskPendingNote", { note: shown })}
+          {held.automate && (
+            <span data-ask-pending-automate="">
+              {" · "}
+              {t("asks.automate.held")}
+            </span>
+          )}
         </span>
         <button
           type="button"
@@ -1113,6 +1305,11 @@ function ReplyAskCard({
   );
   // The answer the send button names: Reply, or the tag on the field.
   const sendKind = tag ?? "reply";
+  // The automate send: the card's answer, as the send button's rule.
+  const automateSendOff =
+    answerOff ||
+    (tag === "rewrite" && simplifying) ||
+    (tag === null && reply.trim() === "");
   // The send button and Discuss in chat: one group that wraps, under the
   // field, which takes the card's width. Reply needs words; a tag does not.
   const replyButtons = (
@@ -1120,11 +1317,7 @@ function ReplyAskCard({
       <button
         type="submit"
         data-ask-send={sendKind}
-        disabled={
-          answerOff ||
-          (tag === "rewrite" && simplifying) ||
-          (tag === null && reply.trim() === "")
-        }
+        disabled={automateOpen || automateSendOff}
         style={{
           padding: buttonPad,
           borderRadius: 8,
@@ -1139,6 +1332,21 @@ function ReplyAskCard({
       >
         {tag === null ? t("asks.reply") : t(TAG_LABEL[tag])}
       </button>
+      {automateShown && (
+        <button
+          type="button"
+          data-ask-automate-open={sendKind}
+          aria-expanded={automateOpen}
+          disabled={automateOpen || busy}
+          onClick={() => setAutomate(true)}
+          style={{
+            ...secondaryButton,
+            ...(automateOpen ? { opacity: 0.55, cursor: "default" } : {}),
+          }}
+        >
+          {t(AUTOMATE_LABEL[sendKind])}
+        </button>
+      )}
       <AskAboutButton
         entry={entry}
         style={secondaryButton}
@@ -1157,7 +1365,7 @@ function ReplyAskCard({
       style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
     >
       {offered.map((name) => {
-        const sends = tag === name;
+        const sends = !automateOpen && tag === name;
         const recommended = name === recommendedTag;
         return (
           <button
@@ -1562,7 +1770,8 @@ function ReplyAskCard({
           {entry.options.map((option, i) => {
             const recommended = option === entry.recommended;
             // Options come trimmed from the server, and no two are the same.
-            const sends = reply.trim() === option;
+            // None sends while the automate section is open.
+            const sends = !automateOpen && reply.trim() === option;
             const marks = {
               "data-ask-option": "",
               ...(sends ? { "data-ask-option-sends": "" } : {}),
@@ -1628,7 +1837,7 @@ function ReplyAskCard({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            sendTagged();
+            if (!automateOpen) sendTagged();
           }}
           style={{
             display: "flex",
@@ -1822,37 +2031,11 @@ function ReplyAskCard({
             )}
           </div>
           {replacedShown && (
-            <div
-              data-ask-replaced=""
-              style={{
-                display: "flex",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: 6,
-                color: "var(--text-dim)",
-                fontSize: isMobile ? 12 : 11,
-              }}
-            >
-              {t("asks.textReplaced")}
-              <button
-                type="button"
-                data-ask-replaced-undo=""
-                disabled={busy}
-                onClick={undoReplace}
-                style={{
-                  padding: 0,
-                  border: "none",
-                  background: "none",
-                  color: "var(--accent-text)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: "inherit",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {t("asks.undo")}
-              </button>
-            </div>
+            <ReplacedLine
+              disabled={busy}
+              isMobile={isMobile}
+              onUndo={undoReplace}
+            />
           )}
           {tag === "rewrite" && (
             <div
@@ -1864,6 +2047,134 @@ function ReplyAskCard({
           )}
           {replyButtons}
         </form>
+      )}
+      {/* "... and automate" (task 33891b5b): under the bottom row, with
+          its own box and the one send while open. */}
+      {automateOpen && (
+        <div
+          data-ask-automate=""
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: "1px dashed var(--border-light)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                color: "var(--text-dim)",
+                fontSize: isMobile ? 12 : 11,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              {t("asks.automate.title")}
+            </span>
+            <NoticeCloseButton
+              type="button"
+              data-ask-automate-close=""
+              aria-label={t("asks.automate.close")}
+              title={t("asks.automate.close")}
+              onClick={() => setAutomate(false)}
+            />
+          </div>
+          <div
+            style={{
+              color: "var(--text-dim)",
+              fontSize: isMobile ? 13 : 12,
+              lineHeight: 1.45,
+            }}
+          >
+            {t("asks.automate.guide")}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {AUTOMATE_SUGGESTIONS.map(({ name, label }) => (
+              <button
+                key={name}
+                type="button"
+                data-ask-automate-suggestion={name}
+                disabled={answerOff}
+                onClick={() => replaceAutomateWords(t(label))}
+                style={{
+                  padding: isMobile ? "4px 9px" : "2px 8px",
+                  borderRadius: 4,
+                  border: "1px solid var(--accent-text)",
+                  background: "var(--accent-bg)",
+                  color: "var(--accent-text)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: isMobile ? 13 : 11,
+                  cursor: "pointer",
+                }}
+              >
+                {t(label)}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={automateWords}
+            rows={2}
+            disabled={busy}
+            data-ask-automate-input=""
+            aria-label={t("asks.automate.box")}
+            onChange={(e) => {
+              // Typing ends the Undo line of a replacing tap.
+              setAutomateReplaced(null);
+              setAutomate(true, e.target.value);
+            }}
+            onKeyDown={onAutomateKeyDown}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: isMobile ? "8px 10px" : "5px 10px",
+              background: "var(--bg-input)",
+              border: "1px solid var(--border-light)",
+              borderRadius: 8,
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-ui)",
+              fontSize,
+              lineHeight: 1.5,
+              resize: "vertical",
+            }}
+          />
+          {automateReplacedShown && (
+            <ReplacedLine
+              automate
+              disabled={busy}
+              isMobile={isMobile}
+              onUndo={undoAutomateReplace}
+            />
+          )}
+          <div>
+            <button
+              type="button"
+              data-ask-automate-send={sendKind}
+              disabled={automateSendOff}
+              onClick={() => sendTagged(reply, automateWords)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: buttonPad,
+                borderRadius: 8,
+                border: "none",
+                background: "var(--accent-text)",
+                color: "var(--bg-base)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {t(AUTOMATE_LABEL[sendKind])}
+              <OptionMark sends size={isMobile ? 14 : 12} />
+            </button>
+          </div>
+        </div>
       )}
       {failure && (
         <div

@@ -128,7 +128,31 @@ export type ActionStepRequest =
   | MessagingRouteStep
   // The ages of the daily automatic log cleanup (task 2ff2729f), as
   // PUT /api/storage/retention takes them: each key set to its value.
-  | { kind: "storage-retention"; set: StorageRetentionSet };
+  | { kind: "storage-retention"; set: StorageRetentionSet }
+  // One line added to an agent's, a room's or a member's instructions
+  // (task 33891b5b): the rule a member agreed after an "... and automate"
+  // answer. The agent sends scope and line; the server stores the target at
+  // create (the asking agent, its room or its manager), so the step does
+  // not move with the agent. The one step an agent's edit may replace.
+  | InstructionsLineStep;
+
+export type InstructionsScope = "agent" | "room" | "member";
+
+export interface InstructionsLineStep {
+  kind: "instructions-line";
+  scope: InstructionsScope;
+  line: string;
+  // The agent id, room id or member user id, by scope.
+  targetId: string;
+}
+
+// The body of POST /api/asks/:askId/action for an instructions-line step:
+// the scope and the line as the card shows them, so an agent's edit after
+// the card drew the step is refused (409 step_changed).
+export interface InstructionsLineStepRun {
+  scope: InstructionsScope;
+  line: string;
+}
 
 export type MessagingRouteStep =
   | {
@@ -198,6 +222,7 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "discord-route",
   "messaging-route",
   "storage-retention",
+  "instructions-line",
 ]);
 
 // Whether a step is one the member runs from the card.

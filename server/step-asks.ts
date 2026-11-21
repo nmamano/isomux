@@ -28,6 +28,9 @@ import {
   type ActionStepRequest,
   type AskEntry,
   type AskStep,
+  type InstructionsLineStep,
+  type InstructionsLineStepRun,
+  type InstructionsScope,
   type MemberViewList,
   type ProviderAccountProvider,
   type ProviderAccountScope,
@@ -50,7 +53,8 @@ import {
   type VoiceName,
   type VoiceOutput,
 } from "../shared/voice.ts";
-import type { AskStore } from "./asks.ts";
+import { ASK_RULE_LINE_MAX, type AskStore } from "./asks.ts";
+import { isRunnableCommand } from "../shared/runnable-command.ts";
 import { backupSettingsShapeError } from "./backup.ts";
 import { hostedAccessRule } from "./install-kind.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
@@ -163,6 +167,12 @@ export interface StepRunDeps {
   logRetention(): { compressAfterDays: number; deleteAfterDays: number | null };
   // The room's name, or null when there is no such room.
   roomName(roomId: string): string | null;
+  // The instructions of an agent, a room or a member now (task 33891b5b),
+  // with the version a write must carry; null when the target is gone.
+  instructions(
+    scope: InstructionsScope,
+    targetId: string,
+  ): { text: string | null; version: string } | null;
   // The id of the member with this username, or null.
   memberIdByName(username: string): string | null;
   // Whether the room is open now: the lobby or a live room.
@@ -350,6 +360,8 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   ],
   "messaging-route": ["kind", "routeId", "set"],
   "storage-retention": ["kind", "set"],
+  // The server fills targetId (task 33891b5b).
+  "instructions-line": ["kind", "scope", "line"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -373,6 +385,36 @@ const notAllowed = (message: string): StepFailure => ({
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
+
+// An instructions-line step's text (task 33891b5b), as the scope's
+// instructions hold it, and the text with the line added at its end, on its
+// own line. A line is in the text when one of its lines, trimmed, is it.
+function holdsLine(text: string | null, line: string): boolean {
+  const want = line.trim();
+  return (text ?? "").split("\n").some((l) => l.trim() === want);
+}
+function withLine(text: string | null, line: string): string {
+  const now = text ?? "";
+  if (now === "") return line;
+  return now.endsWith("\n") ? `${now}${line}` : `${now}\n${line}`;
+}
+// Why a line cannot be an instructions line, or null: it goes verbatim into
+// a system prompt, so one line that shows all it holds.
+function lineRefusal(line: unknown): string | null {
+  if (typeof line !== "string" || line.trim() === "")
+    return "step.line is the line to add";
+  if (line.includes("\n")) return "step.line is one line";
+  if (line.length > ASK_RULE_LINE_MAX)
+    return `step.line is at most ${ASK_RULE_LINE_MAX} characters`;
+  if (!isRunnableCommand(line))
+    return "step.line has characters that do not show";
+  return null;
+}
+const INSTRUCTIONS_SCOPES: readonly InstructionsScope[] = [
+  "agent",
+  "room",
+  "member",
+];
 
 const isKnownKind = (kind: unknown): kind is AskStep["kind"] =>
   typeof kind === "string" && Object.hasOwn(STEP_KEYS, kind);
@@ -473,6 +515,8 @@ function doneLine(step: AskStep, target: string): LogMessage {
       });
     case "storage-retention":
       return msg("systemEntries.stepAsk.storageRetentionSet");
+    case "instructions-line":
+      return msg("systemEntries.stepAsk.instructionsLineAdded");
   }
 }
 
@@ -947,6 +991,11 @@ export function createStepAsks(deps: StepAskDeps) {
         const now = deps.runs?.logRetention();
         return !!now && allSet(step.set, now);
       }
+      case "instructions-line":
+        return holdsLine(
+          deps.runs?.instructions(step.scope, step.targetId)?.text ?? null,
+          step.line,
+        );
     }
   }
 
@@ -1174,6 +1223,43 @@ export function createStepAsks(deps: StepAskDeps) {
   // last.
   // A whatsapp-route step runs on the chat the member picked: `pick` is the
   // body of the Apply, {chat}.
+  // The one PUT that adds an instructions line, with the version read now:
+  // a write between this read and the PUT is the route's own 409.
+  function instructionsRoute(step: InstructionsLineStep): StepRun {
+    const runs = deps.runs;
+    const now = runs?.instructions(step.scope, step.targetId);
+    const name =
+      step.scope === "member" ? runs?.member(step.targetId)?.name : undefined;
+    const path =
+      step.scope === "agent"
+        ? `/api/agents/${encodeURIComponent(step.targetId)}/instructions`
+        : step.scope === "room"
+          ? `/api/rooms/${encodeURIComponent(step.targetId)}/instructions`
+          : name
+            ? `/api/users/${encodeURIComponent(name)}/instructions`
+            : null;
+    if (!runs || !now || !path)
+      return {
+        ok: false,
+        status: 422,
+        code: "unknown_target",
+        message: "these instructions are gone",
+      };
+    return {
+      ok: true,
+      routes: [
+        {
+          method: "PUT",
+          path,
+          body: {
+            instructions: withLine(now.text, step.line),
+            version: now.version,
+          },
+        },
+      ],
+    };
+  }
+
   function routeOf(
     step: AskStep,
     memberUserId: string,
@@ -1508,6 +1594,22 @@ export function createStepAsks(deps: StepAskDeps) {
             { method: "PUT", path: "/api/storage/retention", body: step.set },
           ],
         };
+      // The scope and the line the card showed (InstructionsLineStepRun): an
+      // agent's edit since then refuses the Apply, so only the line the
+      // member saw is written.
+      case "instructions-line": {
+        const run = (
+          isObject(pick) ? pick : {}
+        ) as Partial<InstructionsLineStepRun>;
+        if (run.scope !== step.scope || run.line !== step.line)
+          return {
+            ok: false,
+            status: 409,
+            code: "step_changed",
+            message: "The agent changed this rule. Read it again.",
+          };
+        return instructionsRoute(step);
+      }
       default:
         return null;
     }
@@ -1581,6 +1683,7 @@ export function createStepAsks(deps: StepAskDeps) {
   // The step as the agent sent it, completed, or why it is refused.
   function complete(input: {
     step: unknown;
+    agentId?: string;
     roomId: string;
     managerUserId: string | null;
     memberUserId: string;
@@ -1600,7 +1703,8 @@ export function createStepAsks(deps: StepAskDeps) {
     if (
       kind !== "browser-pairing" &&
       kind !== "github-link" &&
-      kind !== "discord-route"
+      kind !== "discord-route" &&
+      kind !== "instructions-line"
     )
       if (scope !== "personal" && scope !== "office")
         return invalid("step.scope is personal or office");
@@ -2046,6 +2150,33 @@ export function createStepAsks(deps: StepAskDeps) {
         if (bad) return invalid(`step.set: ${bad}`);
         return { ok: true, step: { kind, set } };
       }
+      // The target is the asking agent's own: itself, its room or its
+      // manager, fixed here (task 33891b5b).
+      case "instructions-line": {
+        const scope = body.scope as InstructionsScope;
+        if (!INSTRUCTIONS_SCOPES.includes(scope))
+          return invalid(
+            `step.scope is one of ${INSTRUCTIONS_SCOPES.join(", ")}`,
+          );
+        const bad = lineRefusal(body.line);
+        if (bad) return invalid(bad);
+        const targetId =
+          scope === "agent"
+            ? input.agentId
+            : scope === "room"
+              ? input.roomId
+              : managerUserId;
+        if (!targetId)
+          return invalid(
+            scope === "member"
+              ? "this agent has no manager"
+              : "a step the member runs needs the asking agent",
+          );
+        return {
+          ok: true,
+          step: { kind, scope, line: body.line as string, targetId },
+        };
+      }
       case "member-room":
       case "member-role": {
         if (typeof body.username !== "string" || body.username === "")
@@ -2478,6 +2609,13 @@ export function createStepAsks(deps: StepAskDeps) {
               "only an office owner can change the automatic cleanup settings",
             )
           : null;
+      case "instructions-line": {
+        const route = instructionsRoute(step);
+        if (!route.ok) return route;
+        return runs.authorizeAs(memberUserId, route.routes[0])
+          ? notAllowed("this member cannot change these instructions")
+          : null;
+      }
     }
   }
 
