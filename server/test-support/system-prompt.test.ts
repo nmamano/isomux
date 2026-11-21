@@ -38,6 +38,7 @@ import {
   setProcessIsolationSwitch,
 } from "../process-isolation-state.ts";
 import type { CodexSandboxMode } from "../../shared/types.ts";
+import { BACK_SEAT_BASE, DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import { AGENT_ACCESS_STOPS } from "../../shared/agent-access.ts";
 import { NO_UPDATE } from "../../shared/no-update.ts";
 
@@ -459,6 +460,10 @@ describe("spawning steer", () => {
         );
         expect(memberAsks.length).toBeGreaterThan(0);
         for (const s of memberAsks) expect(s).not.toMatch(/back room|worker/);
+        // ...and it goes to a front desk, where the member sees it.
+        expect(memberAsks.filter((s) => /\bfront desk\b/.test(s))).toEqual(
+          memberAsks,
+        );
       }
     }
   });
@@ -506,6 +511,43 @@ describe("spawning steer", () => {
       sentences(page).some(
         (s) => /\bprivileged agent\b/.test(s) && /\bkills\b/.test(s),
       ),
+    ).toBe(true);
+  });
+});
+
+describe("spawning a member's agent", () => {
+  it("seats it at a front desk and says what to do when the front is full", () => {
+    const identity: Identity = {
+      scope: "agent",
+      agentId: "a1",
+      userId: "u1",
+      role: "member",
+      capabilities: AGENT_CAPABILITIES,
+    };
+    const page = agentReferenceContent(identity, "spawning") ?? "";
+    const paragraphs = page.split("\n\n");
+    // One paragraph for the agent a member asks for: it names the member and
+    // a desk value to send. It is not the delegated-worker paragraph.
+    const own = paragraphs.filter(
+      (p) => /\bmember\b/.test(p) && /`desk: \d+`/.test(p),
+    );
+    expect(own).toHaveLength(1);
+    const p = own[0];
+    expect(p).not.toMatch(/\bsubagents\b/);
+    expect(p).toMatch(/\bfront desk\b/);
+    // The desk it sends is a front desk, which the server falls through from
+    // when taken (shared/back-room.test.ts pins the fall-through).
+    const desk = Number(/`desk: (\d+)`/.exec(p)![1]);
+    expect({ desk, front: desk < DESK_COUNT && !isBackSeat(desk) }).toEqual({
+      desk,
+      front: true,
+    });
+    // A full front: the response's desk shows a back seat (the first back
+    // seat number), the agent is in the back room, and the member is told.
+    expect(p).toMatch(new RegExp(`\\b${BACK_SEAT_BASE}\\b`));
+    expect(p).toMatch(/\bback room\b/);
+    expect(
+      p.split(/(?<=[.:])\s+/).some((s) => /\btell\b[^.]*\bmember\b/i.test(s)),
     ).toBe(true);
   });
 });

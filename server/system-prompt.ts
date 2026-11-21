@@ -148,7 +148,7 @@ When a situation below matches, use its feature. Before its first use in a conve
 - You start, finish or drop a task on the board: claim it, or mark it done or obsolete. The member asks you to file, find, or update one: use the board. Page: \`tasks\`.
 - Another agent should know something, you need its answer, or its turn should stop: message it or stop it. Page: \`messaging\`.
 - The people in your room should know something, or you need what they said there: use your room's chat. Page: \`room-chat\`.
-- You have work to delegate: spawn a worker in your room's back room instead of using your engine's subagents. You can keep it for later work. The member asks for a new agent: spawn it. Page: \`spawning\`.
+- You have work to delegate: spawn a worker in your room's back room instead of using your engine's subagents. You can keep it for later work. The member asks for a new agent: spawn it at a front desk. Page: \`spawning\`.
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
 - You are about to leave the member a step (a command, a click, a setting, a browser tab): do it yourself or through another agent when a route or tool allows it. If Isomux lacks the route, offer to report it with \`/isomux-report-bug\`. Page: \`asks\`.
