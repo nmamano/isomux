@@ -1,14 +1,15 @@
 // "... and automate" on the ask card (task 33891b5b). Under the box, a button
 // named after what the card sends ("<Reply|tag> and automate") opens a
 // section with a guide, a second box (the agent's automateText while
-// untouched) and one send button named like the opener. While it is open the
-// opener is gone (task d5e10d03: two buttons with one name) and nothing else
-// sends: not the first send button, not a tag, not an option, not Enter in
-// the first box. Its button sends the card's answer to the same route with
-// `automate` (the second box; "" when blank). The section's × closes it,
-// keeps its words and brings the opener back. Focus follows: into the box on
-// open (not on a touch screen, where the keyboard would move the card), onto
-// the opener on ×. Not offered on asks the agent can never decide alone.
+// untouched) and one send button named like the opener. While it is open
+// nothing else sends: not the first send button, not a tag, not an option,
+// not Enter in the first box. The opener and the first send button stay,
+// disabled and faded the same way (task 62b4c430, Nil's sign-off call). Its
+// button sends the card's answer to the same route with `automate` (the
+// second box; "" when blank). The section's × closes it, keeps its words and
+// enables both buttons again. Focus follows: into the box on open (not on a
+// touch screen, where the keyboard would move the card), onto the opener on
+// ×. Not offered on asks the agent can never decide alone.
 //
 // Hooks: [data-ask-automate-open=<kind>] (the bottom row button),
 // [data-ask-automate] (the section), [data-ask-automate-close],
@@ -329,30 +330,54 @@ it("sends each tag to its own route with automate", async () => {
   }
 });
 
-it("while the section is open the opener is gone and focus is in the box; × closes it, keeps its words and brings the opener back with focus; the send button works again", async () => {
+// The faded look as a scalar: the inline opacity when it is below 1, else
+// null.
+const faded = (el: HTMLElement) => {
+  const opacity = el.style.opacity;
+  return opacity !== "" && Number(opacity) < 1 ? opacity : null;
+};
+
+it("while the section is open the opener and the send button stay, disabled and faded the same way, and focus is in the box; × closes it, keeps its words, enables both and focuses the opener", async () => {
   const id = "auto0007";
   const view = await stack(ask(id));
   const root = view.container;
   await type(input(root, id), "Ship now");
   expect(focused()).not.toBe("box");
+  // Closed: both usable and not faded.
+  expect([
+    opener(root, id)!.disabled,
+    opener(root, id)!.getAttribute("aria-expanded"),
+    faded(opener(root, id)!),
+    sendButton(root, id).disabled,
+    faded(sendButton(root, id)),
+  ]).toEqual([false, "false", null, false, null]);
   await click(opener(root, id)!);
   // Scalars only: a failed toEqual on a DOM node serialises it.
   expect([
     section(root, id) !== null,
     opener(root, id) !== null,
+    opener(root, id)?.disabled,
+    opener(root, id)?.getAttribute("aria-expanded"),
+    sendButton(root, id).disabled,
     focused(),
-  ]).toEqual([true, false, "box"]);
+  ]).toEqual([true, true, true, "true", true, "box"]);
+  // One faded look on both.
+  expect(faded(opener(root, id)!)).not.toBe(null);
+  expect(faded(sendButton(root, id))).toBe(faded(opener(root, id)!));
   await type(box(root, id)!, RULE);
   await click(q<HTMLButtonElement>(root, id, "[data-ask-automate-close]")!);
   expect([
     section(root, id) !== null,
-    opener(root, id) !== null,
+    opener(root, id)!.disabled,
+    opener(root, id)!.getAttribute("aria-expanded"),
+    faded(opener(root, id)!),
+    sendButton(root, id).disabled,
+    faded(sendButton(root, id)),
     focused(),
-  ]).toEqual([false, true, "opener"]);
-  expect(sendButton(root, id).disabled).toBe(false);
+  ]).toEqual([false, false, "false", null, false, null, "opener"]);
   await click(opener(root, id)!);
-  expect([opener(root, id) !== null, box(root, id)!.value]).toEqual([
-    false,
+  expect([opener(root, id)?.disabled, box(root, id)!.value]).toEqual([
+    true,
     RULE,
   ]);
   await click(q<HTMLButtonElement>(root, id, "[data-ask-automate-close]")!);

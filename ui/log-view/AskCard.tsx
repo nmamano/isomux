@@ -180,6 +180,11 @@ const AUTOMATE_LABEL: Record<AskTag | "reply", PlainMessageKey> = {
   postpone: "asks.automateAs.postpone",
   rewrite: "asks.automateAs.rewrite",
 };
+// While the section is open, the opener and the first send button are
+// disabled and faded. The fade is Nil's sign-off call (task 62b4c430): he
+// asked for this greyed look over disabledLook alone, which did not read as
+// disabled beside the section.
+const AUTOMATE_FADED: React.CSSProperties = { opacity: 0.55 };
 
 // A replacing tap's Undo (task 9d79a544): what the reply field held before
 // the first tap that erased the member's words, and what the taps left. A
@@ -606,7 +611,7 @@ function ReplyAskCard({
   const automateWords = automateDraft?.text ?? entry.automateText ?? "";
   // Focus follows the section: into its box when it opens (not on a touch
   // screen, where focus raises the keyboard), back to the opener when x
-  // closes it. Both buttons go away under the focus.
+  // closes it. The opener is disabled while the section is open.
   const automateBoxRef = useRef<HTMLTextAreaElement>(null);
   const automateOpenerRef = useRef<HTMLButtonElement>(null);
   const pendingAutomateFocus = useRef<"box" | "opener" | null>(null);
@@ -1298,21 +1303,26 @@ function ReplyAskCard({
           fontWeight: 600,
           cursor: "pointer",
           flexShrink: 0,
+          ...(automateOpen ? AUTOMATE_FADED : {}),
         }}
       >
         {tag === null ? t("asks.reply") : t(TAG_LABEL[tag])}
       </button>
-      {automateShown && !automateOpen && (
+      {automateShown && (
         <button
           ref={automateOpenerRef}
           type="button"
           data-ask-automate-open={sendKind}
-          disabled={busy}
+          aria-expanded={automateOpen}
+          disabled={automateOpen || busy}
           onClick={() => {
             if (!touchPrimary) pendingAutomateFocus.current = "box";
             setAutomate(true);
           }}
-          style={secondaryButton}
+          style={{
+            ...secondaryButton,
+            ...(automateOpen ? AUTOMATE_FADED : {}),
+          }}
         >
           {t(AUTOMATE_LABEL[sendKind])}
         </button>
