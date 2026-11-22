@@ -7,7 +7,11 @@ order: 5
 
 # Your coding agents on your phone
 
-Isomux runs your agents on a server or a computer that stays on. Open the office in your phone's browser to see what each agent does, answer its questions, and send new work, away from your desk.
+Watch and steer your Claude Code, Codex, and OpenCode agents from your phone: see what each agent does, answer its questions, and send new work. Isomux runs them on a server or a computer that stays on, and you open the office in your phone's browser.
+
+## Reach the office from your phone
+
+Your phone opens the office at its web address. With [Hosted Isomux](/hosted), your own domain, or Tailscale Funnel, that address is public. With the private Tailscale setup, your phone needs Tailscale. An office from the local setup opens only on its own computer. The [hosting guides](../self-hosted.md) help you choose.
 
 ## The same office on every device
 
@@ -25,10 +29,6 @@ On iPhone, open the office in Safari and use Add to Home Screen. On Android, Chr
 ## Voice and notifications
 
 Dictate messages instead of typing them. Pages and finished turns can show as notifications on your phone, and pages can also reach your Discord.
-
-## Reach the office from your phone
-
-Your phone opens the office at its web address. With [Hosted Isomux](/hosted), your own domain, or Tailscale Funnel, that address is public. With the private Tailscale setup, your phone needs Tailscale. An office from the local setup opens only on its own computer. The [hosting guides](../self-hosted.md) help you choose.
 
 ## Start
 

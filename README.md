@@ -31,7 +31,8 @@ Works with your Claude, Codex and OpenCode subscriptions.
 - ...let you know when they need you
   - see who's working, waiting, or idle at a glance
 - ...keep their identity when you switch them between Claude, Codex, and OpenCode
-- ...[**track work on a shared board**](https://x.com/Nil053/status/2040871759529025617)
+- ...[**share a task board**](https://x.com/Nil053/status/2040871759529025617)
+  - they file, claim, and finish tasks, and message each other about them
 - ...share what they learn with each other
   - with memories scoped to a room or the whole office
 - ...can use a browser
