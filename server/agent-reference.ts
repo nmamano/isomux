@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { compactReferenceTables } from "./agent-reference-size.ts";
 import type { Identity } from "./identity/index.ts";
 
 export const AGENT_REFERENCE_TOPICS = {
@@ -44,7 +45,7 @@ export const AGENT_REFERENCE_TOPICS = {
     "Only a member can make a change you need, such as an agent's access level",
   "ask-commands": "The member runs your ask's command from the card",
   "messaging-apps":
-    "Replies to the member's contacts in messaging apps, reading a WhatsApp chat routed to you, or you set up Discord for your manager",
+    "Replies to the member's contacts in messaging apps, or reading a WhatsApp chat routed to you",
   rescue:
     "The office may be under attack, or a member needs its content out: export or lock it",
   "browser-reads":
@@ -57,6 +58,10 @@ export const AGENT_REFERENCE_TOPICS = {
     "Only a member can route one of their WhatsApp chats or Discord places to an agent",
   "secret-exchange":
     "You use or ask for a secret that the proxy trades for a token (`exchange`)",
+  "discord-setup":
+    "You set up a Discord bot for your manager, or route its places to agents",
+  "ask-links":
+    "Your ask's button opens an office page or a page outside the office",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -81,6 +86,8 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "ask-steps": "asks",
   "route-asks": "asks",
   "secret-exchange": "connections",
+  "discord-setup": "messaging",
+  "ask-links": "asks",
 };
 
 // Pages only a privileged agent sees.
@@ -222,13 +229,13 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "messaging.reply": "messaging-apps",
   "messaging.read": "messaging-apps",
   "messaging.routes": "messaging-apps",
-  "discord.list": "messaging-apps",
-  "discord.disconnect": "messaging-apps",
-  "discord.guilds": "messaging-apps",
-  "discordRoutes.list": "messaging-apps",
-  "discordRoutes.create": "messaging-apps",
-  "discordRoutes.update": "messaging-apps",
-  "discordRoutes.delete": "messaging-apps",
+  "discord.list": "discord-setup",
+  "discord.disconnect": "discord-setup",
+  "discord.guilds": "discord-setup",
+  "discordRoutes.list": "discord-setup",
+  "discordRoutes.create": "discord-setup",
+  "discordRoutes.update": "discord-setup",
+  "discordRoutes.delete": "discord-setup",
   "pager.raise": "pager",
   "pager.list": "pager",
   "pager.get": "pager",
@@ -365,30 +372,6 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "voice.transcribe": "Human composer mic transport route.",
   "voice.speak": "Human read-aloud transport route.",
 } as const;
-
-// Prettier pads route tables to align their columns; an agent pays for that
-// padding in tokens. The served form drops it and keeps every cell's text.
-// A cell ends at an unescaped "|"; a separator row holds only "|", "-", ":"
-// and spaces. Lines in a ``` fence stay as they are.
-export function compactReferenceTables(markdown: string): string {
-  let fenced = false;
-  return markdown
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("```")) fenced = !fenced;
-      if (fenced || !line.startsWith("|")) return line;
-      const separator = /^[|:\- ]*$/.test(line) && line.includes("-");
-      const cells = line.split(/(?<!\\)\|/);
-      return cells
-        .map((cell, i) => {
-          if (i === 0 || i === cells.length - 1) return cell;
-          const trimmed = cell.replace(/ {2,}$/, " ");
-          return separator ? trimmed.replace(/-+/g, "---") : trimmed;
-        })
-        .join("|");
-    })
-    .join("\n");
-}
 
 const topicNames = Object.keys(AGENT_REFERENCE_TOPICS) as AgentReferenceTopic[];
 // The pages live under server/ so every package that ships the server ships

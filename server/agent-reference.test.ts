@@ -6,8 +6,12 @@ import {
   AGENT_REFERENCE_TOPICS,
   type AgentReferenceTopic,
   agentReferenceContent,
-  compactReferenceTables,
 } from "./agent-reference.ts";
+import {
+  AGENT_REFERENCE_PAGE_CAP,
+  AGENT_REFERENCE_WARN_AT,
+  compactReferenceTables,
+} from "./agent-reference-size.ts";
 import {
   AGENT_CAPABILITIES,
   API_CAPABILITIES,
@@ -104,10 +108,12 @@ describe("served reference pages", () => {
   // Task 215ae677: a page that grows past the cap is cut first, then split
   // into a sub-page. Raising the cap needs Nil.
   // Task 3e3b0f81 (Nil, 2026-11-15): warn at 90% of the cap. A page went from
-  // 79% to 99.7% in two days and no check said so. The warning does not fail.
+  // 79% to 99.7% in two days and no check said so. The warning does not fail
+  // here; the gate fails the diff that grows such a page (task f3858003,
+  // scripts/reference-headroom.ts).
   it("keeps every page at most 8 KB as an agent receives it", () => {
-    const cap = 8_192;
-    const warnAt = 0.9;
+    const cap = AGENT_REFERENCE_PAGE_CAP;
+    const warnAt = AGENT_REFERENCE_WARN_AT;
     const pages = topics.map((topic) => ({
       topic,
       bytes: Buffer.byteLength(agentReferenceContent(privileged, topic) ?? ""),

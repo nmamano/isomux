@@ -10,8 +10,8 @@ import {
   PRIVILEGED_REFERENCE_TOPICS,
   type AgentReferenceTopic,
   AGENT_REFERENCE_VERSION,
-  compactReferenceTables,
 } from "../agent-reference.ts";
+import { compactReferenceTables } from "../agent-reference-size.ts";
 import { getUserByName } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { appTokens } from "../app-tokens.ts";

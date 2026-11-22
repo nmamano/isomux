@@ -20,6 +20,10 @@ import {
 import { connect } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  AGENT_REFERENCE_PAGE_CAP,
+  AGENT_REFERENCE_WARN_AT,
+} from "../server/agent-reference-size.ts";
 
 const SCRIPT = join(import.meta.dir, "ci-remote.sh");
 const HOOK = join(import.meta.dir, "..", ".githooks", "pre-push");
@@ -27,6 +31,14 @@ const REMOTE_ROOT = ".cache/isomux-ci-remote";
 const TARGET = "ci@ci-box";
 /** The test selector and the files it imports, copied into each fixture. */
 const SELECTOR = ["gate-tests.ts", "test-shards.ts"];
+/**
+ * The agent reference headroom check and the one module it imports, copied
+ * into each fixture at the same paths (task f3858003).
+ */
+const HEADROOM = [
+  "scripts/reference-headroom.ts",
+  "server/agent-reference-size.ts",
+];
 /** What the stub ssh prints when it cannot connect. */
 const SSH_DOWN = "ssh: connect to host ci-box port 22: Connection timed out";
 
@@ -141,6 +153,9 @@ function local(remoteCode: number, localCode = 0, retry?: Retry): Local {
   mkdirSync(join(repo, "scripts"));
   for (const file of SELECTOR)
     copyFileSync(join(import.meta.dir, file), join(repo, "scripts", file));
+  mkdirSync(join(repo, "server"));
+  for (const file of HEADROOM)
+    copyFileSync(join(import.meta.dir, "..", file), join(repo, file));
   emptyWholeTreeTable(join(repo, "scripts", "gate-tests.ts"));
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "one");
@@ -207,10 +222,11 @@ if [[ $1 == bash && $2 == -s && ( $4 == --remote || $4 == --remote-gate ) ]]; th
 fi
 exec bash -c "$*"`,
   );
-  // The test selector runs on the real bun and is not a logged call.
+  // The test selector and the headroom check run on the real bun and are
+  // not logged calls.
   stub(
     join(bin, "bun"),
-    `if [[ $1 == */scripts/gate-tests.ts ]]; then exec "$REAL_BUN" "$@"; fi
+    `if [[ $1 == */scripts/gate-tests.ts || $1 == *scripts/reference-headroom.ts ]]; then exec "$REAL_BUN" "$@"; fi
 echo "$* $(git rev-parse HEAD)" >> "$FIX/bun.log"
 exit ${localCode}`,
   );
@@ -850,6 +866,157 @@ describe("ci-remote --gate, the tests the diff selects", () => {
     });
     expectFrame(r, head, 2);
     expect(r.out).toContain("selector-broke");
+    expect(f.sshCalls()).toEqual([]);
+  });
+});
+
+// --- gate mode: the agent reference headroom check --------------------------
+
+// The gate fails the diff that makes an agent reference page grow while it is
+// over 90% of the cap (scripts/reference-headroom.ts, task f3858003). The
+// verdict is local, so it holds whatever the remote says, and with no remote.
+/** The largest served size that is not over the share. */
+const SHARE_BYTES = Math.floor(
+  AGENT_REFERENCE_PAGE_CAP * AGENT_REFERENCE_WARN_AT,
+);
+const REF_PAGE = "server/agent-reference/headroom-probe.md";
+const refPage = (bytes: number) => "a".repeat(bytes - 1) + "\n";
+
+/** The page at `before` bytes on main, at `after` bytes on the lane. */
+function pageLane(
+  f: Local,
+  before: number,
+  after: number,
+): { base: string; head: string } {
+  gateCommit(f);
+  mkdirSync(join(f.repo, "server", "agent-reference"), { recursive: true });
+  writeFileSync(join(f.repo, REF_PAGE), refPage(before));
+  git(f.repo, "add", ".");
+  git(f.repo, "commit", "-qm", "page");
+  const base = git(f.repo, "rev-parse", "HEAD");
+  git(f.repo, "checkout", "-qb", "lane");
+  writeFileSync(join(f.repo, REF_PAGE), refPage(after));
+  git(f.repo, "commit", "-qam", "grow the page");
+  return { base, head: git(f.repo, "rev-parse", "HEAD") };
+}
+
+/** The output lines that name the probe page. */
+const pageLines = (out: string) =>
+  out.split("\n").filter((l) => l.includes("headroom-probe"));
+
+describe("ci-remote --gate, the agent reference headroom", () => {
+  it.each([
+    ["passes", 0],
+    ["fails", 1],
+    ["gives no verdict", 3],
+  ])(
+    "fails a page that grew over the share when the remote %s, and still runs the remote",
+    (_, remoteCode) => {
+      const f = local(remoteCode, 0);
+      const { head } = pageLane(f, SHARE_BYTES + 100, SHARE_BYTES + 150);
+      const r = f.run(["--gate"], { target: TARGET, merge: true });
+      expectFrame(r, head, 1);
+      expect(f.remoteRuns(), r.out).toHaveLength(1);
+      expect(f.bunCalls()).toEqual([]);
+      const flagged = pageLines(r.out);
+      expect(flagged, r.out).toHaveLength(1);
+      expect(flagged[0]).toContain(String(SHARE_BYTES + 100));
+      expect(flagged[0]).toContain(String(SHARE_BYTES + 150));
+    },
+  );
+
+  // The check runs before the gate looks for a remote.
+  it("fails a page that grew over the share when no remote is set", () => {
+    const f = local(0, 0);
+    const { head } = pageLane(f, SHARE_BYTES - 500, SHARE_BYTES + 1);
+    const r = f.run(["--gate"], { merge: true });
+    expectFrame(r, head, 1);
+    expect(f.sshCalls()).toEqual([]);
+    expect(pageLines(r.out), r.out).toHaveLength(1);
+  });
+
+  it.each([
+    ["passes", 0],
+    ["fails", 1],
+    ["gives no verdict", 3],
+  ])(
+    "keeps the remote's code when the remote %s and the changed page passes",
+    (_, remoteCode) => {
+      const f = local(remoteCode, 0);
+      // Over the share and shrunk: the page passes.
+      const { head } = pageLane(f, SHARE_BYTES + 150, SHARE_BYTES + 100);
+      const r = f.run(["--gate"], { target: TARGET, merge: true });
+      expectFrame(r, head, remoteCode);
+      expect(f.remoteRuns(), r.out).toHaveLength(1);
+      expect(pageLines(r.out), r.out).toEqual([]);
+    },
+  );
+
+  // The base is the merge base with main, not main's tip: main cut the page
+  // after the lane left it, and the lane did not touch the page.
+  it("diffs from the merge base, so a cut on main does not fail the lane", () => {
+    const f = local(0);
+    gateCommit(f);
+    mkdirSync(join(f.repo, "server", "agent-reference"), { recursive: true });
+    writeFileSync(join(f.repo, REF_PAGE), refPage(SHARE_BYTES + 300));
+    git(f.repo, "add", ".");
+    git(f.repo, "commit", "-qm", "page");
+    git(f.repo, "checkout", "-qb", "lane");
+    writeFileSync(join(f.repo, "f.txt"), "lane\n");
+    git(f.repo, "commit", "-qam", "lane change");
+    const head = git(f.repo, "rev-parse", "HEAD");
+    git(f.repo, "checkout", "-q", "main");
+    writeFileSync(join(f.repo, REF_PAGE), refPage(2_000));
+    git(f.repo, "commit", "-qam", "cut the page on main");
+    git(f.repo, "checkout", "-q", "lane");
+    const r = f.run(["--gate"], { target: TARGET, merge: true });
+    expectFrame(r, head, 0);
+    expect(pageLines(r.out), r.out).toEqual([]);
+  });
+
+  // A check that cannot run must not turn into a gate that checks less. An
+  // exit other than 0 (pass) or 1 (a page failed) is a broken check.
+  it("refuses, sending nothing, when the headroom check exits with another code", () => {
+    const f = local(0);
+    pageLane(f, SHARE_BYTES + 100, SHARE_BYTES + 101);
+    writeFileSync(
+      join(f.repo, "scripts", "reference-headroom.ts"),
+      'console.log("headroom-broke");\nprocess.exit(7);\n',
+    );
+    git(f.repo, "commit", "-qam", "break the check");
+    const head = git(f.repo, "rev-parse", "HEAD");
+    const r = f.run(["--gate"], { target: TARGET, merge: true });
+    expectFrame(r, head, 2);
+    expect(r.out).toContain("headroom-broke");
+    expect(f.sshCalls()).toEqual([]);
+  });
+
+  // bun exits 1 on an uncaught throw, the same code as a failed page: the
+  // gate cannot tell them apart, but it must fail, and show the error.
+  it("fails, and shows the error, when the headroom check throws", () => {
+    const f = local(0);
+    pageLane(f, SHARE_BYTES + 100, SHARE_BYTES + 101);
+    writeFileSync(
+      join(f.repo, "scripts", "reference-headroom.ts"),
+      'throw new Error("headroom-threw");\n',
+    );
+    git(f.repo, "commit", "-qam", "break the check");
+    const head = git(f.repo, "rev-parse", "HEAD");
+    const r = f.run(["--gate"], { target: TARGET, merge: true });
+    const lines = r.out.trimEnd().split("\n");
+    expect(lines[0], r.out).toBe(head);
+    expect(["exit=1", "exit=2"], r.out).toContain(lines.at(-1)!);
+    expect(r.out).toContain("headroom-threw");
+  });
+
+  it("refuses, sending nothing, when the headroom check is missing", () => {
+    const f = local(0);
+    pageLane(f, SHARE_BYTES + 100, SHARE_BYTES + 101);
+    git(f.repo, "rm", "-q", "scripts/reference-headroom.ts");
+    git(f.repo, "commit", "-qm", "drop the check");
+    const head = git(f.repo, "rev-parse", "HEAD");
+    const r = f.run(["--gate"], { target: TARGET, merge: true });
+    expectFrame(r, head, 2);
     expect(f.sshCalls()).toEqual([]);
   });
 });

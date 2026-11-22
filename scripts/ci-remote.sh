@@ -28,7 +28,10 @@
 # build:ui` and `bun test` on them, for the committed HEAD of this checkout,
 # on the same remote. The tests are the ones scripts/gate-tests.ts selects
 # from the diff since main, plus the paths given; it also runs `bun run
-# ci:web` when the diff can break control-plane/web. It writes no file here:
+# ci:web` when the diff can break control-plane/web. Before it sends anything,
+# it runs scripts/reference-headroom.ts here: an agent reference page over 90%
+# of its cap that the diff makes grow gives exit 1, whatever the remote says.
+# It writes no file here:
 # the caller redirects its output. The first line is the commit's sha and the
 # last is exit=<n>: 0 green, 1 red, 2 refused (nothing was sent), 3 no
 # verdict. A step stopped by a signal or out of memory gives 3, unless another
@@ -214,8 +217,11 @@ gate_main() {
   sha=$(git rev-parse --verify --quiet "HEAD^{commit}") || sha=$NULL_SHA
   echo "$sha"
   GATE_NOT_RUN=()
+  GATE_HEADROOM=0
   gate_run "$sha" "$@"
   status=$?
+  # The headroom verdict is local: it holds whatever the remote said.
+  ((status != 2 && GATE_HEADROOM == 1)) && status=1
   if ((${#GATE_NOT_RUN[@]} > 0)); then
     echo "! not run here: the diff selects control-plane tests, which need Postgres on $PG_PORT; run them here:"
     echo "  bun test ${GATE_NOT_RUN[*]}"
@@ -326,6 +332,24 @@ gate_run() {
   else
     echo "→ the diff from $base selects ${#selected[@]} test files${GATE_WEB:+ and bun run ci:web}"
     for line in "${selected[@]}"; do echo "  $line"; done
+    # An agent reference page over 90% of its cap must not grow (task
+    # f3858003). It runs before the remote, so no remote still fails it.
+    local headroom=$top/scripts/reference-headroom.ts
+    if [[ ! -f $headroom ]]; then
+      echo "✗ $headroom is missing: the gate cannot check the reference pages"
+      return 2
+    fi
+    out=$(cd "$top" && bun "$headroom" "$base" 2>&1)
+    status=$?
+    [[ -z $out ]] || echo "$out"
+    case $status in
+      0) ;;
+      1) GATE_HEADROOM=1 ;;
+      *)
+        echo "✗ the reference headroom check failed (exit $status)"
+        return 2
+        ;;
+    esac
   fi
   TARGET=$(git config --get isomux.ciRemote)
   if [[ -z $TARGET ]]; then

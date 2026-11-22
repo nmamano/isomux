@@ -142,14 +142,15 @@ describe("the one-ask link", () => {
   });
 });
 
-// The asks reference lists the accepted values for agents to read before
-// their first call. Every backticked office path in it is one of them, and
-// none is missing, so a new page or tab cannot leave the page stale. It also
-// shows the agent form, and leaves out the old paths kept as aliases.
-describe("the asks reference", () => {
+// The ask-links reference page (split from asks, task f3858003) lists the
+// accepted values for agents to read before their first call. Every
+// backticked office path in it is one of them, and none is missing, so a new
+// page or tab cannot leave the page stale. It also shows the agent form, and
+// leaves out the old paths kept as aliases.
+describe("the ask-links reference", () => {
   it("lists exactly the office links, the agent form and the ask form", () => {
     const page = readFileSync(
-      join(import.meta.dir, "../server/agent-reference/asks.md"),
+      join(import.meta.dir, "../server/agent-reference/ask-links.md"),
       "utf-8",
     );
     const listed = [
