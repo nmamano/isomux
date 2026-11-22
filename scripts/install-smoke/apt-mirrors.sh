@@ -10,6 +10,9 @@
 #             archive stalled: with the archive first, every file waits out
 #             the timeout on each of its IPv4 addresses (apt-get update took
 #             118 s on 2026-11-10).
+#             Both can run again on a box they already configured: then only
+#             the order changes. The box image's layers keep the order of the
+#             build that made them, so run.sh sets its own order in the box.
 #   update    apt-get update for the smoke's own apt steps. apt-get update
 #             exits 0 when it ignores an index that no mirror sent ("Ign:"),
 #             and the install then finds no packages (2026-11-10: "Ign:3 ...
@@ -46,8 +49,9 @@ write_lists() {
 
 configure() {
   local sources=$root/etc/apt/sources.list.d/ubuntu.sources
-  grep -q '^URIs: http://archive.ubuntu.com/ubuntu/$' "$sources"
-  grep -q '^URIs: http://security.ubuntu.com/ubuntu/$' "$sources"
+  # Each host as Ubuntu ships it, or as an earlier run converted it.
+  grep -qE '^URIs: (http://archive\.ubuntu\.com/ubuntu/|mirror\+file:/etc/apt/mirrors/ubuntu\.list)$' "$sources"
+  grep -qE '^URIs: (http://security\.ubuntu\.com/ubuntu/|mirror\+file:/etc/apt/mirrors/ubuntu-security\.list)$' "$sources"
   write_lists "$1"
   sed -i \
     -e 's|^URIs: http://archive.ubuntu.com/ubuntu/$|URIs: mirror+file:/etc/apt/mirrors/ubuntu.list|' \

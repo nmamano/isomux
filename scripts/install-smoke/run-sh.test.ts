@@ -31,7 +31,8 @@ beforeEach(() => {
   };
   // A docker call whose arguments match STUB_FAIL_MATCH prints the file
   // STUB_FAIL_OUT and exits with STUB_FAIL_RC: a step that fails with a
-  // given log.
+  // given log. A build logs each --secret's id and the file's content, read
+  // while the build runs, as BuildKit does.
   stub(
     "docker",
     `if [[ -n \${STUB_FAIL_MATCH:-} && "$*" =~ $STUB_FAIL_MATCH ]]; then
@@ -39,7 +40,11 @@ beforeEach(() => {
   exit "\${STUB_FAIL_RC:-1}"
 fi
 case "$1 $2" in
-  "build "*) [[ $STUB_MODE == build-fails ]] && exit 17
+  "build "*) for a in "$@"; do
+      [[ $a =~ id=([^,]+),src=(.+)$ ]] &&
+        echo "secret \${BASH_REMATCH[1]}=$(cat "\${BASH_REMATCH[2]}")" >> "${base}/calls.log"
+    done
+    [[ $STUB_MODE == build-fails ]] && exit 17
     [[ $STUB_MODE == build-hangs ]] && { echo "stub-build-progress"; exec sleep 30; }
     cat >/dev/null; exit 0 ;;
   "image inspect") echo "sha256:0 linux/amd64" ;;
@@ -270,26 +275,71 @@ describe("run.sh step progress", () => {
 // CI's wall-clock limit. The probe's verdict sets the order of the box's apt
 // mirrors: the archive first while it answers, the fallback first when it
 // does not, with a warning in run.sh's own output.
+// Task aaebc4f0: the order must not be part of the box image's cache key, or
+// a run with the other order rebuilds the image from a cold cache (301 s on
+// 2026-11-22). The build gets it as a secret, which BuildKit leaves out of
+// the key; a cached layer keeps the order of the build that made it, so the
+// box gets this run's order before the installer's apt runs.
 describe("run.sh Ubuntu archive probe", () => {
+  const lines = (calls: string) => calls.split("\n");
   const builds = (calls: string) =>
-    calls.split("\n").filter((l) => l.startsWith("docker build "));
+    lines(calls).filter((l) => l.startsWith("docker build "));
+  // The values of the build's --build-arg flags.
+  const buildArgs = (build: string) =>
+    [...build.matchAll(/--build-arg[ =](\S+)/g)].map((m) => m[1]);
+  const ordered = async (order: "archive" | "fallback") => {
+    // One test may make two runs: each reads only its own calls.
+    rmSync(join(base, "calls.log"), { force: true });
+    const r = await run(
+      "passes",
+      "installer-gate",
+      order === "fallback" ? { STUB_ARCHIVE: "stalls" } : {},
+    );
+    expect(r.code, r.out).toBe(0);
+    expect(builds(r.calls)).toHaveLength(1);
+    // The box's apt order is set to this run's order after the box starts
+    // and before the installer runs.
+    const all = lines(r.calls);
+    const machine = all.findIndex((l) => /^docker run -d /.test(l));
+    const install = all.findIndex((l) =>
+      /^docker exec .* bash \/root\/install\.sh$/.test(l),
+    );
+    const mirrors = all.findIndex((l) =>
+      new RegExp(`^docker exec \\S+ isomux-smoke-apt-mirrors ${order}$`).test(
+        l,
+      ),
+    );
+    expect(machine).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(-1);
+    expect(mirrors, r.calls).toBeGreaterThan(machine);
+    expect(mirrors, r.calls).toBeLessThan(install);
+    // The build reads the order from its apt-order secret, written for this
+    // run, and from no build arg.
+    expect(all.filter((l) => l.startsWith("secret apt-order="))).toEqual([
+      `secret apt-order=${order}`,
+    ]);
+    expect(builds(r.calls)[0]).not.toContain("APT_ORDER");
+    return { ...r, build: builds(r.calls)[0]! };
+  };
 
   it("puts the fallback mirror first, with a warning, when the archive stalls", async () => {
-    const r = await run("passes", "installer-gate", { STUB_ARCHIVE: "stalls" });
-    expect(r.code, r.out).toBe(0);
+    const r = await ordered("fallback");
     expect(r.out).toMatch(
       /\[smoke:installer-gate\] warning:.*archive\.ubuntu\.com/,
     );
-    expect(builds(r.calls)).toHaveLength(1);
-    expect(builds(r.calls)[0]).toMatch(/--build-arg APT_ORDER=fallback( |$)/);
   }, 60_000);
 
   it("keeps the archive first when it answers", async () => {
-    const r = await run("passes", "installer-gate");
-    expect(r.code, r.out).toBe(0);
+    const r = await ordered("archive");
     expect(r.out).not.toMatch(/warning:/);
-    expect(builds(r.calls)).toHaveLength(1);
-    expect(builds(r.calls)[0]).toMatch(/--build-arg APT_ORDER=archive( |$)/);
+  }, 60_000);
+
+  it("passes the box image build the same build args for either order", async () => {
+    const archive = buildArgs((await ordered("archive")).build);
+    const fallback = buildArgs((await ordered("fallback")).build);
+    // The enabling condition: the gate path's build has its PACKAGES arg.
+    expect(archive.some((a) => a!.startsWith("PACKAGES="))).toBe(true);
+    expect(fallback).toEqual(archive);
   }, 60_000);
 });
 
@@ -344,6 +394,69 @@ describe("apt-mirrors.sh", () => {
         expect(order2[first]).toBe(archive);
         expect(order2[1 - first]).not.toBe(archive);
       }
+    }
+  });
+
+  // Task aaebc4f0: run.sh sets the order again in a box whose image layers
+  // were made with the other order, so archive|fallback run again on
+  // sources they already configured.
+  it("sets only the order when it runs again on a configured box", () => {
+    const { code, read, root } = apply("archive");
+    expect(code).toBe(0);
+    const sources = read("etc/apt/sources.list.d/ubuntu.sources");
+    const conf = read("etc/apt/apt.conf.d/99isomux-smoke-mirrors");
+    for (const [order, first] of [
+      ["fallback", "mirrors.edge.kernel.org"],
+      ["archive", "archive.ubuntu.com"],
+    ] as const) {
+      const r = Bun.spawnSync(
+        ["bash", join(import.meta.dir, "apt-mirrors.sh"), order],
+        { env: { ...process.env, APT_ROOT: root } },
+      );
+      expect(r.exitCode, r.stderr.toString()).toBe(0);
+      expect(read("etc/apt/sources.list.d/ubuntu.sources")).toBe(sources);
+      expect(read("etc/apt/apt.conf.d/99isomux-smoke-mirrors")).toBe(conf);
+      expect(hosts(read("etc/apt/mirrors/ubuntu.list"))[0]).toBe(first);
+      expect(hosts(read("etc/apt/mirrors/ubuntu-security.list"))[0]).toBe(
+        order === "archive" ? "security.ubuntu.com" : first,
+      );
+    }
+  });
+
+  // A configured box is accepted per host: each host must point at its own
+  // list. The fixture is a configured box with one line changed, so the
+  // test above is its positive control.
+  it("refuses a configured box with a host it does not recognise", () => {
+    for (const bad of [
+      // The security host on the archive's list.
+      [
+        "URIs: mirror+file:/etc/apt/mirrors/ubuntu-security.list",
+        "URIs: mirror+file:/etc/apt/mirrors/ubuntu.list",
+      ],
+      // The security host replaced by an unknown one.
+      [
+        "URIs: mirror+file:/etc/apt/mirrors/ubuntu-security.list",
+        "URIs: http://example.org/ubuntu/",
+      ],
+      // The archive host replaced by an unknown one.
+      [
+        "URIs: mirror+file:/etc/apt/mirrors/ubuntu.list",
+        "URIs: http://example.org/ubuntu/",
+      ],
+    ] as const) {
+      const { code, read, root } = apply("archive");
+      expect(code).toBe(0);
+      const file = join(root, "etc/apt/sources.list.d/ubuntu.sources");
+      const sources = read("etc/apt/sources.list.d/ubuntu.sources");
+      // The enabling condition: the line to change is there, once.
+      expect(sources.split(bad[0])).toHaveLength(2);
+      writeFileSync(file, sources.replace(bad[0], bad[1]));
+      const r = Bun.spawnSync(
+        ["bash", join(import.meta.dir, "apt-mirrors.sh"), "fallback"],
+        { env: { ...process.env, APT_ROOT: root } },
+      );
+      expect(r.exitCode, bad[1]).not.toBe(0);
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

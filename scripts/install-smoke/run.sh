@@ -378,7 +378,10 @@ ubuntu_archive_step() {
 installer() {
   images+=("$name-box")
   ubuntu_archive_step
-  local packages=(--build-arg "APT_ORDER=$apt_order")
+  # The mirror order goes in as a build secret, which is not part of the
+  # layer cache key (box.Dockerfile says why).
+  printf '%s\n' "$apt_order" >"$work/apt-order"
+  local packages=(--secret "id=apt-order,src=$work/apt-order")
   if [[ $path == installer-gate ]]; then
     step packages-list installer_packages
     packages+=(--build-arg "PACKAGES=$(cat "$logs/packages-list.log")")
@@ -402,6 +405,9 @@ installer() {
     done
     echo "systemd did not finish booting within 120s: $state"
     exit 1'
+  # The image layers keep the order of the build that made them: this run's
+  # order goes into the box before the installer's own apt runs.
+  step apt-mirrors docker exec "$name" isomux-smoke-apt-mirrors "$apt_order"
   # The guide's admin is connected over SSH when the installer runs.
   step ssh docker exec "$name" systemctl start ssh.service
   serve_revision_step
