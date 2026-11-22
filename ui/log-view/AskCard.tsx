@@ -21,9 +21,10 @@
 // agent can recommend a tag with words (recommendedTag): an untouched card
 // starts with it, so Enter sends it. Rewrite asks the agent to rewrite the
 // ask as the field says: the ask stays open, and until the agent changes it
-// a banner that says a rewrite is coming takes the place of the options and
-// the reply area, with Undo, which withdraws the request; then the card
-// keeps the first prompt behind "Show original". An ask with options has a button for
+// the options and the reply area go, and an "Updating" banner on top, with
+// Undo, which withdraws the request, freezes the rest of the card (see
+// updateWait for a rewrite that never lands); then the card keeps the first
+// prompt behind "Show original". An ask with options has a button for
 // each. A tap on the option the reply field holds sends it; a tap on any other
 // option puts it in the field (focused with a mouse; on a touch screen the
 // keyboard would move the buttons), and the button now sends. The button
@@ -94,6 +95,7 @@ import {
   ASK_TAGS,
   automateOffered,
   isActionStep,
+  type AgentState,
   type AskMemberWire,
   type AskReadFile,
   type AskTag,
@@ -422,6 +424,26 @@ function runErrorText(t: ReturnType<typeof useI18n>["t"], err: unknown) {
   }
 }
 
+// A card that waits for the agent's edit in place (a rewrite, or the rule at
+// the rule stage) shows "Updating" and is frozen. A minute after the request,
+// while the asking agent is not working, the wait is stalled: the update may
+// never land, so the banner says it has not come and the card is unfrozen;
+// the banner keeps Undo and Don't save, the member's way out. An agent the store
+// does not have counts as not working; nothing is stalled while the store is
+// disconnected.
+const UPDATE_STALL_MS = 60_000;
+type UpdateWait = "none" | "updating" | "stalled";
+function updateWait(
+  waiting: boolean,
+  pastMark: boolean,
+  agentState: AgentState | undefined,
+  connected: boolean,
+): UpdateWait {
+  if (!waiting) return "none";
+  const working = agentState === "thinking" || agentState === "tool_executing";
+  return pastMark && connected && !working ? "stalled" : "updating";
+}
+
 function AskAffordances({
   entry,
   isMobile,
@@ -569,6 +591,7 @@ function ReplyAskCard({
     rooms,
     sessionContext,
     drafts,
+    connected,
   } = useAppState();
   const closedHere = useAsksClosedHere();
   const draft = askDrafts.get(entry.id);
@@ -860,6 +883,27 @@ function ReplyAskCard({
   // controls go.
   const ruleStage = entry.automateRequest?.answer !== undefined;
   const hideAnswer = rewriting || ruleStage;
+  // The edit the card waits for, from the request's time (updateWait).
+  const waitSince = rewriting
+    ? entry.simplifyRequestedAt
+    : ruleStage && entry.step?.kind !== "instructions-line"
+      ? entry.automateRequest?.answer?.at
+      : undefined;
+  // One timer to the stall mark: it records the request whose mark passed.
+  const [markPassed, setMarkPassed] = useState<number | null>(null);
+  useEffect(() => {
+    if (waitSince === undefined) return;
+    const left = waitSince + UPDATE_STALL_MS - Date.now();
+    const timer = setTimeout(() => setMarkPassed(waitSince), Math.max(0, left));
+    return () => clearTimeout(timer);
+  }, [waitSince]);
+  const wait = updateWait(
+    waitSince !== undefined,
+    waitSince !== undefined && markPassed === waitSince,
+    agents.find((a) => a.id === entry.agentId)?.state,
+    connected,
+  );
+  const frozen = wait === "updating";
   // "... and automate" only where the agent could decide asks like this
   // alone (automateOffered), not while a rewrite is pending, and not once
   // asked (a "Rewrite and automate" keeps its words for the answer). While
@@ -1371,14 +1415,14 @@ function ReplyAskCard({
       />
     </div>
   );
-  // The rule stage (task 1b4dfa91): what the member sent, then the banner
-  // while the agent writes or changes the rule, or the rule with Apply, a
-  // Change box (a rewrite request in the member's words) and Don't save (a
-  // dismiss, which closes the ask without the rule).
+  // The rule stage (task 1b4dfa91): what the member sent, then (once the
+  // agent has proposed it, and not while it changes it: the update banner
+  // waits then) the rule with Apply, a Change box (a rewrite request in the
+  // member's words) and Don't save (a dismiss, which closes the ask without
+  // the rule).
   const sentAnswer = entry.automateRequest?.answer;
   const ruleStep =
     entry.step?.kind === "instructions-line" ? entry.step : undefined;
-  const ruleWaiting = ruleStep === undefined || rewriting;
   const declineButton = (
     <button
       type="button"
@@ -1418,45 +1462,7 @@ function ReplyAskCard({
           isMobile={isMobile}
         />
       )}
-      {ruleWaiting ? (
-        <div
-          data-ask-rule-pending=""
-          style={{
-            display: "flex",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 10,
-            padding: isMobile ? "8px 10px" : "6px 10px",
-            borderRadius: 8,
-            border: "1px solid var(--accent-text)",
-            background: "var(--accent-bg)",
-          }}
-        >
-          <span
-            style={{
-              flex: "1 1 auto",
-              minWidth: 0,
-              color: "var(--text-primary)",
-              fontSize,
-              fontWeight: 600,
-            }}
-          >
-            {t(rewriting ? "asks.rule.changing" : "asks.rule.writing")}
-          </span>
-          {rewriting && (
-            <button
-              type="button"
-              data-ask-simplify-undo=""
-              disabled={undoingSimplify}
-              onClick={() => void undoSimplify()}
-              style={secondaryButton}
-            >
-              {t("asks.undo")}
-            </button>
-          )}
-          {declineButton}
-        </div>
-      ) : (
+      {wait === "none" && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1592,6 +1598,77 @@ function ReplyAskCard({
     </div>
   );
 
+  // While the card waits for the agent's edit, this banner on top says so,
+  // with the Undo of a rewrite and the rule stage's Don't save, and the rest
+  // of the card is frozen (greyed and inert). A stalled wait says the update
+  // has not come, and the card is unfrozen (updateWait).
+  const stalled = wait === "stalled";
+  const updateBanner = wait !== "none" && (
+    <div
+      role="status"
+      data-ask-updating=""
+      {...(ruleStage
+        ? { "data-ask-rule-pending": "" }
+        : { "data-ask-simplify-pending": "" })}
+      {...(stalled ? { "data-ask-update-stalled": "" } : {})}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 10,
+        marginBottom: 7,
+        padding: isMobile ? "8px 10px" : "6px 10px",
+        borderRadius: 8,
+        border: `1px solid ${stalled ? "var(--orange)" : "var(--accent-text)"}`,
+        background: stalled ? "var(--orange-bg)" : "var(--accent-bg)",
+      }}
+    >
+      <div
+        style={{
+          flex: "1 1 auto",
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
+        <span
+          style={{ color: "var(--text-primary)", fontSize, fontWeight: 700 }}
+        >
+          {t(stalled ? "asks.update.stalled" : "asks.update.updating")}
+        </span>
+        <span style={{ color: "var(--text-dim)", fontSize }}>
+          {t(
+            stalled
+              ? "asks.update.stalledDetail"
+              : !rewriting
+                ? "asks.rule.writing"
+                : ruleStage
+                  ? "asks.rule.changing"
+                  : "asks.simplifyPending",
+          )}
+        </span>
+      </div>
+      {rewriting && (
+        <button
+          type="button"
+          data-ask-simplify-undo=""
+          disabled={undoingSimplify}
+          onClick={() => void undoSimplify()}
+          style={{
+            ...secondaryButton,
+            color: "var(--accent-text)",
+            border: "1px solid var(--accent-text)",
+            fontWeight: 600,
+          }}
+        >
+          {t("asks.undo")}
+        </button>
+      )}
+      {ruleStage && declineButton}
+    </div>
+  );
+
   // Id, priority and age float at the right of the first line, and the text
   // flows under them. Above the office and member lines when the card has
   // them, else in the prompt. On mobile the id goes under priority and age.
@@ -1645,6 +1722,7 @@ function ReplyAskCard({
 
   return (
     <div ref={setCardEl} data-ask={entry.id} style={cardBox}>
+      {updateBanner}
       {cite && cardEl && citeMode && (
         <AskCitePill
           card={cardEl}
@@ -1654,644 +1732,621 @@ function ReplyAskCard({
           clearCite={clearCite}
         />
       )}
-      <div>
-        {metaAtTop && meta}
-        {entry.office && (
+      {/* The frozen part (updateBanner); the same element at every stage, so
+          nothing in it remounts when the wait starts or ends. */}
+      <div
+        {...(frozen ? { "data-ask-frozen": "" } : {})}
+        inert={frozen}
+        style={frozen ? { opacity: 0.45, filter: "grayscale(1)" } : undefined}
+      >
+        <div>
+          {metaAtTop && meta}
+          {entry.office && (
+            <div
+              data-ask-office=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {t("asks.fromOffice", { name: entry.office.name })}
+            </div>
+          )}
+          {entry.app && (
+            <div
+              data-ask-app=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {rich("asks.fromApp", { app: <Data>{entry.app.name}</Data> })}
+            </div>
+          )}
+          {entry.member && (
+            <div
+              data-ask-for=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {rich("asks.forMember", {
+                member:
+                  (entry.members?.length ?? 0) > 1 ? (
+                    names(entry.members ?? [])
+                  ) : (
+                    <Data>{entry.member}</Data>
+                  ),
+              })}
+            </div>
+          )}
+          {sharedLine && (
+            <div
+              data-ask-members=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {sharedLine}
+            </div>
+          )}
           <div
-            data-ask-office=""
+            ref={promptRef}
+            data-ask-prompt=""
+            {...noTranslate()}
             style={{
-              color: "var(--text-ghost)",
-              fontSize: isMobile ? 12 : 11,
+              color: "var(--text-primary)",
+              fontSize,
               lineHeight: 1.5,
               overflowWrap: "break-word",
+              // Starts under the meta when it floats above, over the office
+              // and member lines, so the prompt keeps its full width.
+              clear: "right",
+              ...(expanded
+                ? {}
+                : {
+                    display: "-webkit-box",
+                    WebkitLineClamp: promptLines,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }),
             }}
           >
-            {t("asks.fromOffice", { name: entry.office.name })}
-          </div>
-        )}
-        {entry.app && (
-          <div
-            data-ask-app=""
-            style={{
-              color: "var(--text-ghost)",
-              fontSize: isMobile ? 12 : 11,
-              lineHeight: 1.5,
-              overflowWrap: "break-word",
-            }}
-          >
-            {rich("asks.fromApp", { app: <Data>{entry.app.name}</Data> })}
-          </div>
-        )}
-        {entry.member && (
-          <div
-            data-ask-for=""
-            style={{
-              color: "var(--text-ghost)",
-              fontSize: isMobile ? 12 : 11,
-              lineHeight: 1.5,
-              overflowWrap: "break-word",
-            }}
-          >
-            {rich("asks.forMember", {
-              member:
-                (entry.members?.length ?? 0) > 1 ? (
-                  names(entry.members ?? [])
-                ) : (
-                  <Data>{entry.member}</Data>
-                ),
-            })}
-          </div>
-        )}
-        {sharedLine && (
-          <div
-            data-ask-members=""
-            style={{
-              color: "var(--text-ghost)",
-              fontSize: isMobile ? 12 : 11,
-              lineHeight: 1.5,
-              overflowWrap: "break-word",
-            }}
-          >
-            {sharedLine}
-          </div>
-        )}
-        <div
-          ref={promptRef}
-          data-ask-prompt=""
-          {...noTranslate()}
-          style={{
-            color: "var(--text-primary)",
-            fontSize,
-            lineHeight: 1.5,
-            overflowWrap: "break-word",
-            // Starts under the meta when it floats above, over the office
-            // and member lines, so the prompt keeps its full width.
-            clear: "right",
-            ...(expanded
-              ? {}
-              : {
-                  display: "-webkit-box",
-                  WebkitLineClamp: promptLines,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }),
-          }}
-        >
-          {/* One block, so the meta floats in the text and the clamp still
+            {/* One block, so the meta floats in the text and the clamp still
                 counts its lines. */}
-          <div>
-            {!metaAtTop && meta}
-            <AskPrompt
-              content={entry.prompt}
-              files={entry.readFiles}
-              srcFor={askFileSrc(entry)}
-              isMobile={isMobile}
-            />
+            <div>
+              {!metaAtTop && meta}
+              <AskPrompt
+                content={entry.prompt}
+                files={entry.readFiles}
+                srcFor={askFileSrc(entry)}
+                isMobile={isMobile}
+              />
+            </div>
           </div>
+          {(clamped || expanded) && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                marginTop: 2,
+                color: "var(--accent-text)",
+                fontSize: isMobile ? 12 : 11,
+                cursor: "pointer",
+              }}
+            >
+              {expanded
+                ? t("cards.toolResult.showLess")
+                : t("cards.toolResult.showMore")}
+            </button>
+          )}
+          {((link && linkLabel !== null && openLink) ||
+            outside ||
+            entry.originalPrompt !== undefined) && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "baseline",
+                columnGap: 14,
+                marginTop: 2,
+              }}
+            >
+              {link && linkLabel !== null && openLink && (
+                <button
+                  type="button"
+                  data-ask-office-link={entry.link}
+                  onClick={() => openLink(link)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: "var(--accent-text)",
+                    fontSize: isMobile ? 13 : 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {"askId" in link && link.askId
+                    ? t("asks.openAsk", { id: link.askId })
+                    : t("asks.openLink", { page: linkLabel })}
+                </button>
+              )}
+              {outside && (
+                <OutsideLinkButton link={entry.link} isMobile={isMobile} />
+              )}
+              {entry.originalPrompt !== undefined && (
+                <button
+                  type="button"
+                  data-ask-show-original=""
+                  onClick={() => setShowOriginal((v) => !v)}
+                  style={linkButton}
+                >
+                  {showOriginal
+                    ? t("asks.hideOriginal")
+                    : t("asks.showOriginal")}
+                </button>
+              )}
+            </div>
+          )}
+          {showOriginal && entry.originalPrompt !== undefined && (
+            <div
+              data-ask-original=""
+              {...noTranslate()}
+              style={{
+                marginTop: 4,
+                paddingLeft: 8,
+                borderLeft: "2px solid var(--border-light)",
+                color: "var(--text-dim)",
+                fontSize,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              <AskPrompt
+                content={entry.originalPrompt}
+                files={entry.readFiles}
+                srcFor={askFileSrc(entry)}
+                isMobile={isMobile}
+              />
+            </div>
+          )}
         </div>
-        {(clamped || expanded) && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: 0,
-              marginTop: 2,
-              color: "var(--accent-text)",
-              fontSize: isMobile ? 12 : 11,
-              cursor: "pointer",
-            }}
-          >
-            {expanded
-              ? t("cards.toolResult.showLess")
-              : t("cards.toolResult.showMore")}
-          </button>
+        {stepView && (
+          <AskStepBlock askId={entry.id} view={stepView} isMobile={isMobile} />
         )}
-        {((link && linkLabel !== null && openLink) ||
-          outside ||
-          entry.originalPrompt !== undefined) && (
-          <div
+        {!ruleStage && entry.step && isActionStep(entry.step) && (
+          <AskActionBlock
+            askId={entry.id}
+            askingAgentId={entry.agentId}
+            memberUserId={entry.memberUserId}
+            step={entry.step}
+            isMobile={isMobile}
+          />
+        )}
+        <AskAffordances
+          entry={entry}
+          isMobile={isMobile}
+          onFocusAgent={onFocusAgent}
+        />
+        {entry.page && (
+          <AskPageLine
+            page={entry.page}
+            acking={acking}
+            onAck={() => void ackPage()}
+            isMobile={isMobile}
+            fontSize={fontSize}
+            buttonStyle={secondaryButton}
+          />
+        )}
+        {ruleStage && ruleSection}
+        {!hideAnswer &&
+          !noAgent &&
+          entry.options &&
+          entry.options.length > 0 && (
+            <div
+              data-ask-options=""
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                marginTop: 7,
+              }}
+            >
+              {entry.options.map((option, i) => {
+                const recommended = option === entry.recommended;
+                // Options come trimmed from the server, and no two are the same.
+                // None sends while the automate section is open.
+                const sends = !automateOpen && reply.trim() === option;
+                const marks = {
+                  "data-ask-option": "",
+                  ...(sends ? { "data-ask-option-sends": "" } : {}),
+                  ...(recommended
+                    ? {
+                        "data-ask-option-recommended": "",
+                        title: t("asks.recommended"),
+                      }
+                    : {}),
+                };
+                const style: React.CSSProperties = {
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  padding: recommended ? markedPad : buttonPad,
+                  borderRadius: 8,
+                  border: "1px solid var(--accent-text)",
+                  // The option that sends is the Reply button's colours; the
+                  // others take an accent tint.
+                  background: sends ? "var(--accent-text)" : "var(--accent-bg)",
+                  color: sends ? "var(--bg-base)" : "var(--accent-text)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: buttonFont,
+                  fontWeight: 600,
+                  lineHeight: 1.35,
+                  textAlign: "left",
+                  overflowWrap: "anywhere",
+                };
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    {...marks}
+                    disabled={answerOff}
+                    onClick={() =>
+                      sends ? answer("reply", option) : fillOption(option)
+                    }
+                    style={{ ...style, cursor: "pointer" }}
+                  >
+                    <span style={{ minWidth: 0 }}>
+                      {recommended && <RecommendedStar size={11} />}
+                      {/* The agent's words; the recommended mark stays translatable. */}
+                      <span {...noTranslate()}>{option}</span>
+                    </span>
+                    <OptionMark sends={sends} size={12} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        {!hideAnswer && tagRow}
+        {/* An ask with no agent (task 74e8fc07): nobody reads a reply, so it
+          has only Dismiss, with Ack above while it rings. */}
+        {noAgent ? (
+          <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
+            {dismissButton}
+          </div>
+        ) : hideAnswer ? null : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!automateOpen) sendTagged();
+            }}
             style={{
               display: "flex",
-              flexWrap: "wrap",
-              alignItems: "baseline",
-              columnGap: 14,
-              marginTop: 2,
+              flexDirection: "column",
+              gap: 6,
+              marginTop: 7,
             }}
           >
-            {link && linkLabel !== null && openLink && (
+            {voice.voiceInput === "openai" ? (
+              <VoiceInputAlert dictation={voice.recorded} isMobile={isMobile} />
+            ) : (
+              voice.error && (
+                <div
+                  role="alert"
+                  style={{
+                    color: "var(--red-text)",
+                    fontSize: isMobile ? 12 : 11,
+                  }}
+                >
+                  {voice.error}
+                </div>
+              )
+            )}
+            {suggestionRow}
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+              {/* The field's box: the tag's chip at its start, then the words. */}
+              <div
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) inputRef.current?.focus();
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 6,
+                  boxSizing: "border-box",
+                  paddingLeft: tag === null ? 0 : 6,
+                  background: "var(--bg-input)",
+                  border: "1px solid var(--border-light)",
+                  borderRadius: 8,
+                }}
+              >
+                {tag !== null && (
+                  <span
+                    data-ask-tag-chip={tag}
+                    style={{
+                      flexShrink: 0,
+                      // On the first line of the words.
+                      marginTop: isMobile ? 7 : 5,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: isMobile ? "2px 4px 2px 8px" : "1px 3px 1px 7px",
+                      borderRadius: 5,
+                      background: "var(--ask-tag-text)",
+                      color: "var(--bg-base)",
+                      fontFamily: "var(--font-ui)",
+                      fontSize: isMobile ? 13 : 11,
+                      fontWeight: 600,
+                      lineHeight: isMobile ? "18px" : "14px",
+                      whiteSpace: "nowrap",
+                      userSelect: "none",
+                    }}
+                  >
+                    {t(TAG_LABEL[tag])}
+                    <button
+                      type="button"
+                      data-ask-tag-chip-remove=""
+                      aria-label={t("asks.removeTag")}
+                      title={t("asks.removeTag")}
+                      disabled={busy}
+                      onClick={removeTag}
+                      style={{
+                        display: "flex",
+                        padding: 1,
+                        border: "none",
+                        background: "none",
+                        color: "inherit",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        width={isMobile ? 13 : 11}
+                        height={isMobile ? 13 : 11}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                        strokeLinecap="round"
+                      >
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </span>
+                )}
+                <textarea
+                  ref={inputRef}
+                  value={reply}
+                  rows={1}
+                  disabled={busy}
+                  data-ask-reply-input=""
+                  onChange={(e) => {
+                    // Typing ends the Undo line of a replacing tap.
+                    setReplaced(null);
+                    dispatch({
+                      type: "set_ask_draft",
+                      askId: entry.id,
+                      // Typed words join a running dictation, so its next result
+                      // does not write over them.
+                      text: voice.reconcileEdit(e.target.value),
+                    });
+                  }}
+                  onFocus={(e) => selectDefault(e.currentTarget)}
+                  onPointerDown={(e) => {
+                    clickFocuses.current =
+                      document.activeElement !== e.currentTarget;
+                  }}
+                  onClick={(e) => {
+                    if (clickFocuses.current) selectDefault(e.currentTarget);
+                    clickFocuses.current = false;
+                  }}
+                  onKeyDown={onReplyKeyDown}
+                  aria-label={t("asks.reply")}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    boxSizing: "border-box",
+                    padding: isMobile
+                      ? `8px 10px 8px ${tag === null ? 10 : 2}px`
+                      : `5px 10px 5px ${tag === null ? 10 : 2}px`,
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: 8,
+                    color: "var(--text-primary)",
+                    fontFamily: "var(--font-ui)",
+                    // 16px keeps iOS Safari from zooming into the field.
+                    fontSize: isMobile ? 16 : 12,
+                    lineHeight: isMobile ? "20px" : "16px",
+                    resize: "none",
+                    overflowY: "auto",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              {voice.micShown && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={voice.listening}
+                  aria-busy={voice.transcribing || undefined}
+                  aria-label={t(
+                    voice.transcribing
+                      ? "voice.mic.transcribing"
+                      : "voice.mic.talk",
+                  )}
+                  title={t(
+                    voice.transcribing
+                      ? "voice.mic.transcribing"
+                      : "voice.mic.talk",
+                  )}
+                  onClick={voice.toggle}
+                  style={{
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: isMobile ? 38 : 28,
+                    height: isMobile ? 38 : 28,
+                    padding: 0,
+                    borderRadius: 8,
+                    border: voice.listening
+                      ? "1px solid var(--red)"
+                      : "1px solid var(--border-light)",
+                    background: voice.listening
+                      ? "rgba(255,50,50,0.15)"
+                      : "var(--bg-input)",
+                    color: voice.listening
+                      ? "var(--red-text)"
+                      : "var(--text-muted)",
+                    cursor: voice.transcribing ? "progress" : "pointer",
+                    opacity: voice.transcribing ? 0.6 : 1,
+                    animation: voice.listening
+                      ? "mic-pulse 1.5s ease-in-out infinite"
+                      : "none",
+                  }}
+                >
+                  <MicIcon />
+                </button>
+              )}
+            </div>
+            {replacedShown && (
+              <ReplacedLine
+                disabled={busy}
+                isMobile={isMobile}
+                onUndo={undoReplace}
+              />
+            )}
+            {tag === "rewrite" && (
+              <div
+                data-ask-rewrite-hint=""
+                style={{
+                  color: "var(--text-dim)",
+                  fontSize: isMobile ? 12 : 11,
+                }}
+              >
+                {t("asks.rewriteHint")}
+              </div>
+            )}
+            {replyButtons}
+          </form>
+        )}
+        {/* "... and automate" (task 33891b5b): under the bottom row, with
+          its own box and the one send while open. */}
+        {automateOpen && (
+          <div
+            data-ask-automate=""
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: "1px dashed var(--border-light)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  color: "var(--text-dim)",
+                  fontSize: isMobile ? 12 : 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {t("asks.automate.title")}
+              </span>
+              <NoticeCloseButton
+                type="button"
+                data-ask-automate-close=""
+                aria-label={t("asks.automate.close")}
+                title={t("asks.automate.close")}
+                onClick={() => {
+                  pendingAutomateFocus.current = "opener";
+                  setAutomate(false);
+                }}
+              />
+            </div>
+            <div
+              style={{
+                color: "var(--text-dim)",
+                fontSize: isMobile ? 13 : 12,
+                lineHeight: 1.45,
+                whiteSpace: "pre-line",
+              }}
+            >
+              {t("asks.automate.guide")}
+            </div>
+            <textarea
+              ref={automateBoxRef}
+              value={automateWords}
+              rows={2}
+              disabled={busy}
+              data-ask-automate-input=""
+              aria-label={t("asks.automate.box")}
+              onChange={(e) => setAutomate(true, e.target.value)}
+              onKeyDown={onAutomateKeyDown}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: isMobile ? "8px 10px" : "5px 10px",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-light)",
+                borderRadius: 8,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-ui)",
+                fontSize,
+                lineHeight: 1.5,
+                resize: "vertical",
+              }}
+            />
+            <div>
               <button
                 type="button"
-                data-ask-office-link={entry.link}
-                onClick={() => openLink(link)}
+                data-ask-automate-send={sendKind}
+                disabled={automateSendOff}
+                onClick={() => sendTagged(reply, automateWords)}
                 style={{
-                  background: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: buttonPad,
+                  borderRadius: 8,
                   border: "none",
-                  padding: 0,
-                  color: "var(--accent-text)",
-                  fontSize: isMobile ? 13 : 12,
+                  background: "var(--accent-text)",
+                  color: "var(--bg-base)",
+                  fontSize: buttonFont,
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
-                {"askId" in link && link.askId
-                  ? t("asks.openAsk", { id: link.askId })
-                  : t("asks.openLink", { page: linkLabel })}
+                {t(AUTOMATE_LABEL[sendKind])}
+                <OptionMark sends size={12} />
               </button>
-            )}
-            {outside && (
-              <OutsideLinkButton link={entry.link} isMobile={isMobile} />
-            )}
-            {entry.originalPrompt !== undefined && (
-              <button
-                type="button"
-                data-ask-show-original=""
-                onClick={() => setShowOriginal((v) => !v)}
-                style={linkButton}
-              >
-                {showOriginal ? t("asks.hideOriginal") : t("asks.showOriginal")}
-              </button>
-            )}
-          </div>
-        )}
-        {showOriginal && entry.originalPrompt !== undefined && (
-          <div
-            data-ask-original=""
-            {...noTranslate()}
-            style={{
-              marginTop: 4,
-              paddingLeft: 8,
-              borderLeft: "2px solid var(--border-light)",
-              color: "var(--text-dim)",
-              fontSize,
-              lineHeight: 1.5,
-              overflowWrap: "break-word",
-            }}
-          >
-            <AskPrompt
-              content={entry.originalPrompt}
-              files={entry.readFiles}
-              srcFor={askFileSrc(entry)}
-              isMobile={isMobile}
-            />
+            </div>
           </div>
         )}
       </div>
-      {stepView && (
-        <AskStepBlock askId={entry.id} view={stepView} isMobile={isMobile} />
-      )}
-      {!ruleStage && entry.step && isActionStep(entry.step) && (
-        <AskActionBlock
-          askId={entry.id}
-          askingAgentId={entry.agentId}
-          memberUserId={entry.memberUserId}
-          step={entry.step}
-          isMobile={isMobile}
-        />
-      )}
-      <AskAffordances
-        entry={entry}
-        isMobile={isMobile}
-        onFocusAgent={onFocusAgent}
-      />
-      {entry.page && (
-        <AskPageLine
-          page={entry.page}
-          acking={acking}
-          onAck={() => void ackPage()}
-          isMobile={isMobile}
-          fontSize={fontSize}
-          buttonStyle={secondaryButton}
-        />
-      )}
-      {/* Until the rewrite, the banner takes the place of the options and the
-          reply area: the member waits for the rewrite or withdraws it. */}
-      {ruleStage && ruleSection}
-      {rewriting && !ruleStage && (
-        <div
-          data-ask-simplify-pending=""
-          style={{
-            display: "flex",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 10,
-            marginTop: 7,
-            padding: isMobile ? "8px 10px" : "6px 10px",
-            borderRadius: 8,
-            border: "1px solid var(--accent-text)",
-            background: "var(--accent-bg)",
-          }}
-        >
-          <span
-            style={{
-              flex: "1 1 auto",
-              minWidth: 0,
-              color: "var(--text-primary)",
-              fontSize,
-              fontWeight: 600,
-            }}
-          >
-            {t("asks.simplifyPending")}
-          </span>
-          <button
-            type="button"
-            data-ask-simplify-undo=""
-            disabled={undoingSimplify}
-            onClick={() => void undoSimplify()}
-            style={{
-              ...secondaryButton,
-              color: "var(--accent-text)",
-              border: "1px solid var(--accent-text)",
-              fontWeight: 600,
-            }}
-          >
-            {t("asks.undo")}
-          </button>
-        </div>
-      )}
-      {!hideAnswer && !noAgent && entry.options && entry.options.length > 0 && (
-        <div
-          data-ask-options=""
-          style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
-        >
-          {entry.options.map((option, i) => {
-            const recommended = option === entry.recommended;
-            // Options come trimmed from the server, and no two are the same.
-            // None sends while the automate section is open.
-            const sends = !automateOpen && reply.trim() === option;
-            const marks = {
-              "data-ask-option": "",
-              ...(sends ? { "data-ask-option-sends": "" } : {}),
-              ...(recommended
-                ? {
-                    "data-ask-option-recommended": "",
-                    title: t("asks.recommended"),
-                  }
-                : {}),
-            };
-            const style: React.CSSProperties = {
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              maxWidth: "100%",
-              boxSizing: "border-box",
-              padding: recommended ? markedPad : buttonPad,
-              borderRadius: 8,
-              border: "1px solid var(--accent-text)",
-              // The option that sends is the Reply button's colours; the
-              // others take an accent tint.
-              background: sends ? "var(--accent-text)" : "var(--accent-bg)",
-              color: sends ? "var(--bg-base)" : "var(--accent-text)",
-              fontFamily: "var(--font-ui)",
-              fontSize: buttonFont,
-              fontWeight: 600,
-              lineHeight: 1.35,
-              textAlign: "left",
-              overflowWrap: "anywhere",
-            };
-            return (
-              <button
-                key={i}
-                type="button"
-                {...marks}
-                disabled={answerOff}
-                onClick={() =>
-                  sends ? answer("reply", option) : fillOption(option)
-                }
-                style={{ ...style, cursor: "pointer" }}
-              >
-                <span style={{ minWidth: 0 }}>
-                  {recommended && <RecommendedStar size={11} />}
-                  {/* The agent's words; the recommended mark stays translatable. */}
-                  <span {...noTranslate()}>{option}</span>
-                </span>
-                <OptionMark sends={sends} size={12} />
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {!hideAnswer && tagRow}
-      {/* An ask with no agent (task 74e8fc07): nobody reads a reply, so it
-          has only Dismiss, with Ack above while it rings. */}
-      {noAgent ? (
-        <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
-          {dismissButton}
-        </div>
-      ) : hideAnswer ? null : (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!automateOpen) sendTagged();
-          }}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-            marginTop: 7,
-          }}
-        >
-          {voice.voiceInput === "openai" ? (
-            <VoiceInputAlert dictation={voice.recorded} isMobile={isMobile} />
-          ) : (
-            voice.error && (
-              <div
-                role="alert"
-                style={{
-                  color: "var(--red-text)",
-                  fontSize: isMobile ? 12 : 11,
-                }}
-              >
-                {voice.error}
-              </div>
-            )
-          )}
-          {suggestionRow}
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
-            {/* The field's box: the tag's chip at its start, then the words. */}
-            <div
-              onClick={(e) => {
-                if (e.target === e.currentTarget) inputRef.current?.focus();
-              }}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 6,
-                boxSizing: "border-box",
-                paddingLeft: tag === null ? 0 : 6,
-                background: "var(--bg-input)",
-                border: "1px solid var(--border-light)",
-                borderRadius: 8,
-              }}
-            >
-              {tag !== null && (
-                <span
-                  data-ask-tag-chip={tag}
-                  style={{
-                    flexShrink: 0,
-                    // On the first line of the words.
-                    marginTop: isMobile ? 7 : 5,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    padding: isMobile ? "2px 4px 2px 8px" : "1px 3px 1px 7px",
-                    borderRadius: 5,
-                    background: "var(--ask-tag-text)",
-                    color: "var(--bg-base)",
-                    fontFamily: "var(--font-ui)",
-                    fontSize: isMobile ? 13 : 11,
-                    fontWeight: 600,
-                    lineHeight: isMobile ? "18px" : "14px",
-                    whiteSpace: "nowrap",
-                    userSelect: "none",
-                  }}
-                >
-                  {t(TAG_LABEL[tag])}
-                  <button
-                    type="button"
-                    data-ask-tag-chip-remove=""
-                    aria-label={t("asks.removeTag")}
-                    title={t("asks.removeTag")}
-                    disabled={busy}
-                    onClick={removeTag}
-                    style={{
-                      display: "flex",
-                      padding: 1,
-                      border: "none",
-                      background: "none",
-                      color: "inherit",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      width={isMobile ? 13 : 11}
-                      height={isMobile ? 13 : 11}
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                    >
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
-                </span>
-              )}
-              <textarea
-                ref={inputRef}
-                value={reply}
-                rows={1}
-                disabled={busy}
-                data-ask-reply-input=""
-                onChange={(e) => {
-                  // Typing ends the Undo line of a replacing tap.
-                  setReplaced(null);
-                  dispatch({
-                    type: "set_ask_draft",
-                    askId: entry.id,
-                    // Typed words join a running dictation, so its next result
-                    // does not write over them.
-                    text: voice.reconcileEdit(e.target.value),
-                  });
-                }}
-                onFocus={(e) => selectDefault(e.currentTarget)}
-                onPointerDown={(e) => {
-                  clickFocuses.current =
-                    document.activeElement !== e.currentTarget;
-                }}
-                onClick={(e) => {
-                  if (clickFocuses.current) selectDefault(e.currentTarget);
-                  clickFocuses.current = false;
-                }}
-                onKeyDown={onReplyKeyDown}
-                aria-label={t("asks.reply")}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  boxSizing: "border-box",
-                  padding: isMobile
-                    ? `8px 10px 8px ${tag === null ? 10 : 2}px`
-                    : `5px 10px 5px ${tag === null ? 10 : 2}px`,
-                  background: "transparent",
-                  border: "none",
-                  borderRadius: 8,
-                  color: "var(--text-primary)",
-                  fontFamily: "var(--font-ui)",
-                  // 16px keeps iOS Safari from zooming into the field.
-                  fontSize: isMobile ? 16 : 12,
-                  lineHeight: isMobile ? "20px" : "16px",
-                  resize: "none",
-                  overflowY: "auto",
-                  outline: "none",
-                }}
-              />
-            </div>
-            {voice.micShown && (
-              <button
-                type="button"
-                disabled={busy}
-                aria-pressed={voice.listening}
-                aria-busy={voice.transcribing || undefined}
-                aria-label={t(
-                  voice.transcribing
-                    ? "voice.mic.transcribing"
-                    : "voice.mic.talk",
-                )}
-                title={t(
-                  voice.transcribing
-                    ? "voice.mic.transcribing"
-                    : "voice.mic.talk",
-                )}
-                onClick={voice.toggle}
-                style={{
-                  flexShrink: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: isMobile ? 38 : 28,
-                  height: isMobile ? 38 : 28,
-                  padding: 0,
-                  borderRadius: 8,
-                  border: voice.listening
-                    ? "1px solid var(--red)"
-                    : "1px solid var(--border-light)",
-                  background: voice.listening
-                    ? "rgba(255,50,50,0.15)"
-                    : "var(--bg-input)",
-                  color: voice.listening
-                    ? "var(--red-text)"
-                    : "var(--text-muted)",
-                  cursor: voice.transcribing ? "progress" : "pointer",
-                  opacity: voice.transcribing ? 0.6 : 1,
-                  animation: voice.listening
-                    ? "mic-pulse 1.5s ease-in-out infinite"
-                    : "none",
-                }}
-              >
-                <MicIcon />
-              </button>
-            )}
-          </div>
-          {replacedShown && (
-            <ReplacedLine
-              disabled={busy}
-              isMobile={isMobile}
-              onUndo={undoReplace}
-            />
-          )}
-          {tag === "rewrite" && (
-            <div
-              data-ask-rewrite-hint=""
-              style={{ color: "var(--text-dim)", fontSize: isMobile ? 12 : 11 }}
-            >
-              {t("asks.rewriteHint")}
-            </div>
-          )}
-          {replyButtons}
-        </form>
-      )}
-      {/* "... and automate" (task 33891b5b): under the bottom row, with
-          its own box and the one send while open. */}
-      {automateOpen && (
-        <div
-          data-ask-automate=""
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-            marginTop: 8,
-            paddingTop: 8,
-            borderTop: "1px dashed var(--border-light)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                color: "var(--text-dim)",
-                fontSize: isMobile ? 12 : 11,
-                fontWeight: 700,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-              }}
-            >
-              {t("asks.automate.title")}
-            </span>
-            <NoticeCloseButton
-              type="button"
-              data-ask-automate-close=""
-              aria-label={t("asks.automate.close")}
-              title={t("asks.automate.close")}
-              onClick={() => {
-                pendingAutomateFocus.current = "opener";
-                setAutomate(false);
-              }}
-            />
-          </div>
-          <div
-            style={{
-              color: "var(--text-dim)",
-              fontSize: isMobile ? 13 : 12,
-              lineHeight: 1.45,
-              whiteSpace: "pre-line",
-            }}
-          >
-            {t("asks.automate.guide")}
-          </div>
-          <textarea
-            ref={automateBoxRef}
-            value={automateWords}
-            rows={2}
-            disabled={busy}
-            data-ask-automate-input=""
-            aria-label={t("asks.automate.box")}
-            onChange={(e) => setAutomate(true, e.target.value)}
-            onKeyDown={onAutomateKeyDown}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: isMobile ? "8px 10px" : "5px 10px",
-              background: "var(--bg-input)",
-              border: "1px solid var(--border-light)",
-              borderRadius: 8,
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-ui)",
-              fontSize,
-              lineHeight: 1.5,
-              resize: "vertical",
-            }}
-          />
-          <div>
-            <button
-              type="button"
-              data-ask-automate-send={sendKind}
-              disabled={automateSendOff}
-              onClick={() => sendTagged(reply, automateWords)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: buttonPad,
-                borderRadius: 8,
-                border: "none",
-                background: "var(--accent-text)",
-                color: "var(--bg-base)",
-                fontSize: buttonFont,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              {t(AUTOMATE_LABEL[sendKind])}
-              <OptionMark sends size={12} />
-            </button>
-          </div>
-        </div>
-      )}
       {failure && (
         <div
           role="alert"
