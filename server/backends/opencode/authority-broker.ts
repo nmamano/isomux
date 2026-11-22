@@ -456,7 +456,7 @@ async function readCappedResponse(response: Response): Promise<Buffer | null> {
 function ancestryFailureMessage(ancestry: ProcessHop[] | null): string {
   return ancestry
     ? "OpenCode office call refused because it did not come from the active server turn."
-    : "OpenCode office call refused because its process ancestry was lost. Run the call in the foreground, not through nohup, disown, or a background daemon.";
+    : "OpenCode office call refused because its process ancestry was lost. Do not retry it in a loop: run the same call in the foreground, not through nohup, disown, a background job, or a daemon.";
 }
 
 function readVerifiedAncestry(

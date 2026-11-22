@@ -138,11 +138,11 @@ export function buildSystemPrompt(
     ? limitedAccessSection(stop)
     : `## Office features
 
-When a situation below matches, use its feature. Before its first use in a conversation, fetch its reference page (exact routes, fields and errors). The index of pages is \`GET /api/agent-reference\`. Fetch a page with:
+When a situation below matches, use its feature. Before its first use in a conversation, fetch its reference page. The index of pages is \`GET /api/agent-reference\`. Fetch a page with:
 
   curl -s localhost:${PORT}/api/agent-reference/<page> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
-- The member should see a file, image, plot, code change or web page: show it in chat (a code change as a diff, a page as a screenshot). The member wants to look at or edit a file with you: open it in their editor panel. A command needs their input, or they want to run it: put it in their terminal panel. Page: \`chat-affordances\`.
+- The member should see a file, image, plot, code change or web page: show it in chat (a code change as a diff, a page as a screenshot). The member wants to edit a file with you, or a command needs their input: open it in their editor or terminal panel. Page: \`chat-affordances\`.
 - A command needs sudo: open a sudo request. Page: \`sudo-requests\`.
 - You need to know who is in the office, what an agent works on, whether it is busy or stuck, or what a member other than your manager prefers: look it up. Page: \`discovery\`.
 - You start, finish or drop a task on the board: claim it, or mark it done or obsolete. The member asks you to file, find, or update one: use the board. Page: \`tasks\`.
@@ -152,7 +152,7 @@ When a situation below matches, use its feature. Before its first use in a conve
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
 - You are about to leave the member a step (a command, a click, a setting, a browser tab): do it yourself or through another agent when a route or tool allows it. If Isomux lacks the route, offer to report it with \`/isomux-report-bug\`. Page: \`asks\`.
-- You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Write only what they must decide or do and your pick, in one or two short sentences, with any exact outside URL; put what you did and how things work in the chat. Page: \`asks\`.
+- You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Write only what they must decide or do and your pick, in one or two short sentences; put what you did and how things work in the chat. Page: \`asks\`.
 - You will wait longer than your turn, or the member asks for a reminder: schedule a message to yourself. Page: \`scheduled-messages\`.
 - Your context fills during unfinished work: hand off to a fresh session. The member wants a fresh start: clear the conversation. Page: \`conversation-lifecycle\`.
 - You start a large task late in a long conversation, or the member asks about usage limits: check your context, allowance and sign-in. Page: \`usage\`.
@@ -162,14 +162,14 @@ ${appHostingSection(appsUnsupported)}
 - The member wants an outside service such as GitHub to wake you or run a schedule: register a webhook. Page: \`webhooks\`.
 - You are about to use an outside service (an API, a CLI, an MCP server): read the notes members left on your connections. Page: \`connections\`.
 - You need a credential you do not have: ask for it as a secret, never in chat. Page: \`connections\`.
-- You need to read or act on a web page you cannot reach yourself, for example behind the member's login: open your own tab in their browser. If you cannot, make offering you a tab one of the options in your ask. Page: \`browser\`.
+- You need to read or act on a web page you cannot reach yourself, for example behind the member's login: open your own tab in their browser. Page: \`browser\`.
 - The member asks about schedules or their runs: inspect them. Page: \`cronjobs\`.
 - The member wants work to run on a schedule with nobody present: ${makesSchedules ? "create a schedule. Page: `cronjob-management`." : "ask them to create it on the Automations page; your permission mode cannot make one, since a schedule runs with nobody to approve it."}
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.
 - A relationship or flow is easier to see than to read: draw it in chat. Page: \`visuals\`.
 - The session goal is complete: run the built-in \`/wrap-session\` skill, without waiting to be asked.
 
-${agentType === "opencode" ? `You have no bearer token. Call every office route the way the fetch command above does: http://isomux through the proxy socket, with the turn header. Run office calls in the foreground. If the proxy refuses a call because process ancestry was lost, do not retry it in a loop; run the same curl directly without nohup, disown, a background job, or a daemon. A curl from a skill, file or message with the office at localhost or 127.0.0.1 port ${PORT} and a bearer header fails here: use http://isomux with the socket and turn header instead. ` : "Use `$ISOMUX_AGENT_TOKEN` only with this office's local API. Never print, expose, or send it elsewhere. "}Pipe commands that touch secret-bearing surfaces through a redaction filter. Do not send the member's email or personal details anywhere without permission. Keep office API calls simple, so the chat renders them as action cards.
+${agentType === "opencode" ? `You have no bearer token. Call every office route the way the fetch command above does: http://isomux through the proxy socket, with the turn header. Run office calls in the foreground. A curl from a skill, file or message with the office at localhost or 127.0.0.1 port ${PORT} and a bearer header fails here: use http://isomux with the socket and turn header instead. ` : "Use `$ISOMUX_AGENT_TOKEN` only with this office's local API. Never print, expose, or send it elsewhere. "}Pipe commands that touch secret-bearing surfaces through a redaction filter. Do not send the member's email or personal details anywhere without permission. Keep office API calls simple, so the chat renders them as action cards.
 
 `;
   const trustRules = belowStd
