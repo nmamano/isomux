@@ -302,6 +302,14 @@ export function askGroups(
 // How long an answer waits before it is sent, so the member can undo it.
 export const ASK_UNDO_MS = 12500;
 
+// The Undo toasts' gap from the bottom of the Inbox.
+const UNDO_BOTTOM = {
+  mobile: "max(12px, env(safe-area-inset-bottom))",
+  desktop: "16px",
+};
+// Space under the list for one Undo toast and a gap above it.
+const UNDO_CLEARANCE = 64;
+
 export function AsksView({
   onFocusAgent,
   onChatAgent,
@@ -865,12 +873,14 @@ export function AsksView({
         </div>
       </div>
 
-      {/* List */}
+      {/* List. Its bottom padding lets the last ask scroll above an Undo
+          toast. It is fixed, so nothing moves when a toast goes. */}
       <div
         style={{
           flex: 1,
           overflowY: "auto",
           padding: isMobile ? "10px 12px" : "16px 20px",
+          paddingBottom: `calc(${UNDO_BOTTOM[isMobile ? "mobile" : "desktop"]} + ${UNDO_CLEARANCE}px)`,
         }}
       >
         {focusAskId && (
@@ -1048,7 +1058,7 @@ export function AsksView({
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: isMobile ? "max(12px, env(safe-area-inset-bottom))" : 16,
+          bottom: UNDO_BOTTOM[isMobile ? "mobile" : "desktop"],
           padding: isMobile ? "0 12px" : "0 20px",
           display: "flex",
           flexDirection: "column",
