@@ -1179,12 +1179,12 @@ function ReplyAskCard({
   // One text size for every button on the card, on phone and desktop:
   // the buttons above the field are the size of Reply under it.
   const buttonFont = 12;
-  const buttonPad = isMobile ? "8px 14px" : "5px 14px";
+  const buttonPad = isMobile ? "6px 12px" : "5px 14px";
   // A recommended button: tight space on the star's left, as on its right.
   // One shorthand either way: a longhand that comes and goes beside it is
   // cleared to 0 when it goes, so the button that loses the star would keep
   // no left padding.
-  const markedPad = isMobile ? "8px 14px 8px 10px" : "5px 14px 5px 10px";
+  const markedPad = isMobile ? "6px 12px 6px 8px" : "5px 14px 5px 10px";
   // Filled, as on other cards: a transparent fill reads as plain text here.
   const secondaryButton = {
     padding: buttonPad,
@@ -1435,11 +1435,13 @@ function ReplyAskCard({
               replaceWords(words.endsWith(":") ? `${words} ` : words, tag)
             }
             style={{
+              // The tag's hue: a suggestion belongs to the tag above it,
+              // not to the options.
               padding: isMobile ? "4px 9px" : "2px 8px",
               borderRadius: 4,
-              border: "1px solid var(--accent-text)",
-              background: "var(--accent-bg)",
-              color: "var(--accent-text)",
+              border: "1px solid var(--ask-tag-text)",
+              background: "color-mix(in srgb, var(--ask-tag) 14%, transparent)",
+              color: "var(--ask-tag-text)",
               fontFamily: "var(--font-ui)",
               fontSize: buttonFont,
               cursor: "pointer",
