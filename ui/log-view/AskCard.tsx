@@ -180,16 +180,11 @@ const AUTOMATE_LABEL: Record<AskTag | "reply", PlainMessageKey> = {
   postpone: "asks.automateAs.postpone",
   rewrite: "asks.automateAs.rewrite",
 };
-const AUTOMATE_SUGGESTIONS: { name: string; label: PlainMessageKey }[] = [
-  { name: "pick", label: "asks.automate.suggest.pick" },
-  { name: "same", label: "asks.automate.suggest.same" },
-];
 
-// A replacing tap's Undo (task 9d79a544): what the box held before the
-// first tap that erased the member's words, and what the taps left. A tap
-// while the line shows keeps the first `before`, so Undo brings back the
-// member's words after a chain of taps. The reply field and the automate box
-// each keep one.
+// A replacing tap's Undo (task 9d79a544): what the reply field held before
+// the first tap that erased the member's words, and what the taps left. A
+// tap while the line shows keeps the first `before`, so Undo brings back the
+// member's words after a chain of taps.
 type Replaced<B, A> = { before: B; after: A };
 function afterReplacingTap<B, A>(
   shown: Replaced<B, A> | null,
@@ -204,15 +199,12 @@ function afterReplacingTap<B, A>(
       : null;
 }
 
-// The line under a box whose words a tap replaced, with Undo.
+// The line under the reply field when a tap replaced its words, with Undo.
 function ReplacedLine({
-  automate,
   disabled,
   isMobile,
   onUndo,
 }: {
-  // The automate box's line, apart from the reply field's.
-  automate?: boolean;
   disabled: boolean;
   isMobile: boolean;
   onUndo: () => void;
@@ -220,9 +212,7 @@ function ReplacedLine({
   const { t } = useI18n();
   return (
     <div
-      {...(automate
-        ? { "data-ask-automate-replaced": "" }
-        : { "data-ask-replaced": "" })}
+      data-ask-replaced=""
       style={{
         display: "flex",
         alignItems: "center",
@@ -235,9 +225,7 @@ function ReplacedLine({
       {t("asks.textReplaced")}
       <button
         type="button"
-        {...(automate
-          ? { "data-ask-automate-replaced-undo": "" }
-          : { "data-ask-replaced-undo": "" })}
+        data-ask-replaced-undo=""
         disabled={disabled}
         onClick={onUndo}
         style={{
@@ -616,14 +604,12 @@ function ReplyAskCard({
   // card's one send. Its words start as the agent's automateText.
   const automateDraft = askAutomate.get(entry.id);
   const automateWords = automateDraft?.text ?? entry.automateText ?? "";
-  // The automate box's replacing tap, as the field's: its words before the
-  // first tap (undefined: the agent's automateText), and what the taps left.
-  const [automateReplaced, setAutomateReplaced] = useState<Replaced<
-    string | undefined,
-    string
-  > | null>(null);
-  const automateReplacedShown =
-    automateReplaced !== null && automateWords === automateReplaced.after;
+  // Focus follows the section: into its box when it opens (not on a touch
+  // screen, where focus raises the keyboard), back to the opener when x
+  // closes it. Both buttons go away under the focus.
+  const automateBoxRef = useRef<HTMLTextAreaElement>(null);
+  const automateOpenerRef = useRef<HTMLButtonElement>(null);
+  const pendingAutomateFocus = useRef<"box" | "opener" | null>(null);
   const [busy, setBusy] = useState(false);
   // One answer at a time: a second submit in the same frame still sees busy
   // false.
@@ -792,39 +778,6 @@ function ReplyAskCard({
     if (!touchPrimary) pendingFocus.current = true;
   }
 
-  // An automate suggestion's words replace the box's. Only words the member
-  // typed count as erased: not the agent's automateText, nor a suggestion's.
-  function replaceAutomateWords(text: string) {
-    const typed =
-      automateDraft?.text !== undefined &&
-      !AUTOMATE_SUGGESTIONS.some(({ label }) => t(label) === automateWords);
-    const erases =
-      typed && automateWords.trim() !== "" && automateWords !== text;
-    setAutomateReplaced(
-      afterReplacingTap(
-        automateReplacedShown ? automateReplaced : null,
-        erases,
-        automateDraft?.text,
-        text,
-      ),
-    );
-    setAutomate(true, text);
-  }
-
-  function undoAutomateReplace() {
-    if (!automateReplaced) return;
-    const before = automateReplaced.before;
-    dispatch({
-      type: "set_ask_automate",
-      askId: entry.id,
-      automate: {
-        open: true,
-        ...(before !== undefined ? { text: before } : {}),
-      },
-    });
-    setAutomateReplaced(null);
-  }
-
   // The automate section (task 33891b5b): open or closed, and its words.
   function setAutomate(open: boolean, text?: string) {
     dispatch({
@@ -846,6 +799,17 @@ function ReplyAskCard({
   useLayoutEffect(() => {
     if (inputRef.current) fitComposer(inputRef.current, isMobile);
   }, [reply, isMobile, held]);
+
+  // The automate section's focus move, once it is drawn or gone.
+  useLayoutEffect(() => {
+    const target = pendingAutomateFocus.current;
+    if (!target) return;
+    pendingAutomateFocus.current = null;
+    (target === "box"
+      ? automateBoxRef.current
+      : automateOpenerRef.current
+    )?.focus();
+  });
 
   // Keep this after the fit effect: layout effects run in order, and the fit
   // scrolls the field back to the top.
@@ -1024,7 +988,6 @@ function ReplyAskCard({
     voice.stop(true);
     sending.current = true;
     setReplaced(null);
-    setAutomateReplaced(null);
     dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
     // The field goes with a tag as it is; blank is no words.
@@ -1075,7 +1038,6 @@ function ReplyAskCard({
       dispatch({ type: "set_ask_draft", askId: entry.id, text: null });
       dispatch({ type: "set_ask_tag", askId: entry.id, tag: undefined });
       setReplaced(null);
-      setAutomateReplaced(null);
       dispatch({
         type: "set_ask_automate",
         askId: entry.id,
@@ -1340,17 +1302,17 @@ function ReplyAskCard({
       >
         {tag === null ? t("asks.reply") : t(TAG_LABEL[tag])}
       </button>
-      {automateShown && (
+      {automateShown && !automateOpen && (
         <button
+          ref={automateOpenerRef}
           type="button"
           data-ask-automate-open={sendKind}
-          aria-expanded={automateOpen}
-          disabled={automateOpen || busy}
-          onClick={() => setAutomate(true)}
-          style={{
-            ...secondaryButton,
-            ...(automateOpen ? { opacity: 0.55, cursor: "default" } : {}),
+          disabled={busy}
+          onClick={() => {
+            if (!touchPrimary) pendingAutomateFocus.current = "box";
+            setAutomate(true);
           }}
+          style={secondaryButton}
         >
           {t(AUTOMATE_LABEL[sendKind])}
         </button>
@@ -2088,7 +2050,10 @@ function ReplyAskCard({
               data-ask-automate-close=""
               aria-label={t("asks.automate.close")}
               title={t("asks.automate.close")}
-              onClick={() => setAutomate(false)}
+              onClick={() => {
+                pendingAutomateFocus.current = "opener";
+                setAutomate(false);
+              }}
             />
           </div>
           <div
@@ -2096,44 +2061,19 @@ function ReplyAskCard({
               color: "var(--text-dim)",
               fontSize: isMobile ? 13 : 12,
               lineHeight: 1.45,
+              whiteSpace: "pre-line",
             }}
           >
             {t("asks.automate.guide")}
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {AUTOMATE_SUGGESTIONS.map(({ name, label }) => (
-              <button
-                key={name}
-                type="button"
-                data-ask-automate-suggestion={name}
-                disabled={answerOff}
-                onClick={() => replaceAutomateWords(t(label))}
-                style={{
-                  padding: isMobile ? "4px 9px" : "2px 8px",
-                  borderRadius: 4,
-                  border: "1px solid var(--accent-text)",
-                  background: "var(--accent-bg)",
-                  color: "var(--accent-text)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: buttonFont,
-                  cursor: "pointer",
-                }}
-              >
-                {t(label)}
-              </button>
-            ))}
-          </div>
           <textarea
+            ref={automateBoxRef}
             value={automateWords}
             rows={2}
             disabled={busy}
             data-ask-automate-input=""
             aria-label={t("asks.automate.box")}
-            onChange={(e) => {
-              // Typing ends the Undo line of a replacing tap.
-              setAutomateReplaced(null);
-              setAutomate(true, e.target.value);
-            }}
+            onChange={(e) => setAutomate(true, e.target.value)}
             onKeyDown={onAutomateKeyDown}
             style={{
               width: "100%",
@@ -2149,14 +2089,6 @@ function ReplyAskCard({
               resize: "vertical",
             }}
           />
-          {automateReplacedShown && (
-            <ReplacedLine
-              automate
-              disabled={busy}
-              isMobile={isMobile}
-              onUndo={undoAutomateReplace}
-            />
-          )}
           <div>
             <button
               type="button"

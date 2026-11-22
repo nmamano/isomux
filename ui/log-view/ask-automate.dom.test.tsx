@@ -1,20 +1,19 @@
 // "... and automate" on the ask card (task 33891b5b). Under the box, a button
 // named after what the card sends ("<Reply|tag> and automate") opens a
-// section with a guide, suggestions, a second box (the agent's automateText
-// while untouched) and one send button. While it is open nothing else
+// section with a guide, a second box (the agent's automateText while
+// untouched) and one send button named like the opener. While it is open the
+// opener is gone (task d5e10d03: two buttons with one name) and nothing else
 // sends: not the first send button, not a tag, not an option, not Enter in
 // the first box. Its button sends the card's answer to the same route with
-// `automate` (the second box; "" when blank). The section's × closes it and
-// keeps its words. Not offered on asks the agent can never decide alone.
+// `automate` (the second box; "" when blank). The section's × closes it,
+// keeps its words and brings the opener back. Focus follows: into the box on
+// open (not on a touch screen, where the keyboard would move the card), onto
+// the opener on ×. Not offered on asks the agent can never decide alone.
 //
 // Hooks: [data-ask-automate-open=<kind>] (the bottom row button),
 // [data-ask-automate] (the section), [data-ask-automate-close],
-// [data-ask-automate-input], [data-ask-automate-suggestion=pick|same],
-// [data-ask-automate-send=<kind>]; <kind> is reply, dismiss, postpone or
-// rewrite. A suggestion replaces the box's words; when that erases words the
-// member typed, [data-ask-automate-replaced] with
-// [data-ask-automate-replaced-undo] shows under the box (task 9d79a544's
-// rule for the reply field).
+// [data-ask-automate-input], [data-ask-automate-send=<kind>]; <kind> is
+// reply, dismiss, postpone or rewrite.
 import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -124,8 +123,15 @@ const type = (el: HTMLTextAreaElement, value: string) =>
   act(async () => void fireEvent.change(el, { target: { value } }));
 const enter = (el: HTMLElement) =>
   act(async () => void fireEvent.keyDown(el, { key: "Enter" }));
-const suggestion = (root: HTMLElement, id: string, name: string) =>
-  q<HTMLButtonElement>(root, id, `[data-ask-automate-suggestion="${name}"]`)!;
+// The focused element as a scalar: "box", "opener", else its tag.
+const focused = () => {
+  const el = document.activeElement;
+  return el?.hasAttribute("data-ask-automate-input")
+    ? "box"
+    : el?.hasAttribute("data-ask-automate-open")
+      ? "opener"
+      : (el?.tagName ?? null);
+};
 
 const RULE = "Tab order and copy changes: go with your pick, tell me after.";
 
@@ -323,95 +329,61 @@ it("sends each tag to its own route with automate", async () => {
   }
 });
 
-const replacedLines = (root: HTMLElement, id: string) =>
-  card(root, id).querySelectorAll("[data-ask-automate-replaced]").length;
-const fieldReplacedLines = (root: HTMLElement, id: string) =>
-  card(root, id).querySelectorAll("[data-ask-replaced]").length;
-
-it("a suggestion replaces the box's words; replacing the agent's rule, an empty box or a suggestion's words shows no Undo line", async () => {
-  const id = "auto0006";
-  const view = await stack(ask(id, { automateText: RULE }));
-  const root = view.container;
-  await click(opener(root, id)!);
-  expect(box(root, id)!.value).toBe(RULE);
-  await click(suggestion(root, id, "pick"));
-  expect(box(root, id)!.value).toBe(t("asks.automate.suggest.pick"));
-  await click(suggestion(root, id, "same"));
-  expect(box(root, id)!.value).toBe(t("asks.automate.suggest.same"));
-  expect(replacedLines(root, id)).toBe(0);
-  await type(box(root, id)!, "");
-  await click(suggestion(root, id, "pick"));
-  expect([box(root, id)!.value, replacedLines(root, id)]).toEqual([
-    t("asks.automate.suggest.pick"),
-    0,
-  ]);
-});
-
-it("a suggestion that erases typed words shows the Undo line under the box, apart from the field's; Undo after two taps brings back the typed words; typing ends the line", async () => {
-  const id = "auto0009";
-  const view = await stack(ask(id, { automateText: RULE }));
-  const root = view.container;
-  await click(opener(root, id)!);
-  await type(box(root, id)!, "Copy changes:");
-  await click(suggestion(root, id, "pick"));
-  expect([box(root, id)!.value, replacedLines(root, id)]).toEqual([
-    t("asks.automate.suggest.pick"),
-    1,
-  ]);
-  // The field's own line is not the box's.
-  expect(fieldReplacedLines(root, id)).toBe(0);
-  // The line sits under the box, before its send button.
-  const line = q(root, id, "[data-ask-automate-replaced]")!;
-  expect(
-    (box(root, id)!.compareDocumentPosition(line) &
-      Node.DOCUMENT_POSITION_FOLLOWING) !==
-      0,
-  ).toBe(true);
-  expect(
-    (line.compareDocumentPosition(automateSend(root, id)!) &
-      Node.DOCUMENT_POSITION_FOLLOWING) !==
-      0,
-  ).toBe(true);
-  await click(suggestion(root, id, "same"));
-  expect([box(root, id)!.value, replacedLines(root, id)]).toEqual([
-    t("asks.automate.suggest.same"),
-    1,
-  ]);
-  await click(
-    q<HTMLButtonElement>(root, id, "[data-ask-automate-replaced-undo]")!,
-  );
-  expect([box(root, id)!.value, replacedLines(root, id)]).toEqual([
-    "Copy changes:",
-    0,
-  ]);
-  // Again, and then typing ends the line.
-  await click(suggestion(root, id, "pick"));
-  expect(replacedLines(root, id)).toBe(1);
-  await type(box(root, id)!, "Copy changes: go with your pick.");
-  expect(replacedLines(root, id)).toBe(0);
-  // Ended, not hidden: typing the tap's words back does not bring it back.
-  await type(box(root, id)!, t("asks.automate.suggest.pick"));
-  expect(replacedLines(root, id)).toBe(0);
-});
-
-it("× closes the section and keeps its words; the send button works again", async () => {
+it("while the section is open the opener is gone and focus is in the box; × closes it, keeps its words and brings the opener back with focus; the send button works again", async () => {
   const id = "auto0007";
   const view = await stack(ask(id));
   const root = view.container;
   await type(input(root, id), "Ship now");
+  expect(focused()).not.toBe("box");
   await click(opener(root, id)!);
+  // Scalars only: a failed toEqual on a DOM node serialises it.
+  expect([
+    section(root, id) !== null,
+    opener(root, id) !== null,
+    focused(),
+  ]).toEqual([true, false, "box"]);
   await type(box(root, id)!, RULE);
   await click(q<HTMLButtonElement>(root, id, "[data-ask-automate-close]")!);
-  expect(section(root, id)).toBe(null);
+  expect([
+    section(root, id) !== null,
+    opener(root, id) !== null,
+    focused(),
+  ]).toEqual([false, true, "opener"]);
   expect(sendButton(root, id).disabled).toBe(false);
   await click(opener(root, id)!);
-  expect(box(root, id)!.value).toBe(RULE);
+  expect([opener(root, id) !== null, box(root, id)!.value]).toEqual([
+    false,
+    RULE,
+  ]);
   await click(q<HTMLButtonElement>(root, id, "[data-ask-automate-close]")!);
   await click(sendButton(root, id));
   // Closed: a plain reply, no automate.
   expect(posts).toEqual([
     { path: `/api/asks/${id}/reply`, text: "Ship now", automate: undefined },
   ]);
+});
+
+it("on a touch screen, opening the section leaves the focus out of the box", async () => {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    query === "(pointer: coarse)"
+      ? ({ matches: true, media: query } as MediaQueryList)
+      : original.call(window, query);
+  try {
+    expect(window.matchMedia("(pointer: coarse)").matches).toBe(true);
+    const id = "auto0008";
+    const view = await stack(ask(id, { automateText: RULE }));
+    const root = view.container;
+    await click(opener(root, id)!);
+    expect([section(root, id) !== null, box(root, id)?.value]).toEqual([
+      true,
+      RULE,
+    ]);
+    expect(focused()).not.toBe("box");
+    view.unmount();
+  } finally {
+    window.matchMedia = original;
+  }
 });
 
 it("on the Inbox, holds Dismiss and automate on its line; Undo brings the card back with the section open and its words; the held send carries automate", async () => {
