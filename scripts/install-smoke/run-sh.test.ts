@@ -686,12 +686,93 @@ describe("run.sh failure cause", () => {
       "#9   Temporary failure resolving 'archive.ubuntu.com'",
       "#9 W: Failed to fetch http://archive.ubuntu.com/ubuntu/dists/noble/InRelease  Temporary failure resolving 'archive.ubuntu.com'",
       "#9 E: Failed to fetch http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease  503  Service Unavailable [IP: 91.189.91.82 80]",
+      "#9   Cannot initiate the connection to security.ubuntu.com:80 (2620:2d:4000:1::101). - connect (101: Network is unreachable)",
       MIRRORS_RETRY,
       "#9 Hit:1 http://mirrors.edge.kernel.org/ubuntu noble InRelease",
       "#10 [5/5] RUN test -x /usr/local/bin/missing",
       'ERROR: failed to solve: process "/bin/sh -c test -x /usr/local/bin/missing" did not complete successfully: exit code: 1',
     ]);
     failedAt(r.out, "box-image");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  // Task b5c1c32b: a failed DNS lookup is a network failure. Docker prints
+  // Go's resolver error; bun prints DNSResolveFailed. The line is from CI's
+  // log of 2026-11-22, when the CI box could not reach its DNS server.
+  const DOCKER_DNS =
+    '#2 ERROR: failed to authorize: failed to fetch anonymous token: Get "https://auth.docker.io/token?scope=repository%3Alibrary%2Fubuntu%3Apull&service=registry.docker.io": dial tcp: lookup auth.docker.io on [fd7a:115c:a1e0::53]:53: dial udp [fd7a:115c:a1e0::53]:53: connect: network is unreachable';
+  const BUN_DNS =
+    'error: DNSResolveFailed downloading tarball hono@4.9.0 from "https://registry.npmjs.org/hono/-/hono-4.9.0.tgz"';
+
+  it("classifies a failed DNS lookup of the base image as network", async () => {
+    const r = await failStep(BOX_IMAGE, [
+      "#2 [internal] load metadata for docker.io/library/ubuntu:24.04",
+      DOCKER_DNS,
+      `ERROR: failed to build: failed to solve: ${DOCKER_DNS.slice(DOCKER_DNS.indexOf("failed to fetch"))}`,
+    ]);
+    failedAt(r.out, "box-image");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes.map((c) => c[0])).toEqual(["network"]);
+  }, 60_000);
+
+  // Every end of a failed lookup counts, with and without the server.
+  it("classifies each failed Go lookup as network", async () => {
+    for (const end of [
+      "lookup registry-1.docker.io: no such host",
+      "lookup auth.docker.io on 127.0.0.53:53: server misbehaving",
+      "lookup auth.docker.io on 127.0.0.53:53: read udp 127.0.0.1:41000->127.0.0.53:53: i/o timeout",
+    ]) {
+      const r = await failStep(BOX_IMAGE, [
+        `#2 ERROR: failed to do request: Head "https://registry-1.docker.io/v2/library/ubuntu/manifests/24.04": dial tcp: ${end}`,
+      ]);
+      failedAt(r.out, "box-image");
+      expect(r.code, `${end}\n${r.out}`).toBe(75);
+      expect(r.causes.map((c) => c[0])).toEqual(["network"]);
+    }
+  }, 120_000);
+
+  it("classifies bun's DNSResolveFailed in the failing install section as network", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("dependencies"),
+      BUN_DNS,
+      "[isomux-install] ERROR: bun install failed",
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes.map((c) => c[0])).toEqual(["network"]);
+  }, 60_000);
+
+  // A DNS sign counts only at the failure point, as the other network signs.
+  it("ignores a failed DNS lookup from an earlier install section or on a warning line", async () => {
+    for (const [before, label] of [
+      [[STEP("dependencies"), BUN_DNS, STEP("service")], "earlier section"],
+      [
+        [
+          STEP("service"),
+          `[isomux-install] warning: ${DOCKER_DNS.slice(DOCKER_DNS.indexOf("dial tcp"))}`,
+        ],
+        "warning line",
+      ],
+    ] as const) {
+      const r = await failStep(INSTALL, [
+        ...before,
+        "[isomux-install] ERROR: isomux.service did not start",
+      ]);
+      failedAt(r.out, "install");
+      expect(r.code, `${label}\n${r.out}`).toBe(1);
+      expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+    }
+  }, 120_000);
+
+  it("keeps a 4xx red as product when the section also has a failed DNS lookup", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("caddy"),
+      BUN_DNS,
+      "curl: (22) The requested URL returned error: 404",
+      GITHUB_DOWN,
+    ]);
+    failedAt(r.out, "install");
     expect(r.code, r.out).toBe(1);
     expect(r.causes.map((c) => c[0])).toEqual(["product"]);
   }, 60_000);

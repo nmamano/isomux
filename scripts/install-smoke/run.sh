@@ -161,8 +161,10 @@ step() {
 #   vm       a step that runs before any isomux code (the box, the local
 #            git), or Docker's daemon gone or the disk full.
 #   network  a final message that blames an outside host: install.sh's
-#            GitHub and apt messages, or apt-mirrors.sh's last one. Raw apt
-#            errors are not signs: the second mirror may have repaired them.
+#            GitHub and apt messages, or apt-mirrors.sh's last one. Or a
+#            failed DNS lookup: Go's resolver error (Docker's image pull) or
+#            Bun's DNSResolveFailed. Raw apt errors are not signs: the
+#            second mirror may have repaired them.
 #   product  everything else, and any HTTP 4xx but 408 and 429 (install.sh
 #            counts those two as GitHub being down): a wrong URL or pin.
 # Network signs and the 4xx count only at the failure point: after the last
@@ -191,7 +193,7 @@ failure_cause() {
     echo "product (HTTP ${sign//[!0-9]/} at the failure point: a wrong URL or pin)"
     return
   fi
-  sign=$(grep -m1 -E 'GitHub did not answer|The cause is the network or the package mirror, not Isomux|did not get every index with either mirror first' <<<"$section") || sign=""
+  sign=$(grep -m1 -E 'GitHub did not answer|The cause is the network or the package mirror, not Isomux|did not get every index with either mirror first|lookup [^ ]+( on [^ ]+)?: .*(network is unreachable|no such host|server misbehaving|i/o timeout)|DNSResolveFailed' <<<"$section") || sign=""
   if [[ -n $sign ]]; then
     echo "network (${sign:0:200})"
     return
