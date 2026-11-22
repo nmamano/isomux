@@ -1797,6 +1797,34 @@ function demoDiscordRouteUpdated(
   return next;
 }
 
+// The rule the demo agent proposes in the same ask after an answer with
+// "... and automate" (task 1b4dfa91), a beat later, as an agent's PATCH
+// would: the member's words, or a stock line when they left it to the agent.
+function demoProposeRule(
+  other: AskAgentWire | null,
+  id: string,
+  words: string,
+): void {
+  setTimeout(() => {
+    const found = demoFindAsk(id);
+    if (!found?.entry.automateRequest?.answer) return;
+    const { simplifyRequestedAt: _, ...rest } = found.entry;
+    demoUpdateAsk(other, {
+      ...rest,
+      step: {
+        kind: "instructions-line",
+        scope: "agent",
+        line:
+          words.trim() !== ""
+            ? words.trim()
+            : "Asks like this one: go with your pick, and tell the member after.",
+        targetId: found.entry.agentId,
+      },
+      updatedAt: Date.now(),
+    });
+  }, 1200);
+}
+
 // "... and automate" (task 33891b5b): the member's words for the rule, as
 // the server puts them on the answer.
 function demoAutomate(body: unknown): { automate?: string } {
@@ -4945,8 +4973,17 @@ export async function demoApi(
     if (!found) throw new ApiError(404, "not_found", "No such open ask.");
     const { entry } = found;
     const now = Date.now();
+    // At the rule stage (task 1b4dfa91) a rewrite is a change of the rule.
+    const ruleChange =
+      entry.automateRequest?.answer && entry.step?.kind === "instructions-line"
+        ? entry.step.line
+        : undefined;
+    const automate = demoAutomate(body);
     demoUpdateAsk(found.other, {
       ...entry,
+      ...(automate.automate !== undefined
+        ? { automateRequest: { at: now, words: automate.automate } }
+        : {}),
       simplifyRequestedAt: now,
       updatedAt: now,
     });
@@ -4957,10 +4994,12 @@ export async function demoApi(
           id: entry.id,
           prompt: entry.prompt,
           simplify: true,
-          ...demoAutomate(body),
+          ...automate,
+          ...(ruleChange !== undefined ? { ruleChange } : {}),
         },
       }),
     });
+    if (ruleChange !== undefined) demoProposeRule(found.other, entry.id, words);
     demoChatReply(entry.agentId);
     return undefined;
   }
@@ -5003,6 +5042,12 @@ export async function demoApi(
     const found = demoFindAsk(decodeURIComponent(actionMatch[1]));
     if (!found) throw new ApiError(404, "not_found", "No such open ask.");
     const step = found.entry.step;
+    // The rule of "... and automate" (task 1b4dfa91): Apply saves it and
+    // the ask closes.
+    if (step?.kind === "instructions-line") {
+      demoRemoveAsk(found.entry.id, found.other !== null);
+      return undefined;
+    }
     if (step?.kind === "discord-route") {
       const pick = (body ?? {}) as Partial<DiscordRoute>;
       const route = demoDiscordRoutes.find(
@@ -5098,6 +5143,9 @@ export async function demoApi(
         "No rewrite of this ask is waiting.",
       );
     const { simplifyRequestedAt: _, ...rest } = entry;
+    // An unanswered automate request goes with it (task 1b4dfa91).
+    if (rest.automateRequest && !rest.automateRequest.answer)
+      delete rest.automateRequest;
     demoUpdateAsk(found.other, { ...rest, updatedAt: Date.now() });
     shimEmit({
       type: "log_entry",
@@ -5123,7 +5171,17 @@ export async function demoApi(
     const postponed = askMatch[2] === "postpone";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const typed = typeof sent === "string" ? sent : "";
-    const automate = demoAutomate(body);
+    // The rule stage (task 1b4dfa91): a dismiss does not want the rule; an
+    // answer with automate, or after a "Rewrite and automate", keeps the ask
+    // open for its rule.
+    const ruleStage = entry.automateRequest?.answer !== undefined;
+    const automate = ruleStage
+      ? {}
+      : (() => {
+          const sentWords = demoAutomate(body).automate;
+          const words = sentWords ?? entry.automateRequest?.words;
+          return words !== undefined ? { automate: words } : {};
+        })();
     // A dismiss or a postpone carries the member's note when they typed one.
     const text =
       typed.trim() !== ""
@@ -5133,7 +5191,27 @@ export async function demoApi(
           : postponed
             ? ASK_POSTPONED_TEXT
             : typed;
-    demoRemoveAsk(entry.id, found.other !== null);
+    if (automate.automate !== undefined) {
+      const now = Date.now();
+      demoUpdateAsk(found.other, {
+        ...entry,
+        automateRequest: {
+          at: now,
+          words: automate.automate,
+          answer: {
+            outcome: dismissed
+              ? "dismissed"
+              : postponed
+                ? "postponed"
+                : "replied",
+            ...(typed.trim() !== "" ? { text: typed } : {}),
+            at: now,
+          },
+        },
+        updatedAt: now,
+      });
+      demoProposeRule(found.other, entry.id, automate.automate);
+    } else demoRemoveAsk(entry.id, found.other !== null);
     shimEmit({
       type: "log_entry",
       entry: makeLogEntry(entry.agentId, "user_message", text, {
@@ -5143,6 +5221,7 @@ export async function demoApi(
           ...(dismissed ? { dismissed: true } : {}),
           ...(postponed ? { postponed: true } : {}),
           ...automate,
+          ...(ruleStage && dismissed ? { ruleDeclined: true } : {}),
         },
       }),
     });

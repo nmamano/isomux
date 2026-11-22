@@ -1212,17 +1212,28 @@ export type AskClosedWire = AskAgentWire & {
     // "... and automate" (task 33891b5b): the member's words for the rule,
     // "" when the agent proposes it.
     automate?: string;
+    // The instructions line the member saved for it (task 1b4dfa91).
+    rule?: string;
   };
   // What happened before the close, oldest first (task 62aa552f).
   events: AskEventWire[];
 };
 // An ask event as a route sends it: the member who asked for a rewrite,
-// withdrew it, or acked a paged ask, by username, null when gone.
+// withdrew it, acked a paged ask or answered with automate, by username,
+// null when gone.
 export type AskEventWire =
   | Exclude<
       AskEvent,
-      { kind: "simplify_requested" | "simplify_withdrawn" | "acked" }
+      {
+        kind:
+          "simplify_requested" | "simplify_withdrawn" | "acked" | "answered";
+      }
     >
+  // An answer with "... and automate" (task 1b4dfa91).
+  | ({ kind: "answered"; by: string | null } & Omit<
+      Extract<AskEvent, { kind: "answered" }>,
+      "kind" | "byUserId"
+    >)
   | {
       kind: "simplify_requested" | "simplify_withdrawn" | "acked";
       at: number;

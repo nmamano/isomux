@@ -202,6 +202,17 @@ function ReadOnlyAsk({ ask, isMobile }: { ask: ReadAsk; isMobile: boolean }) {
               })}
         </div>
       )}
+      {/* The instructions line the member saved for it (task 1b4dfa91). */}
+      {closed?.closed.rule !== undefined && (
+        <div
+          data-ask-closed-rule=""
+          style={{ ...small, whiteSpace: "pre-wrap" }}
+        >
+          {rich("asks.rule.saved", {
+            rule: <span {...noTranslate()}>{closed.closed.rule}</span>,
+          })}
+        </div>
+      )}
       {closed?.closed.by && (
         <div style={small}>
           {rich("asks.answeredBy", {

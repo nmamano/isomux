@@ -266,6 +266,10 @@ export interface AsksDeps {
       device: string | undefined;
       // "... and automate" (task 33891b5b): the member's words for the rule.
       automate?: string;
+      // The rule stage (task 1b4dfa91): a rewrite request for a change of
+      // this proposed line, or a dismiss that does not want the rule.
+      ruleChange?: string;
+      ruleDeclined?: boolean;
     },
   ): Promise<UserSendAcceptance>;
   // Messaging reply drafts (WhatsApp, task d03a61d8; Discord, task
@@ -376,22 +380,31 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const byName = (userId: string | undefined) =>
     userId === undefined ? null : deps.memberName(userId);
   const eventWire = (event: AskEvent): AskEventWire =>
-    event.kind === "simplify_requested" ||
-    event.kind === "simplify_withdrawn" ||
-    event.kind === "acked"
+    event.kind === "answered"
       ? {
           kind: event.kind,
           at: event.at,
           by: byName(event.byUserId),
-          ...(event.kind === "simplify_requested" && event.text !== undefined
-            ? { text: event.text }
-            : {}),
-          ...(event.kind === "simplify_requested" &&
-          event.automate !== undefined
-            ? { automate: event.automate }
-            : {}),
+          outcome: event.outcome,
+          ...(event.answer !== undefined ? { answer: event.answer } : {}),
+          automate: event.automate,
         }
-      : event;
+      : event.kind === "simplify_requested" ||
+          event.kind === "simplify_withdrawn" ||
+          event.kind === "acked"
+        ? {
+            kind: event.kind,
+            at: event.at,
+            by: byName(event.byUserId),
+            ...(event.kind === "simplify_requested" && event.text !== undefined
+              ? { text: event.text }
+              : {}),
+            ...(event.kind === "simplify_requested" &&
+            event.automate !== undefined
+              ? { automate: event.automate }
+              : {}),
+          }
+        : event;
   // A closed ask: who answered is named as they are now, null when gone.
   const closedWire = ({
     entry,
@@ -486,6 +499,34 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // The member's automate words, for the message and the record, when sent.
   const automateOf = (automate: string | undefined) =>
     automate !== undefined ? { automate } : {};
+
+  // "... and automate" in the same ask (task 1b4dfa91). At the rule stage
+  // the member has answered and only the rule is open.
+  const atRuleStage = (entry: AskEntry) =>
+    entry.automateRequest?.answer !== undefined;
+  const answered = () =>
+    fail(409, "answered", "This ask is answered; only its rule is open.");
+  // The words an answer goes with: sent now, or kept from a "Rewrite and
+  // automate" that waited for this answer.
+  const automateFor = (entry: AskEntry, sent: string | undefined) =>
+    sent ?? entry.automateRequest?.words;
+  // After the agent has the answer: the ask stays open for its rule. A
+  // failed write is logged, as in close: a retry would send it twice.
+  const keepForRule = (
+    entry: AskEntry,
+    identity: Identity,
+    words: string,
+    answer?: { outcome: "replied" | "dismissed" | "postponed"; text?: string },
+  ) => {
+    try {
+      store.markAutomate(entry.id, identity.userId ?? undefined, words, answer);
+    } catch (err) {
+      console.error(
+        `[asks] ${entry.id} was answered but its rule could not be kept:`,
+        err,
+      );
+    }
+  };
 
   // Who answered and their words, for the closed ask's record. A bare
   // dismiss or postpone has no words.
@@ -866,6 +907,15 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           "The agent cannot decide asks like this one alone: answer without automate.",
         ),
       );
+    // The rule stage (task 1b4dfa91) asks for no second rule.
+    if (automate !== undefined && atRuleStage(entry))
+      return refuse(
+        fail(
+          409,
+          "automate_not_offered",
+          "This ask is answered; only its rule is open.",
+        ),
+      );
     // A secret request is answered with its masked form only: a reply would
     // carry what the member typed into the chat and to the agent.
     if (entry.secret)
@@ -990,20 +1040,32 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         }
       }
       const text = checked.text ?? ASK_DISMISSED_TEXT;
-      const automate = automateOf(checked.automate);
+      // The rule stage (task 1b4dfa91): a dismiss does not want the rule and
+      // closes the ask; a reply is refused.
+      const ruleStage = atRuleStage(entry);
+      if (ruleStage && !dismissed) return answered();
+      const words = ruleStage
+        ? undefined
+        : automateFor(entry, checked.automate);
       delivering.add(entry.id);
       try {
         const result = await deps.deliver(ctx.identity, entry, text, {
           dismissed,
           device,
-          ...automate,
+          ...automateOf(words),
+          ...(ruleStage ? { ruleDeclined: true } : {}),
         });
         if (!result.ok) return fail(result.status, result.code, result.message);
-        close(entry, {
-          outcome: dismissed ? "dismissed" : "replied",
-          ...answeredBy(ctx.identity, checked.text),
-          ...automate,
-        });
+        if (words !== undefined)
+          keepForRule(entry, ctx.identity, words, {
+            outcome: dismissed ? "dismissed" : "replied",
+            ...(checked.text !== undefined ? { text: checked.text } : {}),
+          });
+        else
+          close(entry, {
+            outcome: dismissed ? "dismissed" : "replied",
+            ...answeredBy(ctx.identity, checked.text),
+          });
         return noContent();
       } finally {
         delivering.delete(entry.id);
@@ -1045,6 +1107,14 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     if (!checked.ok) return checked.result;
     const { entry, device, text: words } = checked;
     if (entry.messaging) return messagingDraft();
+    // The rule stage (task 1b4dfa91): a rewrite with words is a change of
+    // the proposed rule; with no words, or before the rule, it is refused.
+    const ruleChange =
+      atRuleStage(entry) && entry.step?.kind === "instructions-line"
+        ? entry.step.line
+        : undefined;
+    if (atRuleStage(entry) && (ruleChange === undefined || words === undefined))
+      return answered();
     if (entry.simplifyRequestedAt !== undefined)
       return fail(
         409,
@@ -1062,6 +1132,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           simplify: true,
           device,
           ...automateOf(checked.automate),
+          ...(ruleChange !== undefined ? { ruleChange } : {}),
         },
       );
       if (!result.ok) return fail(result.status, result.code, result.message);
@@ -1080,6 +1151,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           err,
         );
       }
+      // "Rewrite and automate": the words wait for the member's answer.
+      if (checked.automate !== undefined)
+        keepForRule(entry, ctx.identity, checked.automate);
       return noContent();
     } finally {
       delivering.delete(entry.id);
@@ -1096,6 +1170,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     if (!checked.ok) return checked.result;
     const { entry, text: note, device } = checked;
     if (entry.messaging) return messagingDraft();
+    if (atRuleStage(entry)) return answered();
+    const words = automateFor(entry, checked.automate);
     delivering.add(entry.id);
     try {
       const result = await deps.deliver(
@@ -1106,15 +1182,20 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           dismissed: false,
           postponed: true,
           device,
-          ...automateOf(checked.automate),
+          ...automateOf(words),
         },
       );
       if (!result.ok) return fail(result.status, result.code, result.message);
-      close(entry, {
-        outcome: "postponed",
-        ...answeredBy(ctx.identity, note),
-        ...automateOf(checked.automate),
-      });
+      if (words !== undefined)
+        keepForRule(entry, ctx.identity, words, {
+          outcome: "postponed",
+          ...(note !== undefined ? { text: note } : {}),
+        });
+      else
+        close(entry, {
+          outcome: "postponed",
+          ...answeredBy(ctx.identity, note),
+        });
       return noContent();
     } finally {
       delivering.delete(entry.id);
@@ -1438,14 +1519,42 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return sudoRequest(
         "A sudo request cannot be edited. Delete it to withdraw it.",
       );
+    // The rule stage (task 1b4dfa91): the prompt is what the member
+    // answered, so the edit takes the rule only.
+    if (
+      atRuleStage(prev) &&
+      Object.entries(body).some(
+        ([key, value]) =>
+          key !== "step" &&
+          value !== undefined &&
+          !((key === "text" || key === "prompt") && value === ""),
+      )
+    )
+      return fail(
+        409,
+        "answered",
+        "This ask is answered. Send only step: an instructions-line step with the rule.",
+      );
     // A step and its link are fixed after create (task c71cb60f), but for a
     // rule ask's line and scope, which the agent tunes in place (task
-    // 33891b5b), checked as at create.
+    // 33891b5b), checked as at create. The rule of "... and automate" goes
+    // into the answered ask itself (task 1b4dfa91), never before the answer.
     let step: AskStep | undefined;
     if (body.step !== undefined) {
       const sent = body.step;
       if (
-        prev.step?.kind !== "instructions-line" ||
+        prev.automateRequest !== undefined &&
+        !atRuleStage(prev) &&
+        prev.step === undefined
+      )
+        return fail(
+          409,
+          "not_answered",
+          "Add the rule after the member answers the ask.",
+        );
+      if (
+        (prev.step?.kind !== "instructions-line" &&
+          !(atRuleStage(prev) && prev.step === undefined)) ||
         typeof sent !== "object" ||
         sent === null ||
         !("kind" in sent) ||
@@ -1454,7 +1563,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         return fail(
           400,
           "invalid_request",
-          "an ask's step cannot be edited, except a rule ask's line and scope",
+          "an ask's step cannot be edited, except a rule's line and scope",
         );
       const agent = deps.agent(prev.agentId);
       if (!agent || !prev.memberUserId) return notFound();

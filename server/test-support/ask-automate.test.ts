@@ -1,7 +1,7 @@
 // "... and automate" on the server (task 33891b5b): every answer route takes
-// the member's words for a rule (`automate`, "" = the agent proposes it),
-// sends them under a second note after the answer's own, and keeps them on
-// the closed record (or on the rewrite request's event); the agent may
+// the member's words for a rule (`automate`, "" = the agent proposes it) and
+// sends them under a second note after the answer's own; the rule stage that
+// follows is in ask-automate-rule.test.ts (task 1b4dfa91). The agent may
 // prefill the rule on the ask (automateText). Through the routes and /mcp,
 // FakeBackend only. The refusals on asks that cannot be automated, with
 // nothing sent or filed, are in server/routes/handlers/asks.test.ts, where a
@@ -192,41 +192,6 @@ describe("an answer with automate (task 33891b5b)", () => {
     }
   });
 
-  it("reply, dismiss and postpone send the automate note, keep the words on the ref and on the closure, and still close with the tag's outcome", async () => {
-    const w = await world();
-    const cases = [
-      { verb: "reply", json: { text: "Ship now" }, outcome: "replied" },
-      { verb: "dismiss", json: {}, outcome: "dismissed" },
-      { verb: "postpone", json: { text: "Monday" }, outcome: "postponed" },
-    ];
-    let n = 0;
-    for (const c of cases)
-      for (const automate of [RULE, ""]) {
-        const created = await w.open(`Ship tab order ${n}?`);
-        const r = await w.answer(created.id, c.verb, { ...c.json, automate });
-        expect(`${c.verb} ${r.status}`).toMatch(
-          new RegExp(`^${c.verb} 20[14]$`),
-        );
-        n++;
-        await waitUntil(() => w.sent().length === n, `${c.verb} delivered`);
-        const ref = w.loggedRefs()[n - 1] as unknown as AskRef;
-        // The tag's own flags, plus automate.
-        expect({ verb: c.verb, automate: ref.automate }).toEqual({
-          verb: c.verb,
-          automate,
-        });
-        const message = w.sent()[n - 1];
-        expect(message).toContain(askReplyNote(ref));
-        const closed = (await w.read(created.id)).closed as
-          AskClosure | undefined;
-        expect({
-          verb: c.verb,
-          outcome: closed?.outcome as string | undefined,
-          automate: closed?.automate,
-        }).toEqual({ verb: c.verb, outcome: c.outcome, automate });
-      }
-  });
-
   it("an answer without automate has no automate on the ref or the closure", async () => {
     const w = await world();
     const created = await w.open("Ship it?");
@@ -298,9 +263,8 @@ describe("an answer with automate (task 33891b5b)", () => {
       ).status,
     ).toBe(204);
     await waitUntil(() => w.sent().length === 1, "delivered");
-    expect(
-      ((await w.read(created.id)).closed as AskClosure | undefined)?.automate,
-    ).toBe(longest);
+    // The ask stays open for the rule (task 1b4dfa91), with the words.
+    expect((await w.read(created.id)).automateRequest?.words).toBe(longest);
   });
   it("the bare simplify alias and the rewrite's withdrawal take no automate: 400 invalid_automate, nothing sent or marked", async () => {
     const w = await world();

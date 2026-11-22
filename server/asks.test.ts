@@ -2269,3 +2269,239 @@ describe("a page id and a raise count (task 74e8fc07, slice 3)", () => {
     }
   });
 });
+
+// The rule stage of "... and automate" in the store (task 1b4dfa91):
+// markAutomate keeps the answer on the open entry (an answered event, and
+// the stop of a ringing page's alarm), every close of an entry at its rule
+// stage records the member's answer (plus the rule only on a done step),
+// and the load refuses a malformed request rather than reopen the ask for
+// a second answer. Seam: the store on a temp file, with the history as a
+// recording fake.
+describe("an ask's automate request (task 1b4dfa91)", () => {
+  const LINE = "Tab order: go with your pick.";
+  const STEP = {
+    kind: "instructions-line" as const,
+    scope: "agent" as const,
+    line: LINE,
+    targetId: "a1",
+  };
+  function ruleStore() {
+    const { dir, path } = fileIn();
+    const closures: { askId: string; closure: Record<string, unknown> }[] = [];
+    const events: { askId: string; event: AskEvent }[] = [];
+    const pages: string[] = [];
+    const history = {
+      record: (entry: AskEntry, closure: Record<string, unknown>) =>
+        closures.push({ askId: entry.id, closure }),
+      recordEvent: (_agentId: string, askId: string, event: AskEvent) =>
+        events.push({ askId, event }),
+      has: () => false,
+      recordPage: () => {},
+      pageAskId: () => null,
+    } as unknown as AskHistory;
+    const open = () =>
+      createAskStore({
+        persistence: createAskFilePersistence(path),
+        now: () => 5_000,
+        history,
+        onPage: (entry, event) => pages.push(`${event} ${entry.id}`),
+      });
+    const store = open();
+    const made = (over: Partial<Parameters<typeof store.create>[0]> = {}) => {
+      const r = store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Ship it?",
+        ...over,
+      });
+      if (!r.ok) throw new Error(`create failed: ${r.code}`);
+      return r.entry;
+    };
+    // An entry at its rule stage, optionally with its rule.
+    const answered = (withRule: boolean) => {
+      const entry = made();
+      store.markAutomate(entry.id, "u1", "Pick yourself.", {
+        outcome: "replied",
+        text: "Ship now",
+      });
+      if (withRule)
+        store.edit(
+          entry.id,
+          entry.prompt,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { step: STEP },
+        );
+      return store.get(entry.id)!;
+    };
+    return { dir, path, store, made, answered, closures, events, pages, open };
+  }
+  const ANSWER = {
+    outcome: "replied",
+    byUserId: "u1",
+    answer: "Ship now",
+    automate: "Pick yourself.",
+  };
+
+  it("markAutomate with an answer keeps the entry open with the request, records one answered event, and acks a ringing page as the answerer", () => {
+    const s = ruleStore();
+    const paged = s.made({ page: { recipients: ["u1"] } });
+    s.pages.length = 0;
+    const after = s.store.markAutomate(paged.id, "u1", "Pick yourself.", {
+      outcome: "replied",
+      text: "Ship now",
+    });
+    expect(after?.automateRequest).toEqual({
+      at: 5_000,
+      byUserId: "u1",
+      words: "Pick yourself.",
+      answer: { outcome: "replied", text: "Ship now", at: 5_000 },
+    });
+    expect(s.store.get(paged.id)?.automateRequest?.answer?.outcome).toBe(
+      "replied",
+    );
+    expect([
+      s.store.get(paged.id)?.page?.state,
+      s.store.get(paged.id)?.page?.ackedByUserId,
+    ]).toEqual(["acked", "u1"]);
+    expect(s.pages).toEqual([`acked ${paged.id}`]);
+    expect(
+      s.events
+        .filter((e) => e.event.kind === ("answered" as string))
+        .map((e) => e.event),
+    ).toEqual([
+      {
+        kind: "answered",
+        at: 5_000,
+        byUserId: "u1",
+        outcome: "replied",
+        answer: "Ship now",
+        automate: "Pick yourself.",
+      } as unknown as AskEvent,
+    ]);
+    expect(s.closures).toEqual([]);
+  });
+
+  it("markAutomate without an answer (Rewrite and automate) keeps the words only, with no answered event; a gone entry gives null", () => {
+    const s = ruleStore();
+    const entry = s.made();
+    const after = s.store.markAutomate(entry.id, "u1", "Pick yourself.");
+    expect(after?.automateRequest).toEqual({
+      at: 5_000,
+      byUserId: "u1",
+      words: "Pick yourself.",
+    });
+    expect(
+      s.events.filter((e) => e.event.kind === ("answered" as string)).length,
+    ).toBe(0);
+    expect(s.store.markAutomate("nope0000", "u1", "x")).toBe(null);
+  });
+
+  it("every close at the rule stage records the answer; only a done step adds the rule", () => {
+    const s = ruleStore();
+    const cases: [string, AskEntry, Parameters<typeof s.store.remove>[1]][] =
+      [];
+    const done = s.answered(true);
+    cases.push(["done", done, { outcome: "done" }]);
+    const declined = s.answered(true);
+    cases.push([
+      "declined",
+      declined,
+      { outcome: "dismissed", byUserId: "u1", answer: "Not worth it" },
+    ]);
+    const withdrawn = s.answered(true);
+    cases.push(["withdrawn", withdrawn, { outcome: "withdrawn" }]);
+    const noRule = s.answered(false);
+    cases.push(["withdrawn, no rule", noRule, { outcome: "withdrawn" }]);
+    for (const [, entry, close] of cases) s.store.remove(entry.id, close);
+    const removedAgent = s.store.create({
+      agentId: "a9",
+      memberUserId: "u1",
+      prompt: "Gone?",
+    });
+    if (!removedAgent.ok) throw new Error("create failed");
+    s.store.markAutomate(removedAgent.entry.id, "u1", "Pick yourself.", {
+      outcome: "replied",
+      text: "Ship now",
+    });
+    s.store.removeAgent("a9");
+    const got = (id: string) => {
+      const c = s.closures.find((x) => x.askId === id)?.closure ?? {};
+      const { at: _at, ...rest } = c;
+      return rest;
+    };
+    expect({
+      done: got(done.id),
+      declined: got(declined.id),
+      withdrawn: got(withdrawn.id),
+      noRule: got(noRule.id),
+      removedAgent: got(removedAgent.entry.id),
+    }).toEqual({
+      done: { ...ANSWER, rule: LINE },
+      declined: ANSWER,
+      withdrawn: ANSWER,
+      noRule: ANSWER,
+      removedAgent: ANSWER,
+    });
+  });
+
+  it("an entry with no automate request closes as asked", () => {
+    const s = ruleStore();
+    const plain = s.made();
+    s.store.remove(plain.id, { outcome: "done" });
+    const { at: _at, ...rest } = s.closures[0].closure;
+    expect(rest).toEqual({ outcome: "done" });
+    // Words only (a Rewrite and automate the member never answered).
+    const waiting = s.made();
+    s.store.markAutomate(waiting.id, "u1", "Pick yourself.");
+    s.store.remove(waiting.id, { outcome: "withdrawn" });
+    const { at: _at2, ...rest2 } = s.closures[1].closure;
+    expect(rest2).toEqual({ outcome: "withdrawn" });
+  });
+
+  it("a new store reads the rule stage back; a malformed request is not loaded as an open ask", () => {
+    const s = ruleStore();
+    const entry = s.answered(true);
+    expect(s.open().get(entry.id)).toEqual(entry);
+    const stored = JSON.parse(readFileSync(s.path, "utf-8")) as AskEntry[];
+    const good = stored.find((e) => e.id === entry.id)!;
+    const bad: unknown[] = [
+      { ...good.automateRequest, words: 5 },
+      { ...good.automateRequest, at: "now" },
+      { ...good.automateRequest, answer: { outcome: "done", at: 1 } },
+      {
+        ...good.automateRequest,
+        answer: { outcome: "replied", text: 5, at: 1 },
+      },
+      { ...good.automateRequest, answer: { outcome: "replied" } },
+      "yes",
+    ];
+    for (const automateRequest of bad) {
+      writeFileSync(
+        s.path,
+        JSON.stringify([{ ...good, automateRequest }], null, 2),
+      );
+      const loaded = s.open();
+      // Whatever the load does with it, the ask is not open as a plain ask
+      // the member could answer again.
+      const back = (() => {
+        try {
+          return loaded.get(entry.id);
+        } catch {
+          return null;
+        }
+      })();
+      expect({
+        automateRequest,
+        plainAgain:
+          back !== null &&
+          back !== undefined &&
+          back.automateRequest?.answer === undefined,
+      }).toEqual({ automateRequest, plainAgain: false });
+    }
+  });
+});

@@ -1683,6 +1683,10 @@ export interface AskEntry {
   // the card starts the automate box with it. Never on an ask that cannot
   // be automated (automateOffered).
   automateText?: string;
+  // "... and automate" (task 1b4dfa91): the member asked the agent to
+  // automate asks like this one. The ask stays open until the member has
+  // answered and the rule is settled. Set by the server only.
+  automateRequest?: AskAutomateRequest;
   // A reply draft to a messaging contact (task d03a61d8): the text that goes
   // out through `app` when the row's member answers Send. Fixed after
   // create: the agent cannot edit or simplify the ask, only withdraw it.
@@ -1700,6 +1704,25 @@ export interface AskEntry {
   // The office feature that opened the ask, on an ask with no agent: a page
   // about the member's own WhatsApp or Discord link. For that member only.
   office?: AskOfficeSource;
+}
+
+// An ask's automate request (task 1b4dfa91). `words`: the member's words
+// for the rule, "" when the agent proposes it. `answer`: the member's answer,
+// already sent to the agent; with it the ask is at its rule stage, where only
+// the rule (an instructions-line step the agent adds) is open.
+export interface AskAutomateRequest {
+  at: number;
+  byUserId?: string;
+  words: string;
+  answer?: AskAutomateAnswer;
+}
+
+export interface AskAutomateAnswer {
+  outcome: "replied" | "dismissed" | "postponed";
+  // The member's words as the agent got them; absent on a bare dismiss or
+  // postpone.
+  text?: string;
+  at: number;
 }
 
 // The office itself as an ask's source (task 74e8fc07). `feature` is any
@@ -1813,6 +1836,9 @@ export interface AskCloseInput {
   // The member also asked the agent to automate asks like this one (task
   // 33891b5b): their words for the rule, "" when the agent proposes it.
   automate?: string;
+  // The instructions line the member saved for it (task 1b4dfa91): only
+  // when the rule was saved.
+  rule?: string;
 }
 export interface AskClosure extends AskCloseInput {
   at: number;
@@ -1851,7 +1877,7 @@ export type AskEvent =
       app?: string;
       // The office feature that re-raised its paged ask (task 74e8fc07).
       office?: string;
-      // `step`: a rule ask's step the edit replaced (task 33891b5b).
+      // `step`: the rule step the edit added or replaced (task 33891b5b).
       before: { [K in AskEditableKey]?: AskEntry[K] | null } & {
         step?: AskStep | null;
       };
@@ -1869,7 +1895,17 @@ export type AskEvent =
   // The member withdrew the simplify request before the rewrite.
   | { kind: "simplify_withdrawn"; at: number; byUserId?: string }
   // A member acked a paged ask: its alarm stopped, the ask stays open.
-  | { kind: "acked"; at: number; byUserId: string };
+  | { kind: "acked"; at: number; byUserId: string }
+  // The member answered with "... and automate" (task 1b4dfa91): the answer
+  // went to the agent, and the ask stays open for the rule.
+  | {
+      kind: "answered";
+      at: number;
+      byUserId?: string;
+      outcome: AskAutomateAnswer["outcome"];
+      answer?: string;
+      automate: string;
+    };
 
 // An entry of an agent's ask log (task 302e7ea4): every event of an ask, the
 // close included, as it happens.
@@ -1949,6 +1985,10 @@ export interface AskRef {
   // "... and automate" (task 33891b5b): the member's words for the rule,
   // "" when the agent proposes it.
   automate?: string;
+  // At the rule stage (task 1b4dfa91): a rewrite request asks for a change
+  // of the proposed rule, this line; a dismiss says the rule is not wanted.
+  ruleChange?: string;
+  ruleDeclined?: boolean;
 }
 
 export function generateAskId(existing?: string[]): string {

@@ -33,6 +33,7 @@ import {
   generateAskId,
   generatePagerId,
   isValidPriority,
+  type AskAutomateAnswer,
   type AskCloseInput,
   type AskCommandRun,
   type AskEditableKey,
@@ -262,6 +263,29 @@ function isAskPage(v: unknown): boolean {
   );
 }
 
+// An automate request (task 1b4dfa91). A malformed one fails the file, as
+// any bad field does: it never loads as a plain ask the member could answer
+// a second time.
+function isAutomateRequest(v: unknown): boolean {
+  if (!isObject(v)) return false;
+  if (
+    typeof v.at !== "number" ||
+    typeof v.words !== "string" ||
+    (v.byUserId !== undefined && typeof v.byUserId !== "string")
+  )
+    return false;
+  if (v.answer === undefined) return true;
+  const a = v.answer;
+  return (
+    isObject(a) &&
+    (a.outcome === "replied" ||
+      a.outcome === "dismissed" ||
+      a.outcome === "postponed") &&
+    typeof a.at === "number" &&
+    (a.text === undefined || typeof a.text === "string")
+  );
+}
+
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -392,6 +416,8 @@ function isAskEntry(v: unknown): v is AskEntry {
   )
     return false;
   if (r.runs !== undefined && !isListOf(r.runs, isAskCommandRun)) return false;
+  if (r.automateRequest !== undefined && !isAutomateRequest(r.automateRequest))
+    return false;
   if (
     (r.simplifyRequestedAt !== undefined &&
       typeof r.simplifyRequestedAt !== "number") ||
@@ -742,7 +768,8 @@ export interface AskStore {
     // keeps, null removes. Removing the tag removes its text. The caller
     // keeps the tag and the option mark apart.
     // The automate rule's prefill (task 33891b5b), as link; and a new step,
-    // which the caller allows only on a rule ask (instructions-line).
+    // which the caller allows only for a rule (instructions-line): on a rule
+    // ask, or at the rule stage of "... and automate" (task 1b4dfa91).
     tag?: {
       recommendedTag?: string | null;
       recommendedText?: string | null;
@@ -759,6 +786,17 @@ export interface AskStore {
     byUserId?: string,
     text?: string,
     automate?: string,
+  ): AskEntry | null;
+  // "... and automate" (task 1b4dfa91), after the agent has the message:
+  // the open entry keeps its automate request. With `answer`, the member's
+  // answer (the rule stage, with an "answered" event and a stop of a ringing
+  // page's alarm); without, a "Rewrite and automate". Null when the entry
+  // is gone.
+  markAutomate(
+    id: string,
+    byUserId: string | undefined,
+    words: string,
+    answer?: Omit<AskAutomateAnswer, "at">,
   ): AskEntry | null;
   // Clears the simplify mark of the open entry and records the member who
   // withdrew it. Null, with nothing written, when the entry is gone or has no
@@ -879,6 +917,28 @@ export function askAgentId(entry: Pick<AskEntry, "agentId">): string | null {
   return entry.agentId === "" ? null : entry.agentId;
 }
 
+// The closure of an entry (task 1b4dfa91): at the rule stage, whatever
+// closes it, the member's answer, with the saved line when its step is done.
+export function askClosureFor(
+  entry: AskEntry,
+  close: AskCloseInput,
+): AskCloseInput {
+  const request = entry.automateRequest;
+  const answer = request?.answer;
+  if (!request || !answer) return close;
+  const saved =
+    close.outcome === "done" && entry.step?.kind === "instructions-line"
+      ? { rule: entry.step.line }
+      : {};
+  return {
+    outcome: answer.outcome,
+    ...(request.byUserId !== undefined ? { byUserId: request.byUserId } : {}),
+    ...(answer.text !== undefined ? { answer: answer.text } : {}),
+    automate: request.words,
+    ...saved,
+  };
+}
+
 export function createAskStore(deps: AskStoreDeps): AskStore {
   const now = deps.now ?? Date.now;
   let entries: AskEntry[] = [];
@@ -909,10 +969,14 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
   // close whose answer the agent already has.
   function recordClosed(closed: AskEntry[], close: AskCloseInput): void {
     if (!deps.history) return;
-    const closure = { ...close, at: now() };
+    const at = now();
     for (const entry of closed) {
       try {
-        deps.history.record(entry, closure, deps.audienceIds?.(entry));
+        deps.history.record(
+          entry,
+          { ...askClosureFor(entry, close), at },
+          deps.audienceIds?.(entry),
+        );
       } catch (err) {
         console.error(
           `[asks] ${entry.id} closed but could not be recorded: ${errMessage(err)}`,
@@ -1198,7 +1262,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       for (const key of ASK_EDITABLE_KEYS)
         if (JSON.stringify(prev[key]) !== JSON.stringify(entry[key]))
           Object.assign(before, { [key]: prev[key] ?? null });
-      // A rule ask's step (task 33891b5b), the one step an edit replaces.
+      // A rule's step (task 33891b5b), the one step an edit adds or replaces.
       if (JSON.stringify(prev.step) !== JSON.stringify(entry.step))
         before.step = prev.step ?? null;
       // The rewrite a rewrite request asked for: any change answers it, as
@@ -1249,6 +1313,57 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       });
       return { ...entry };
     },
+    markAutomate(id, byUserId, words, answer) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev) return null;
+      const at = now();
+      // The answer stops a ringing page's alarm, as an ack would.
+      const acks =
+        answer !== undefined &&
+        byUserId !== undefined &&
+        prev.page?.state === "ringing" &&
+        !ringsNobody(prev);
+      const entry: AskEntry = {
+        ...prev,
+        ...(acks && prev.page
+          ? {
+              page: {
+                ...prev.page,
+                state: "acked" as const,
+                ackedByUserId: byUserId,
+                ackedAt: at,
+              },
+            }
+          : {}),
+        automateRequest: {
+          at,
+          ...(byUserId !== undefined ? { byUserId } : {}),
+          words,
+          ...(answer ? { answer: { ...answer, at } } : {}),
+        },
+        updatedAt: at,
+      };
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
+      if (answer) {
+        recordEvent(entry, {
+          kind: "answered",
+          at,
+          ...(byUserId !== undefined ? { byUserId } : {}),
+          outcome: answer.outcome,
+          ...(answer.text !== undefined ? { answer: answer.text } : {}),
+          automate: words,
+        });
+      }
+      if (acks && byUserId !== undefined) {
+        recordEvent(entry, { kind: "acked", at, byUserId });
+        tellPage(entry, "acked");
+      }
+      return { ...entry };
+    },
     cancelSimplify(id, byUserId) {
       check();
       const prev = entries.find((e) => e.id === id);
@@ -1256,6 +1371,10 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       const at = now();
       const entry: AskEntry = { ...prev, updatedAt: at };
       delete entry.simplifyRequestedAt;
+      // A "Rewrite and automate" withdrawn before the rewrite takes back
+      // its automate request too (task 1b4dfa91); an answered one stays.
+      if (entry.automateRequest && entry.automateRequest.answer === undefined)
+        delete entry.automateRequest;
       commit(
         entries.map((e) => (e.id === id ? entry : e)),
         [{ kind: "upserted", entry }],
@@ -1570,9 +1689,12 @@ function askReplyNoteText(
   // "... and automate" (task 33891b5b): a second note after the answer's,
   // with the member's words for the rule, or none for the agent to propose.
   if (ref.automate === undefined) return note;
+  // The rule goes into the same ask, after the answer (task 1b4dfa91).
   const rule = ref.automate.trim();
-  const after = ref.simplify ? "rewrite the ask" : "act on this answer";
-  return `${note}[Automate asks like this${rule === "" ? "; propose the rule" : `: ${JSON.stringify(rule)}`}. First ${after}, then open one rule ask for the line to save] `;
+  const then = ref.simplify
+    ? "First rewrite the ask; add the rule to it after the member answers it"
+    : "First act on this answer, then edit this ask with only a step: kind instructions-line, scope agent, room or member, and line, the rule in one line";
+  return `${note}[Automate asks like this${rule === "" ? "; propose the rule" : `: ${JSON.stringify(rule)}`}. ${then}] `;
 }
 
 function answerNoteText(ref: AskRef, currentSessionId: string | null): string {
@@ -1584,6 +1706,12 @@ function answerNoteText(ref: AskRef, currentSessionId: string | null): string {
   const whose = ref.app ? `app ${ref.app.name}'s` : "your";
   // A rewrite request, bare or in the member's words (task 1466ea8b): the
   // note asks for an edit, so typed words are not read as an answer.
+  // The rule stage (task 1b4dfa91): the member asks for a change of the
+  // rule, or does not want it. The question is answered already.
+  if (ref.simplify && ref.ruleChange !== undefined)
+    return `[Change the rule proposed on ${whose} ask ${ref.id}${from} in place: ${JSON.stringify(ref.ruleChange.trim())}] `;
+  if (ref.dismissed && ref.ruleDeclined)
+    return `[Rule not wanted for ${whose} ask ${ref.id}${from}, now closed: ${quoted}] `;
   if (ref.simplify)
     return `[Rewrite ${whose} ask ${ref.id}${from} in place, as asked here; do not answer in chat or open a new ask in its place: ${quoted}] `;
   if (ref.postponed)

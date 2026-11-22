@@ -642,6 +642,8 @@ function ReplyAskCard({
   const [simplifying, setSimplifying] = useState(false);
   const [simplifyError, setSimplifyError] = useState<string | null>(null);
   const [undoingSimplify, setUndoingSimplify] = useState(false);
+  // The rule stage's Change box (task 1b4dfa91).
+  const [ruleWords, setRuleWords] = useState("");
   const [showOriginal, setShowOriginal] = useState(false);
   // A paged ask's ack in flight, and its refusal.
   const [acking, setAcking] = useState(false);
@@ -853,10 +855,20 @@ function ReplyAskCard({
 
   // A rewrite is pending: the banner takes the place of the reply area.
   const rewriting = entry.simplifyRequestedAt !== undefined;
+  // "... and automate" in the same ask (task 1b4dfa91): at the rule stage
+  // the member has answered and only the rule is open, so the answer
+  // controls go.
+  const ruleStage = entry.automateRequest?.answer !== undefined;
+  const hideAnswer = rewriting || ruleStage;
   // "... and automate" only where the agent could decide asks like this
-  // alone (automateOffered), and not while a rewrite is pending. While the
-  // section is open, its button is the card's one send.
-  const automateShown = !noAgent && !rewriting && automateOffered(entry);
+  // alone (automateOffered), not while a rewrite is pending, and not once
+  // asked (a "Rewrite and automate" keeps its words for the answer). While
+  // the section is open, its button is the card's one send.
+  const automateShown =
+    !noAgent &&
+    !hideAnswer &&
+    entry.automateRequest === undefined &&
+    automateOffered(entry);
   const automateOpen = automateShown && automateDraft?.open === true;
 
   // Cite (task ad4b51ac): a selection inside the prompt shows the chat's
@@ -933,7 +945,28 @@ function ReplyAskCard({
           ? { keepalive: true }
           : undefined,
       );
-      dispatch({ type: "ask_removed", id: entry.id });
+      // With automate (sent now, or kept from a "Rewrite and automate"), the
+      // ask stays open for its rule (task 1b4dfa91): the card stays, whether
+      // the server's push came first or comes later.
+      const automated =
+        body.automate !== undefined ||
+        (entry.automateRequest !== undefined &&
+          entry.automateRequest.answer === undefined);
+      if (!automated) {
+        dispatch({ type: "ask_removed", id: entry.id });
+        return;
+      }
+      sending.current = false;
+      setBusy(false);
+      setHeld(null);
+      dispatch({ type: "set_ask_draft", askId: entry.id, text: null });
+      dispatch({ type: "set_ask_tag", askId: entry.id, tag: undefined });
+      dispatch({
+        type: "set_ask_automate",
+        askId: entry.id,
+        automate: undefined,
+      });
+      dispatch({ type: "ask_undone", id: entry.id });
     } catch (err) {
       sending.current = false;
       setBusy(false);
@@ -1027,8 +1060,8 @@ function ReplyAskCard({
   // it is blank. Sent at once, with no Undo hold: the ask stays, the pushed
   // ask brings the pending banner (with its own Undo), and later the
   // rewrite. Once sent, the field and its tag start again.
-  async function rewrite(text: string, automate?: string) {
-    if (simplifying || sending.current) return;
+  async function rewrite(text: string, automate?: string): Promise<boolean> {
+    if (simplifying || sending.current) return false;
     setSimplifying(true);
     setSimplifyError(null);
     voice.stop(true);
@@ -1048,10 +1081,12 @@ function ReplyAskCard({
         askId: entry.id,
         automate: undefined,
       });
+      return true;
     } catch (err) {
       setSimplifyError(
         err instanceof ApiError ? sendFailureText(t, err) : String(err),
       );
+      return false;
     } finally {
       setSimplifying(false);
     }
@@ -1334,6 +1369,137 @@ function ReplyAskCard({
         onFocusAgent={onFocusAgent}
         onChatAgent={onChatAgent}
       />
+    </div>
+  );
+  // The rule stage (task 1b4dfa91): what the member sent, then the banner
+  // while the agent writes or changes the rule, or the rule with Apply, a
+  // Change box (a rewrite request in the member's words) and Don't save (a
+  // dismiss, which closes the ask without the rule).
+  const sentAnswer = entry.automateRequest?.answer;
+  const ruleStep =
+    entry.step?.kind === "instructions-line" ? entry.step : undefined;
+  const ruleWaiting = ruleStep === undefined || rewriting;
+  const declineButton = (
+    <button
+      type="button"
+      data-ask-rule-decline=""
+      disabled={busy}
+      onClick={() => answer("dismiss", "")}
+      style={secondaryButton}
+    >
+      {t("asks.rule.decline")}
+    </button>
+  );
+  const ruleSection = sentAnswer && (
+    <div
+      data-ask-rule-stage=""
+      style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 7 }}
+    >
+      <div
+        data-ask-answer-sent=""
+        style={{ color: "var(--text-dim)", fontSize, overflowWrap: "anywhere" }}
+      >
+        {sentAnswer.outcome === "replied"
+          ? rich("asks.replied", { reply: sentAnswer.text ?? "" })
+          : sentAnswer.outcome === "dismissed"
+            ? sentAnswer.text === undefined
+              ? t("asks.dismissed")
+              : rich("asks.dismissedReason", { reason: sentAnswer.text })
+            : sentAnswer.text === undefined
+              ? t("asks.postponed")
+              : rich("asks.postponedNote", { note: sentAnswer.text })}
+      </div>
+      {ruleStep && !rewriting && (
+        <AskActionBlock
+          askId={entry.id}
+          askingAgentId={entry.agentId}
+          memberUserId={entry.memberUserId}
+          step={ruleStep}
+          isMobile={isMobile}
+        />
+      )}
+      {ruleWaiting ? (
+        <div
+          data-ask-rule-pending=""
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+            padding: isMobile ? "8px 10px" : "6px 10px",
+            borderRadius: 8,
+            border: "1px solid var(--accent-text)",
+            background: "var(--accent-bg)",
+          }}
+        >
+          <span
+            style={{
+              flex: "1 1 auto",
+              minWidth: 0,
+              color: "var(--text-primary)",
+              fontSize,
+              fontWeight: 600,
+            }}
+          >
+            {t(rewriting ? "asks.rule.changing" : "asks.rule.writing")}
+          </span>
+          {rewriting && (
+            <button
+              type="button"
+              data-ask-simplify-undo=""
+              disabled={undoingSimplify}
+              onClick={() => void undoSimplify()}
+              style={secondaryButton}
+            >
+              {t("asks.undo")}
+            </button>
+          )}
+          {declineButton}
+        </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ruleWords.trim() === "") return;
+            void rewrite(ruleWords).then((sent) => {
+              if (sent) setRuleWords("");
+            });
+          }}
+          style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
+        >
+          <textarea
+            value={ruleWords}
+            rows={1}
+            disabled={busy || simplifying}
+            data-ask-rule-change-input=""
+            placeholder={t("asks.rule.changeBox")}
+            aria-label={t("asks.rule.changeBox")}
+            onChange={(e) => setRuleWords(e.target.value)}
+            style={{
+              flex: "1 1 12em",
+              minWidth: 0,
+              boxSizing: "border-box",
+              padding: isMobile ? "8px 10px" : "5px 10px",
+              background: "var(--bg-input)",
+              border: "1px solid var(--border-light)",
+              borderRadius: 8,
+              color: "var(--text-primary)",
+              fontSize,
+              fontFamily: "inherit",
+              resize: "vertical",
+            }}
+          />
+          <button
+            type="submit"
+            data-ask-rule-change=""
+            disabled={busy || simplifying || ruleWords.trim() === ""}
+            style={secondaryButton}
+          >
+            {t("asks.rule.change")}
+          </button>
+          {declineButton}
+        </form>
+      )}
     </div>
   );
   // The tags' own hue, so they read as answers apart from the agent's
@@ -1675,7 +1841,7 @@ function ReplyAskCard({
       {stepView && (
         <AskStepBlock askId={entry.id} view={stepView} isMobile={isMobile} />
       )}
-      {entry.step && isActionStep(entry.step) && (
+      {!ruleStage && entry.step && isActionStep(entry.step) && (
         <AskActionBlock
           askId={entry.id}
           askingAgentId={entry.agentId}
@@ -1701,7 +1867,8 @@ function ReplyAskCard({
       )}
       {/* Until the rewrite, the banner takes the place of the options and the
           reply area: the member waits for the rewrite or withdraws it. */}
-      {rewriting && (
+      {ruleStage && ruleSection}
+      {rewriting && !ruleStage && (
         <div
           data-ask-simplify-pending=""
           style={{
@@ -1743,7 +1910,7 @@ function ReplyAskCard({
           </button>
         </div>
       )}
-      {!rewriting && !noAgent && entry.options && entry.options.length > 0 && (
+      {!hideAnswer && !noAgent && entry.options && entry.options.length > 0 && (
         <div
           data-ask-options=""
           style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
@@ -1805,14 +1972,14 @@ function ReplyAskCard({
           })}
         </div>
       )}
-      {!rewriting && tagRow}
+      {!hideAnswer && tagRow}
       {/* An ask with no agent (task 74e8fc07): nobody reads a reply, so it
           has only Dismiss, with Ack above while it rings. */}
       {noAgent ? (
         <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
           {dismissButton}
         </div>
-      ) : rewriting ? null : (
+      ) : hideAnswer ? null : (
         <form
           onSubmit={(e) => {
             e.preventDefault();

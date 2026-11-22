@@ -51,6 +51,8 @@ export function askRefOf(entry: LogEntry): AskRef | null {
       ? { recommended: r.recommended }
       : {}),
     ...(typeof r.automate === "string" ? { automate: r.automate } : {}),
+    ...(typeof r.ruleChange === "string" ? { ruleChange: r.ruleChange } : {}),
+    ...(r.ruleDeclined === true ? { ruleDeclined: true } : {}),
   };
 }
 
@@ -62,7 +64,9 @@ export function askRefOf(entry: LogEntry): AskRef | null {
  * and its withdrawal, the translated label in place of the fixed words the
  * agent reads, or "Asked to rewrite: <words>"; for a postpone, "Postponed",
  * with the member's note when they typed one. An answer with "... and
- * automate" (task 33891b5b) adds a line with the member's words for the rule.
+ * automate" (task 33891b5b) adds a line with the member's words for the rule;
+ * at the rule stage (task 1b4dfa91), a change of the rule and a rule not
+ * saved have their own labels.
  */
 export function askAnswerText(
   t: Translator["t"],
@@ -84,6 +88,13 @@ function answerText(
     return content === ASK_FILED_TEXT
       ? t("asks.filedAsTask", { task: ask.taskId })
       : t("asks.filedAsTaskNote", { task: ask.taskId, note: content });
+  // The rule stage (task 1b4dfa91): a change of the rule, or no rule.
+  if (ask?.simplify && ask.ruleChange !== undefined)
+    return t("asks.rule.changeAsked", { text: content });
+  if (ask?.dismissed && ask.ruleDeclined)
+    return content === ASK_DISMISSED_TEXT
+      ? t("asks.rule.declined")
+      : t("asks.rule.declinedReason", { reason: content });
   if (ask?.simplify)
     return content === ASK_SIMPLIFY_TEXT
       ? t("asks.simplifyRequested")
