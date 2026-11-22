@@ -1547,7 +1547,14 @@ async function tick() {
     lastAttemptAt = Date.now();
     const file = await runBackup(config);
     lastAttemptError = null;
-    console.log(`[backup] wrote and verified ${file}`);
+    // A copy without a member's agent space of this run is partial.
+    const skipped =
+      readCopyMarker(config.backupDir, file)?.membersSkipped ?? [];
+    if (skipped.length > 0)
+      console.warn(
+        `[backup] wrote and verified ${file}, partial: the agent space of ${skipped.length} member(s) was not copied in this run (${skipped.join(", ")})`,
+      );
+    else console.log(`[backup] wrote and verified ${file}`);
   } catch (err) {
     lastAttemptError = errMessage(err);
     console.error("[backup] failed; existing verified backups were kept:", err);

@@ -12,7 +12,10 @@
 // - a member not copied carries the tree of the copy where she was last
 //   copied, through any number of carries (E1);
 // - her stream is closed when the office stops reading it;
-// - the event loop is never held for long (C8).
+// - the event loop is never held for long (C8);
+// - a space of any size is copied: no request to her runner is larger than
+//   a runner frame, and each request's stream answers for its own files
+//   only (task 43aef77b).
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   existsSync,
@@ -29,6 +32,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentHost } from "./agent-host.ts";
+import { encodeJson } from "./agent-runner/frames.ts";
 import {
   listSpace,
   sendSpaceFiles,
@@ -64,7 +68,9 @@ const OS_USER = { name: "isomux-alice", uid: 4711 };
 
 type Entry = "backup-list" | "backup-files";
 // A host whose streams come from `make`, each counted and with a close
-// flag set when the office ends it.
+// flag set when the office ends it. Each request is encoded as the real
+// runner client encodes it (agent-runner/client.ts), so a request larger
+// than a runner frame fails here as it does in production.
 function hostOf(
   agentRoot: string,
   make: (name: Entry, input: unknown) => AsyncIterable<Uint8Array>,
@@ -77,6 +83,7 @@ function hostOf(
       calls.push({ name, input });
       const inner = make(name, input);
       return (async function* () {
+        encodeJson({ op: "entry", name, input });
         open.count++;
         try {
           yield* inner;
@@ -565,4 +572,164 @@ describe("the event loop", () => {
     expect(result.state).toBe("copied");
     expect(longest).toBeLessThan(250);
   }, 30_000);
+});
+
+// A file entry of the request is about 100 bytes plus its path. These paths
+// are long and in CJK (3 bytes a character in UTF-8, one in a JS string
+// length), so the files to copy fill more than one runner frame, and a
+// batch measured in string length instead of bytes is larger than a frame.
+const CJK = (n: number) => "漢".repeat(n);
+const DEEP = `${CJK(80)}/${CJK(80)}`;
+const longName = (n: number) => `${DEEP}/${n}-${CJK(78)}`;
+const requestBytes = (name: string, input: unknown) =>
+  Buffer.byteLength(JSON.stringify({ op: "entry", name, input }));
+const FRAME = 1024 * 1024;
+
+describe("a space whose file list is larger than a runner frame", () => {
+  it("is copied whole on its first copy, in requests that each fit a frame", async () => {
+    const count = 1600;
+    const space = fresh("space");
+    mkdirSync(join(space, DEEP), { recursive: true });
+    for (let n = 0; n < count; n++)
+      writeFileSync(join(space, longName(n)), `file ${n}`);
+    const ctx = context();
+    const { host, calls, open } = treeHost(space);
+    const result = await copyMemberSpace(source(host), ctx);
+    const requests = calls.filter((c) => c.name === "backup-files");
+    const asked = requests.flatMap((c) =>
+      (c.input as SpaceFilesInput).files.map((f) => f.p),
+    );
+    const copy = join(memberDir(ctx), MEMBER_SPACE);
+    const wrong = Array.from({ length: count }, (_, n) => n).filter(
+      (n) =>
+        !existsSync(join(copy, longName(n))) ||
+        readFileSync(join(copy, longName(n)), "utf8") !== `file ${n}`,
+    );
+    expect({
+      state: result.state,
+      reason: result.reason,
+      // Enabling: all the files to copy would not fit in one frame.
+      oneRequestFits:
+        requestBytes("backup-files", {
+          agentRoot: space,
+          files: requests.flatMap((c) => (c.input as SpaceFilesInput).files),
+        }) < FRAME,
+      moreThanOne: requests.length > 1,
+      overFrame: requests.filter((c) => requestBytes(c.name, c.input) >= FRAME)
+        .length,
+      askedOnce: asked.length === count && new Set(asked).size === count,
+      wrong: wrong.length,
+      newBytes: result.newBytes,
+      open: open.count,
+    }).toEqual({
+      state: "copied",
+      reason: undefined,
+      oneRequestFits: false,
+      moreThanOne: true,
+      overFrame: 0,
+      askedOnce: true,
+      wrong: 0,
+      newBytes: Array.from(
+        { length: count },
+        (_, n) => `file ${n}`.length,
+      ).reduce((a, b) => a + b, 0),
+      open: 0,
+    });
+  }, 20_000);
+});
+
+describe("a file stream she made up, across requests", () => {
+  // 2000 files whose list is over one frame: the office must ask in more
+  // than one request.
+  const DIR = `${"a".repeat(250)}/${"b".repeat(250)}`;
+  const count = 2000;
+  const path = (n: number) => `${DIR}/f${n}`;
+  const listing = lines(
+    entry("a".repeat(250), "d"),
+    entry(DIR, "d"),
+    ...Array.from({ length: count }, (_, n) =>
+      entry(path(n), "f", { size: 1, ino: String(100 + n) }),
+    ),
+    END,
+  );
+  type Ask = { i: number }[];
+  // How her runner answers request `k` (0-based) that asks for `files`:
+  // the indexes it sends a record for, in order.
+  const variants: [string, (k: number, files: Ask, first: Ask) => number[]][] =
+    [
+      // One file of the first request is answered in the second request
+      // and the other way round: every file arrives exactly once overall,
+      // each in a request that did not ask for it.
+      [
+        "a file answered in another request",
+        (k, files, first) => {
+          const lastOfFirst = first[first.length - 1].i;
+          const is = files.map((f) => f.i);
+          return k === 0
+            ? [...is.slice(0, -1), lastOfFirst + 1]
+            : k === 1
+              ? [lastOfFirst, ...is.slice(1)]
+              : is;
+        },
+      ],
+      [
+        "a file of the second request not answered",
+        (k, files) => files.map((f) => f.i).slice(0, k === 1 ? -1 : undefined),
+      ],
+    ];
+  const run = (answer: (k: number, files: Ask, first: Ask) => number[]) => {
+    const ctx = context();
+    let k = 0;
+    let first: Ask = [];
+    const rig = hostOf("/s", (name, input) => {
+      if (name === "backup-list") return chunks([listing]);
+      const files = (input as SpaceFilesInput).files;
+      if (k === 0) first = files;
+      const parts = answer(k++, files, first).map((i) =>
+        record({ i, size: 1 }, "x"),
+      );
+      return chunks([...parts, STOP]);
+    });
+    return { ctx, rig, first: () => first };
+  };
+
+  it("copies a stream that answers each request for its own files (control)", async () => {
+    const { ctx, rig } = run((_k, files) => files.map((f) => f.i));
+    const result = await copyMemberSpace(source(rig.host), ctx);
+    const requests = rig.calls.filter((c) => c.name === "backup-files");
+    expect({
+      state: result.state,
+      reason: result.reason,
+      moreThanOne: requests.length > 1,
+      files: existsSync(join(memberDir(ctx), MEMBER_SPACE, DIR))
+        ? readdirSync(join(memberDir(ctx), MEMBER_SPACE, DIR)).length
+        : 0,
+      open: rig.open.count,
+    }).toEqual({
+      state: "copied",
+      reason: undefined,
+      moreThanOne: true,
+      files: count,
+      open: 0,
+    });
+  }, 20_000);
+
+  for (const [label, answer] of variants)
+    it(`ends her part with no tree for ${label}`, async () => {
+      const { ctx, rig, first } = run(answer);
+      const result = await copyMemberSpace(source(rig.host), ctx);
+      expect({
+        state: result.state,
+        top: topOf(ctx),
+        // Enabling: the first request did not ask for every file, so a
+        // second request exists for the stream to be wrong about.
+        firstAskedAll: first().length === 0 || first().length >= count,
+        open: rig.open.count,
+      }).toEqual({
+        state: "skipped",
+        top: ["member.json"],
+        firstAskedAll: false,
+        open: 0,
+      });
+    }, 20_000);
 });

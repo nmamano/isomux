@@ -69,3 +69,16 @@ export function dataList(values: string[]): ReactNode {
     </>
   );
 }
+
+// Names as a list in the reader's language, each name a value.
+export function nameValues(names: string[], language: string): ReactNode {
+  return new Intl.ListFormat(language, { type: "conjunction" })
+    .formatToParts(names)
+    .map((part, index) =>
+      part.type === "element" ? (
+        <Data key={index}>{part.value}</Data>
+      ) : (
+        part.value
+      ),
+    );
+}

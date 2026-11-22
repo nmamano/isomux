@@ -930,6 +930,8 @@ export const zh: Catalog = {
   "settings.storage.backupUnavailable": "无法获取备份状态。",
   "settings.storage.noBackupYet": "尚未运行任何备份。",
   "settings.storage.lastBackupOk": "上次备份时间为 {when}，已成功。",
+  "settings.storage.lastBackupPartial":
+    "上次备份时间为 {when}，部分完成。未复制其智能体文件的成员：{members}。",
   "settings.storage.lastBackupFailed": "上次备份时间为 {when}，已失败。",
   "settings.storage.lastBackupFailedWith":
     "上次备份时间为 {when}，已失败：{error}",

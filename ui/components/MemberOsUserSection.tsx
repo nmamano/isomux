@@ -13,7 +13,7 @@ import {
   type MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
-import { Data } from "./Data.tsx";
+import { Data, nameValues } from "./Data.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -687,19 +687,6 @@ function disableHintFor(
       : "settings.osUser.disableHint",
     { name, office: <Data>{view.officeOsUser}</Data> },
   );
-}
-
-// Names as a list in the reader's language, each name a value.
-function nameValues(names: string[], language: string): ReactNode {
-  return new Intl.ListFormat(language, { type: "conjunction" })
-    .formatToParts(names)
-    .map((part, index) =>
-      part.type === "element" ? (
-        <Data key={index}>{part.value}</Data>
-      ) : (
-        part.value
-      ),
-    );
 }
 
 // A status row: a dot (pulsing while it runs) and the line.

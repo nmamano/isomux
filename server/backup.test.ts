@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -16,6 +16,7 @@ import {
   resolveBackupDir,
   runBackupOnceForTest,
   saveBackupSettings,
+  setBackupMemberSources,
   setBackupPreTick,
   tickOnceForTest,
   type BackupDeps,
@@ -1745,6 +1746,7 @@ describe("the step before each backup tick", () => {
   });
   afterEach(() => {
     setBackupPreTick(null);
+    setBackupMemberSources(null);
     saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
     if (savedEnv === undefined) delete process.env.ISOMUX_BACKUP_DIR;
     else process.env.ISOMUX_BACKUP_DIR = savedEnv;
@@ -1779,6 +1781,49 @@ describe("the step before each backup tick", () => {
     const status = getBackupStatus();
     expect(status.lastBackupOk).toBe(true);
     expect(status.lastBackupError).toBeNull();
+  }, 20_000);
+
+  // Task 43aef77b: a run that did not copy a member's agent space is
+  // logged as partial, as a warning that names the copy and the member.
+  test("logs a run that did not copy a member's space as a warning naming the copy and the member", async () => {
+    const f = fixture();
+    fs.mkdirSync(f.backupDir);
+    const saved = saveBackupSettings(
+      { intervalHours: 24, retention: 1, dir: f.backupDir },
+      { envDir: undefined },
+    );
+    expect(saved.ok).toBe(true);
+    setBackupMemberSources({
+      list: () => [
+        {
+          userId: "u-alice",
+          osUser: { name: "alice", uid: 5001 },
+          host: null,
+        },
+      ],
+      name: (userId) => `Name of ${userId}`,
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    // Read before the restore: bun's mockRestore empties mock.calls.
+    let warned: string[] = [];
+    try {
+      await tickOnceForTest();
+    } finally {
+      warned = warn.mock.calls.map((c) => c.map(String).join(" "));
+      warn.mockRestore();
+      log.mockRestore();
+    }
+    const [copy] = copies(f.backupDir);
+    // Enabling: the copy was published and it did not copy her space.
+    expect([copy !== undefined, getBackupStatus().membersSkipped]).toEqual([
+      true,
+      ["Name of u-alice"],
+    ]);
+    const lines = warned.filter(
+      (line) => line.includes(copy) && line.includes("u-alice"),
+    );
+    expect(lines).toHaveLength(1);
   }, 20_000);
 
   test("runs when the backup folder cannot be made", async () => {

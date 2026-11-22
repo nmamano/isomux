@@ -220,7 +220,9 @@ size, and copied again in the next run.
 
 `backup.json` lists the members not copied in the run (`membersSkipped`);
 `GET /api/backup/status` gives their names. A member who is not copied does
-not fail the backup. The restore below puts back the state root only; a
+not fail the backup, but the run logs it as partial (a warning that names
+them), and Settings → Housekeeping → Storage shows the last backup as partial with their
+names. The restore below puts back the state root only; a
 member's space stays in the copy until you restore it (see "Isolated
 members' spaces" under "Restoring").
 

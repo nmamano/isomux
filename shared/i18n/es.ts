@@ -1042,6 +1042,8 @@ Cosas que puedes hacer por él:
     "Aún no se ha hecho ninguna copia de seguridad.",
   "settings.storage.lastBackupOk":
     "Última copia de seguridad {when}, correcta.",
+  "settings.storage.lastBackupPartial":
+    "Última copia de seguridad {when}, parcial: no copió los archivos de agentes de {members}.",
   "settings.storage.lastBackupFailed":
     "Última copia de seguridad {when} FALLIDA.",
   "settings.storage.lastBackupFailedWith":

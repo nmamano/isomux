@@ -26,7 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../i18n.tsx";
-import { Data } from "./Data.tsx";
+import { Data, nameValues } from "./Data.tsx";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import {
@@ -931,6 +931,13 @@ function BackupBlock({
           t("common.loading")
         ) : backup.lastRunAt === null ? (
           t("settings.storage.noBackupYet")
+        ) : backup.ok && backup.membersSkipped?.length ? (
+          <span style={{ color: "var(--orange-text)" }}>
+            {rich("settings.storage.lastBackupPartial", {
+              when: age(backup.lastRunAt),
+              members: nameValues(backup.membersSkipped, language),
+            })}
+          </span>
         ) : backup.ok ? (
           t("settings.storage.lastBackupOk", {
             when: age(backup.lastRunAt),

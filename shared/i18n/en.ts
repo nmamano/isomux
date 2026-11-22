@@ -1023,6 +1023,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.backupUnavailable": "Backup status unavailable.",
   "settings.storage.noBackupYet": "No backup has run yet.",
   "settings.storage.lastBackupOk": "Last backup {when}, successful.",
+  "settings.storage.lastBackupPartial":
+    "Last backup {when}, partial: it did not copy the agent files of {members}.",
   "settings.storage.lastBackupFailed": "Last backup {when} FAILED.",
   "settings.storage.lastBackupFailedWith": "Last backup {when} FAILED: {error}",
   "settings.storage.oldBackupsStay":

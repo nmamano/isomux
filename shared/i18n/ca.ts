@@ -1036,6 +1036,8 @@ Coses que pots fer per ell:
   "settings.storage.noBackupYet": "Encara no s'ha fet cap còpia de seguretat.",
   "settings.storage.lastBackupOk":
     "Última còpia de seguretat {when}, correcta.",
+  "settings.storage.lastBackupPartial":
+    "Última còpia de seguretat {when}, parcial: no ha copiat els fitxers d'agents dels membres següents: {members}.",
   "settings.storage.lastBackupFailed":
     "Última còpia de seguretat {when} FALLIDA.",
   "settings.storage.lastBackupFailedWith":

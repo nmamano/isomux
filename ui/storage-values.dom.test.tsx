@@ -1,12 +1,18 @@
 // Settings > Housekeeping > Storage, the Backups block (task b30036d9): after
 // a save that moved the backup folder, the line that says where the earlier
-// backups stay shows that folder as a value (AGENTS.md "UI rules").
+// backups stay shows that folder as a value (AGENTS.md "UI rules"). A last
+// backup that did not copy some members' agent spaces reads as partial, in
+// the warning colour, with each member's name as a value (task 43aef77b).
 //
 // Seam: StoragePane over setApiShim.
 
 import { afterAll, afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
-import { asData, sentenceValues } from "./test-support/data-values.ts";
+import {
+  asData,
+  linesWith,
+  sentenceValues,
+} from "./test-support/data-values.ts";
 import type {
   BackupSettingsRes,
   BackupStatusWire,
@@ -56,9 +62,10 @@ const RETENTION: LogRetentionWire = {
 };
 
 let puts: unknown[] = [];
+let backup: BackupStatusWire = BACKUP;
 setApiShim(async (method, path, body) => {
   if (method === "GET" && path === "/api/storage/usage") return USAGE;
-  if (method === "GET" && path === "/api/backup/status") return BACKUP;
+  if (method === "GET" && path === "/api/backup/status") return backup;
   if (method === "GET" && path === "/api/storage/retention") return RETENTION;
   if (method === "PUT" && path === "/api/backup/settings") {
     puts.push(body);
@@ -70,8 +77,18 @@ setApiShim(async (method, path, body) => {
   }
   throw new Error(`no shim for ${method} ${path}`);
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  backup = BACKUP;
+});
 afterAll(() => setApiShim(null));
+
+// The elements under root drawn in the warning colour.
+const WARNING = "var(--orange-text)";
+const warned = (root: Element) =>
+  [root, ...root.querySelectorAll<HTMLElement>("*")].filter(
+    (el) => (el as HTMLElement).style?.color === WARNING,
+  );
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 3; i++)
@@ -86,9 +103,26 @@ it("after a save moves the backup folder, the earlier folder shows as a value wh
   await settle();
   const folder = view.getByTestId("backup-folder") as HTMLInputElement;
   expect(folder.value).toBe(DIR);
+  // The control of the partial case below, on the same render: a last
+  // backup that copied everyone shows nothing in the warning colour.
+  expect(warned(view.container).length).toBe(0);
   fireEvent.change(folder, { target: { value: NEW_DIR } });
   await act(async () => fireEvent.click(footerButtons(document.body).save));
   await settle();
   expect(puts).toEqual([{ dir: NEW_DIR }]);
   expect(sentenceValues(view.container, [DIR], "p")).toEqual(asData([DIR]));
+});
+
+it("a last backup that did not copy some members' spaces reads as partial, in the warning colour, each name a value", async () => {
+  const names = ["Alice Example", "Bob"];
+  backup = { ...BACKUP, membersSkipped: names };
+  const view = render(onLanguage("en", createElement(StoragePane, {})));
+  await settle();
+  expect(sentenceValues(view.container, names, "p")).toEqual(asData(names));
+  const [line] = linesWith(view.container, names[0], "p");
+  expect(
+    warned(line).filter((el) =>
+      names.every((name) => (el.textContent ?? "").includes(name)),
+    ).length,
+  ).toBe(1);
 });

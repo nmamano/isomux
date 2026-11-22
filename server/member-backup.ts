@@ -70,6 +70,11 @@ export const LIST_MAX_BYTES = 64 * 1024 * 1024;
 const LINE_MAX = 64 * 1024;
 const PATH_MAX = 4096;
 const HEADER_MAX = 64 * 1024;
+// The most bytes of file entries in one backup-files request. The request is
+// one runner frame (agent-runner/frames.ts, at most 1 MiB), so a space with
+// many files to copy is asked for in several requests. One entry is at most
+// a few dozen KiB (a path is at most PATH_MAX).
+export const FILES_BATCH_BYTES = 512 * 1024;
 // The names of left-out files kept in member.json.
 const LEFT_OUT_NAMES = 100;
 
@@ -454,6 +459,28 @@ async function readListingFrom(reader: Reader): Promise<Listing> {
   return { entries, leftOut };
 }
 
+// The file entries in requests of at most FILES_BATCH_BYTES each, counted
+// in UTF-8 bytes as they are sent.
+async function requestBatches<T>(files: T[]): Promise<T[][]> {
+  const pace = pacer();
+  const batches: T[][] = [];
+  let batch: T[] = [];
+  let bytes = 0;
+  for (const file of files) {
+    await pace();
+    const size = Buffer.byteLength(JSON.stringify(file)) + 1;
+    if (batch.length > 0 && bytes + size > FILES_BATCH_BYTES) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(file);
+    bytes += size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
 function writeAll(fd: number, chunk: Buffer): void {
   let at = 0;
   while (at < chunk.length) at += writeSync(fd, chunk, at);
@@ -567,24 +594,26 @@ async function copyFresh(
   }
 
   let newBytes = 0;
-  if (toCopy.length > 0) {
-    const input: SpaceFilesInput = {
-      agentRoot,
-      files: toCopy.map((entry) => ({
-        i: entry.i,
-        p: entry.p,
-        ino: entry.ino,
-        size: entry.size,
-        mtimeNs: entry.mtimeNs,
-        ctimeNs: entry.ctimeNs,
-      })),
-    };
+  let sinceCheck = 0;
+  const asks = await requestBatches(
+    toCopy.map((entry) => ({
+      i: entry.i,
+      p: entry.p,
+      ino: entry.ino,
+      size: entry.size,
+      mtimeNs: entry.mtimeNs,
+      ctimeNs: entry.ctimeNs,
+    })),
+  );
+  for (const ask of asks) {
+    const input: SpaceFilesInput = { agentRoot, files: ask };
     const reader = new Reader(
       host.runEntryOut("backup-files", input, left(), MEMBER_STALL_MS),
     );
     try {
+      // Each request's stream answers for the files of that request only.
+      const asked = new Set(ask.map((file) => file.i));
       const arrived = new Set<number>();
-      let sinceCheck = 0;
       for (;;) {
         await pace();
         const length = (await reader.exact(4)).readUInt32BE(0);
@@ -593,9 +622,13 @@ async function copyFresh(
         const header = JSON.parse(
           (await reader.exact(length)).toString("utf8"),
         ) as SpaceFileHeader;
-        const entry = toCopy[header?.i];
-        if (!Number.isSafeInteger(header?.i) || !entry || arrived.has(header.i))
+        if (
+          !Number.isSafeInteger(header?.i) ||
+          !asked.has(header.i) ||
+          arrived.has(header.i)
+        )
           throw new Error("a record names no file that was asked for");
+        const entry = toCopy[header.i];
         arrived.add(header.i);
         if (header.left !== undefined) {
           if (
@@ -654,7 +687,7 @@ async function copyFresh(
       }
       if (!(await reader.atEnd()))
         throw new Error("their files go on after their end");
-      if (arrived.size !== toCopy.length)
+      if (arrived.size !== ask.length)
         throw new Error(
           "the member's runner did not answer for every file asked for",
         );
