@@ -11,7 +11,11 @@
 // place nothing; the office never replaces a file and never writes through
 // a linked folder; the staging is outside the folders the office scans and
 // goes at the end; the member's copy goes, and a file that changed stays;
-// the purge removes the member's trees through their runner.
+// the purge removes the member's trees through their runner. A move whose
+// request would pass a runner frame is asked for in requests that each fit
+// one, read one stream at a time, with every bound (totals of the request's
+// own sources, the move's total, the free space) held across them, and
+// placed only after the last.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   appendFileSync,
@@ -30,12 +34,14 @@ import {
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import type { AgentHost } from "../agent-host.ts";
+import { encodeJson, MAX_FRAME_BYTES } from "../agent-runner/frames.ts";
 import {
-  moveOutRequest,
+  moveOutRequests,
   planAgentMoveOut,
   planMemberMoveOut,
   purgeMemberAgentSpace,
   setMemberMoveOutDeps,
+  undoMoveOut,
   writeMoveOut,
   type MemberMoveOutPlan,
 } from "../member-move-out.ts";
@@ -45,7 +51,7 @@ import {
   spaceNeeded,
   type MoveOutInput,
 } from "../member-move-receive.ts";
-import type { MemberMoveAgent } from "../member-move.ts";
+import { MOVE_FILE_MAX, type MemberMoveAgent } from "../member-move.ts";
 import { hostFor } from "../member-hosts.ts";
 import { officePersonalProviderHome } from "../provider-homes.ts";
 import { claudeConfigRoot } from "../claude-session-root.ts";
@@ -115,17 +121,57 @@ const agents = (type: string): MemberMoveAgent[] => [
   { id: agentId, agentType: type, cwd: CWD },
 ];
 
-// The runner's stream for a plan, run in process.
-async function runnerStream(plan: MemberMoveOutPlan): Promise<Buffer[]> {
+// The runner's files-out stream for one request, run in process.
+async function sent(input: MoveOutInput): Promise<Buffer[]> {
   const chunks: Buffer[] = [];
-  await sendFiles(
-    moveOutRequest(plan, NONCE, agentRoot()) as MoveOutInput,
-    (chunk) => {
-      chunks.push(Buffer.from(chunk));
-    },
-  );
+  await sendFiles(input, (chunk) => {
+    chunks.push(Buffer.from(chunk));
+  });
   return chunks;
 }
+
+// The office's side of files-out: each request encoded as the runner client
+// sends it (agent-runner/client.ts), so a request past a runner frame fails
+// here as in production; `stream` gives the chunks of each (call counts from
+// 0). `overlaps` counts the requests opened while an earlier stream had not
+// been read to its last chunk; `closed` the streams that ended (read to
+// done, or ended by the office).
+function runner(
+  stream: (
+    input: MoveOutInput,
+    call: number,
+  ) => Buffer[] | Promise<Buffer[]> = sent,
+) {
+  const inputs: MoveOutInput[] = [];
+  let read = 0;
+  const state = {
+    inputs,
+    overlaps: 0,
+    closed: 0,
+    open: (input: MoveOutInput): AsyncIterable<Uint8Array> => {
+      encodeJson({ op: "entry", name: "files-out", input });
+      const call = inputs.length;
+      if (read < call) state.overlaps++;
+      inputs.push(input);
+      return (async function* () {
+        try {
+          const chunks = await stream(input, call);
+          for (const [i, chunk] of chunks.entries()) {
+            if (i === chunks.length - 1) read++;
+            yield chunk;
+          }
+        } finally {
+          state.closed++;
+        }
+      })();
+    },
+  };
+  return state;
+}
+
+// The source indices of one request.
+const indicesOf = (input: MoveOutInput) =>
+  [...input.trees, ...input.files, ...input.codex].map((e) => e.index);
 
 async function* of(chunks: Buffer[]) {
   for (const chunk of chunks) yield chunk;
@@ -140,7 +186,7 @@ async function move(type = "claude") {
     transcriptIn(officeClaude()),
     join(claudeProjectDirIn(officeClaude(), CWD), SESSION),
   );
-  return writeMoveOut(p, of(await runnerStream(p)), NONCE);
+  return writeMoveOut(p, runner().open, NONCE, agentRoot());
 }
 
 // A forged stream: the totals line, then records, then the end.
@@ -311,7 +357,7 @@ describe("what comes back", () => {
     put(path, "HOME");
     const chunks: Buffer[] = [];
     const sent = sendFiles(
-      moveOutRequest(plan(), NONCE, agentRoot()) as MoveOutInput,
+      moveOutRequests(plan(), NONCE, agentRoot())[0]!,
       (chunk) => {
         // The totals line goes first; the file grows after it.
         if (chunks.length === 0) appendFileSync(path, "MORE");
@@ -426,7 +472,9 @@ describe("the untrusted stream", () => {
         ...good.slice(1, -1),
         ...bad.slice(1),
       ];
-      expect(await outcome(writeMoveOut(p, of(body), NONCE))).toBe("refused");
+      expect(
+        await outcome(writeMoveOut(p, () => of(body), NONCE, agentRoot())),
+      ).toBe("refused");
       expect(officeFiles()).toEqual([]);
       expect(existsSync(join(ISOMUX_CODEX_HOME, "config.toml"))).toBe(false);
       expect(existsSync(join(outside, "abs"))).toBe(false);
@@ -444,20 +492,29 @@ describe("the untrusted stream", () => {
       freeBytes: () => spaceNeeded(16),
     });
     const body = forged({ 0: 16 }, [{ index: 0, rel: "claude/big.bin", data }]);
-    expect(await outcome(writeMoveOut(p, of(body), NONCE))).toBe("refused");
+    expect(
+      await outcome(writeMoveOut(p, () => of(body), NONCE, agentRoot())),
+    ).toBe("refused");
     expect(officeFiles()).toEqual([]);
     // And a source the totals do not name.
     setMemberMoveOutDeps({ log: (l) => logs.push(l) });
     const unnamed = forged({ 0: 0 }, [
       { index: fileIndex, rel: "", data: "abc" },
     ]);
-    expect(await outcome(writeMoveOut(p, of(unnamed), NONCE))).toBe("refused");
+    expect(
+      await outcome(writeMoveOut(p, () => of(unnamed), NONCE, agentRoot())),
+    ).toBe("refused");
     expect(officeFiles()).toEqual([]);
     // The control: the same file, declared, is written.
     const declared = forged({ 0: data.length }, [
       { index: 0, rel: "claude/big.bin", data },
     ]);
-    const written = await writeMoveOut(p, of(declared), NONCE);
+    const written = await writeMoveOut(
+      p,
+      () => of(declared),
+      NONCE,
+      agentRoot(),
+    );
     expect(officeFiles()).toHaveLength(1);
     written.staging.remove();
   });
@@ -467,7 +524,9 @@ describe("the untrusted stream", () => {
     const body = forged({ 0: 4 }, [
       { index: 0, rel: "claude/a.txt", data: "abcd" },
     ]);
-    expect(await outcome(writeMoveOut(p, of(body), NONCE))).toBe("refused");
+    expect(
+      await outcome(writeMoveOut(p, () => of(body), NONCE, agentRoot())),
+    ).toBe("refused");
     expect(officeFiles()).toEqual([]);
     expectNoStaging();
   });
@@ -481,7 +540,9 @@ describe("the untrusted stream", () => {
       { index: 0, rel: "claude/new.txt", data: "NEW!" },
       { index: 0, rel: "claude/taken.txt", data: "THEM" },
     ]);
-    expect(await outcome(writeMoveOut(p, of(body), NONCE))).toBe("refused");
+    expect(
+      await outcome(writeMoveOut(p, () => of(body), NONCE, agentRoot())),
+    ).toBe("refused");
     expect(readFileSync(join(home, "taken.txt"), "utf8")).toBe("OFFICE");
     expect(readFileSync(join(home, "same.txt"), "utf8")).toBe("SAME");
     expect(existsSync(join(home, "new.txt"))).toBe(false);
@@ -497,7 +558,9 @@ describe("the untrusted stream", () => {
     const body = forged({ [fileIndex]: 3 }, [
       { index: fileIndex, rel: "", data: "abc" },
     ]);
-    expect(await outcome(writeMoveOut(p, of(body), NONCE))).toBe("refused");
+    expect(
+      await outcome(writeMoveOut(p, () => of(body), NONCE, agentRoot())),
+    ).toBe("refused");
     expect(existsSync(join(outside, `${SESSION}.jsonl`))).toBe(false);
   });
 });
@@ -508,7 +571,7 @@ describe("the member's copy", () => {
     put(join(memberHome(), "sub", "b.txt"), "B");
     symlinkSync(join(outside, "secret"), join(memberHome(), "link"));
     const p = plan();
-    const written = await writeMoveOut(p, of(await runnerStream(p)), NONCE);
+    const written = await writeMoveOut(p, runner().open, NONCE, agentRoot());
     written.staging.remove();
     // A new file over b.txt, made while the old one exists (another inode).
     writeFileSync(join(memberHome(), "sub", "b.new"), "CHANGED");
@@ -525,6 +588,31 @@ describe("the member's copy", () => {
     // A link that was never sent is not removed either.
     expect(lstatSync(join(memberHome(), "link")).isSymbolicLink()).toBe(true);
     expect(existsSync(join(agentRoot(), ".move-out", NONCE))).toBe(false);
+  });
+});
+
+describe("the runner's .move-out", () => {
+  // MUTANT: the entries of .move-out listed and removed through a link
+  // (dies on the file outside).
+  it("clears what another move left, never through a link, and keeps this move's journal", async () => {
+    const OTHER = "ffeeddccbbaa99887766554433221100";
+    const out = join(agentRoot(), ".move-out");
+    put(join(out, OTHER, "sent.jsonl"), "{}\n");
+    const input = moveOutRequests(plan(), NONCE, agentRoot())[0]!;
+    await sent(input);
+    // The condition: this move's journal is there after a request.
+    expect(readdirSync(out)).toEqual([NONCE]);
+    await sent(input);
+    expect(readdirSync(out)).toEqual([NONCE]);
+    // A .move-out that is a link to a folder: the link goes, not what is
+    // in the folder.
+    rmSync(out, { recursive: true, force: true });
+    mkdirSync(join(outside, "linked"));
+    writeFileSync(join(outside, "linked", "keep"), "KEEP");
+    symlinkSync(join(outside, "linked"), out);
+    await sent(input);
+    expect(readFileSync(join(outside, "linked", "keep"), "utf8")).toBe("KEEP");
+    expect(lstatSync(out).isDirectory()).toBe(true);
   });
 });
 
@@ -601,7 +689,7 @@ describe("one agent's files on a manager change", () => {
       [],
     );
     expect(p.sources.filter((s) => s.kind === "tree")).toEqual([]);
-    const written = await writeMoveOut(p, of(await runnerStream(p)), NONCE);
+    const written = await writeMoveOut(p, runner().open, NONCE, agentRoot());
     written.staging.remove();
     expect(readFileSync(transcriptOf(officeClaude(), SESSION), "utf8")).toBe(
       "A-ONE",
@@ -657,7 +745,7 @@ describe("one agent's files on a manager change", () => {
         hostFor(alice),
         [],
       );
-      const written = await writeMoveOut(p, of(await runnerStream(p)), NONCE);
+      const written = await writeMoveOut(p, runner().open, NONCE, agentRoot());
       written.staging.remove();
       expect(
         readFileSync(join(ISOMUX_CODEX_HOME, rolloutRel(THREAD)), "utf8"),
@@ -668,5 +756,298 @@ describe("one agent's files on a manager change", () => {
     } finally {
       removeManagedUserEnv(alice);
     }
+  });
+});
+
+describe("a move whose request would pass a runner frame", () => {
+  const LONG = "d".repeat(200);
+  // Trees with long paths (index order), then a Claude transcript, its
+  // folder and a Codex thread: past one frame as one request. With `pad`
+  // "", the tree entries are short.
+  function bigPlan(count = 4000, pad = LONG): MemberMoveOutPlan {
+    const homes = join(officePersonalProviderHome(alice, "claude"), "..");
+    const sources: MemberMoveOutPlan["sources"] = [];
+    for (let i = 0; i < count; i++)
+      sources.push({
+        index: i,
+        kind: "tree",
+        path: join(agentRoot(), "bulk", pad, String(i)),
+        destRoot: join(homes, "bulk", String(i)),
+      });
+    const projectDir = claudeProjectDirIn(memberClaude(), CWD);
+    const officeDir = claudeProjectDirIn(officeClaude(), CWD);
+    sources.push(
+      {
+        index: count,
+        kind: "claude-file",
+        path: join(projectDir, `${SESSION}.jsonl`),
+        dest: join(officeDir, `${SESSION}.jsonl`),
+        session: { agentId, sessionId: SESSION, root: officeClaude() },
+      },
+      {
+        index: count + 1,
+        kind: "claude-dir",
+        path: join(projectDir, SESSION),
+        destRoot: join(officeDir, SESSION),
+      },
+      {
+        index: count + 2,
+        kind: "codex",
+        home: join(agentRoot(), "codex-home"),
+        threadId: THREAD,
+        destRoot: ISOMUX_CODEX_HOME,
+      },
+    );
+    scratch.push(
+      transcriptIn(officeClaude()),
+      join(officeDir, SESSION),
+      join(ISOMUX_CODEX_HOME, rolloutRel(THREAD)),
+    );
+    return { userId: alice, sources, personal: [] };
+  }
+
+  // A good record for the first tree of each request, as `call` asks.
+  const goodFor = (input: MoveOutInput, rel = "f.txt") => {
+    const index = input.trees[0]?.index;
+    return index === undefined
+      ? forged({}, [])
+      : forged({ [index]: 4 }, [{ index, rel, data: "GOOD" }]);
+  };
+
+  // MUTANT: one request for the whole plan (dies on the count); the batch
+  // bound at a frame with no room for the request around it (dies on
+  // encodeJson: the entries are short, so a request fills to within one
+  // entry of the bound, and the rest of the request takes more).
+  it("asks in requests that each fit a runner frame, every source in exactly one", () => {
+    const p = bigPlan(30000, "");
+    const requests = moveOutRequests(p, NONCE, agentRoot());
+    // The condition: as one request, the sources pass a frame.
+    expect(
+      requests.reduce((n, r) => n + Buffer.byteLength(JSON.stringify(r)), 0),
+    ).toBeGreaterThan(MAX_FRAME_BYTES);
+    expect(requests.length).toBeGreaterThan(1);
+    for (const input of requests) {
+      // Throws past a frame, as the runner client does.
+      encodeJson({ op: "entry", name: "files-out", input });
+      expect([input.nonce, input.agentRoot, input.fileMax]).toEqual([
+        NONCE,
+        agentRoot(),
+        MOVE_FILE_MAX,
+      ]);
+    }
+    const byIndex = <T extends { index: number }>(list: T[]) =>
+      [...list].sort((a, b) => a.index - b.index);
+    const asked = (kinds: string[]) =>
+      p.sources.filter((s) => kinds.includes(s.kind));
+    expect(byIndex(requests.flatMap((r) => r.trees))).toEqual(
+      asked(["tree", "claude-dir"]).map((s) => ({
+        index: s.index,
+        path: (s as { path: string }).path,
+      })),
+    );
+    expect(byIndex(requests.flatMap((r) => r.files))).toEqual(
+      asked(["claude-file"]).map((s) => ({
+        index: s.index,
+        path: (s as { path: string }).path,
+      })),
+    );
+    expect(byIndex(requests.flatMap((r) => r.codex))).toEqual(
+      asked(["codex"]).map((s) => ({
+        index: s.index,
+        home: (s as { home: string }).home,
+        threadId: (s as { threadId: string }).threadId,
+      })),
+    );
+    // An empty plan still asks once (the runner clears what an earlier
+    // move left).
+    expect(
+      moveOutRequests(
+        { userId: alice, sources: [], personal: [] },
+        NONCE,
+        agentRoot(),
+      ),
+    ).toEqual([
+      {
+        nonce: NONCE,
+        agentRoot: agentRoot(),
+        fileMax: MOVE_FILE_MAX,
+        trees: [],
+        files: [],
+        codex: [],
+      },
+    ]);
+  });
+
+  // MUTANT: sendFiles clears all of .move-out on each request (dies on the
+  // first tree's member copy, whose journal line the next request removed);
+  // every stream opened before the first is read (dies on overlaps).
+  it("brings every file back, one stream at a time, and the member's copies of every request go after it", async () => {
+    const p = bigPlan();
+    const trees = p.sources.filter((s) => s.kind === "tree");
+    const picks = [trees[0]!, trees[trees.length - 1]!];
+    for (const [n, s] of picks.entries())
+      put(join(s.path, "sub", "f.txt"), `TREE-${n}`);
+    put(transcriptIn(memberClaude()), "TRANSCRIPT");
+    put(join(agentRoot(), "codex-home", rolloutRel(THREAD)), "ROLLOUT");
+    const r = runner();
+    const written = await writeMoveOut(p, r.open, NONCE, agentRoot());
+    written.staging.remove();
+    // The condition: the first and last tree came in different requests.
+    const requestOf = (index: number) =>
+      r.inputs.findIndex((input) => indicesOf(input).includes(index));
+    expect(requestOf(picks[0]!.index)).not.toBe(requestOf(picks[1]!.index));
+    expect(r.overlaps).toBe(0);
+    expect(r.closed).toBe(r.inputs.length);
+    for (const [n, s] of picks.entries())
+      expect(
+        readFileSync(
+          join((s as { destRoot: string }).destRoot, "sub", "f.txt"),
+          "utf8",
+        ),
+      ).toBe(`TREE-${n}`);
+    expect(readFileSync(transcriptIn(officeClaude()), "utf8")).toBe(
+      "TRANSCRIPT",
+    );
+    expect(
+      readFileSync(join(ISOMUX_CODEX_HOME, rolloutRel(THREAD)), "utf8"),
+    ).toBe("ROLLOUT");
+    expect(written.pins).toEqual([
+      { agentId, sessionId: SESSION, root: officeClaude() },
+    ]);
+    removeSent({ nonce: NONCE, agentRoot: agentRoot() });
+    for (const s of picks)
+      expect(
+        existsSync(join((s as { path: string }).path, "sub", "f.txt")),
+      ).toBe(false);
+    expect(existsSync(transcriptIn(memberClaude()))).toBe(false);
+    expect(
+      existsSync(join(agentRoot(), "codex-home", rolloutRel(THREAD))),
+    ).toBe(false);
+  });
+
+  // MUTANT: totals and records checked against the whole plan (both cases
+  // are then written); a refused stream left open (dies on closed).
+  for (const [name, at, from] of [
+    ["the first request names a source of the last", 0, -1],
+    ["the last request names a source of the first", -1, 0],
+  ] as const)
+    it(`refuses the move when ${name}, and places nothing`, async () => {
+      const p = bigPlan();
+      const requests = moveOutRequests(p, NONCE, agentRoot());
+      const pick = (n: number) => (n < 0 ? requests.length + n : n);
+      const other = requests[pick(from)]!.trees[0]!.index;
+      // The condition: the source is not one of that request's.
+      expect(indicesOf(requests[pick(at)]!)).not.toContain(other);
+      const r = runner((input, call) =>
+        call === pick(at)
+          ? forged({ [other]: 4 }, [
+              { index: other, rel: "g.txt", data: "THEM" },
+            ])
+          : goodFor(input),
+      );
+      expect(await outcome(writeMoveOut(p, r.open, NONCE, agentRoot()))).toBe(
+        "refused",
+      );
+      expect(r.inputs).toHaveLength(pick(at) + 1);
+      // The refused stream is ended too (the runner stops reading files).
+      expect(r.closed).toBe(r.inputs.length);
+      expect(officeFiles()).toEqual([]);
+      expectNoStaging();
+    });
+
+  // MUTANT: the next stream opened at the zero length, without reading
+  // the stream to its end (then written).
+  it("refuses the move when an entry fails after its last record", async () => {
+    const p = bigPlan();
+    const r = runner((input) => goodFor(input));
+    const failing = (input: MoveOutInput) =>
+      (async function* () {
+        yield* r.open(input);
+        throw new Error("agent runner entry files-out failed: exit 1");
+      })();
+    expect(await outcome(writeMoveOut(p, failing, NONCE, agentRoot()))).toBe(
+      "refused",
+    );
+    // The condition: the first stream was read to its zero length.
+    expect(r.inputs).toHaveLength(1);
+    expect(officeFiles()).toEqual([]);
+    expectNoStaging();
+  });
+
+  // MUTANT: each stream placed when it ends (dies on the files seen when
+  // the last opens); the undo of only the last stream (dies after it).
+  it("places nothing before the last stream, and a refusal in it undoes the earlier ones", async () => {
+    const p = bigPlan();
+    const count = moveOutRequests(p, NONCE, agentRoot()).length;
+    // The control: every request with a good record is written.
+    const ok = runner((input) => goodFor(input));
+    const written = await writeMoveOut(p, ok.open, NONCE, agentRoot());
+    expect(ok.inputs).toHaveLength(count);
+    expect(officeFiles().length).toBeGreaterThan(1);
+    undoMoveOut(written);
+    expect(officeFiles()).toEqual([]);
+
+    const seenAtLast: string[][] = [];
+    const r = runner((input, call) => {
+      if (call < count - 1) return goodFor(input);
+      seenAtLast.push(officeFiles());
+      return goodFor(input, "../escape");
+    });
+    expect(await outcome(writeMoveOut(p, r.open, NONCE, agentRoot()))).toBe(
+      "refused",
+    );
+    expect(r.inputs).toHaveLength(count);
+    expect(r.closed).toBe(count);
+    expect(seenAtLast).toEqual([[]]);
+    expect(officeFiles()).toEqual([]);
+    expectNoStaging();
+  });
+
+  // MUTANT: the move's total checked per stream (then written).
+  it("holds the move's total across its requests", async () => {
+    const p = bigPlan();
+    // Six bytes in each of the first two requests: each under ten, the
+    // move over.
+    const six = (input: MoveOutInput, call: number) => {
+      const index = input.trees[0]!.index;
+      return call < 2
+        ? forged({ [index]: 6 }, [{ index, rel: "f.txt", data: "SIXSIX" }])
+        : forged({}, []);
+    };
+    setMemberMoveOutDeps({ log: (l) => logs.push(l), totalMax: 12 });
+    const ok = runner(six);
+    const written = await writeMoveOut(p, ok.open, NONCE, agentRoot());
+    expect(officeFiles()).toHaveLength(2);
+    undoMoveOut(written);
+    setMemberMoveOutDeps({ log: (l) => logs.push(l), totalMax: 10 });
+    const r = runner(six);
+    expect(await outcome(writeMoveOut(p, r.open, NONCE, agentRoot()))).toBe(
+      "refused",
+    );
+    expect(r.inputs).toHaveLength(2);
+    expect(officeFiles()).toEqual([]);
+    expectNoStaging();
+  });
+
+  // MUTANT: the free space checked for the first stream only (then
+  // written).
+  it("checks the free space again for each request", async () => {
+    const p = bigPlan();
+    let low = false;
+    setMemberMoveOutDeps({
+      log: (l) => logs.push(l),
+      freeBytes: () => (low ? 1024 : 1e15),
+    });
+    const r = runner((input, call) => {
+      low = call >= 1;
+      return goodFor(input);
+    });
+    expect(await outcome(writeMoveOut(p, r.open, NONCE, agentRoot()))).toBe(
+      "refused",
+    );
+    // The condition: the first stream passed its check; the second failed.
+    expect(r.inputs).toHaveLength(2);
+    expect(officeFiles()).toEqual([]);
+    expectNoStaging();
   });
 });

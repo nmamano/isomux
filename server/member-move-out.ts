@@ -62,7 +62,7 @@ import {
   type MemberMoveAgent,
   type PinChange,
 } from "./member-move.ts";
-import { spaceNeeded } from "./member-move-receive.ts";
+import { spaceNeeded, type MoveOutInput } from "./member-move-receive.ts";
 import { profileKeyForOwner } from "./opencode-profile-keys.ts";
 import { getSessionClaudeConfigDir, loadSessionsMap } from "./persistence.ts";
 import {
@@ -323,26 +323,51 @@ function addClaudeSession(
   });
 }
 
-// What files-out gets: the sources by kind, with no destination.
-export function moveOutRequest(
+// The bytes of files-out source entries in one request (the backup's
+// FILES_BATCH_BYTES): half a runner frame, which leaves room for the rest
+// of the request.
+export const MOVE_OUT_REQUEST_MAX = 512 * 1024;
+
+// What files-out gets: the sources by kind, with no destination, in
+// requests whose entries take at most MOVE_OUT_REQUEST_MAX bytes. Every
+// source is in exactly one request; an empty plan still gives one.
+export function moveOutRequests(
   plan: MemberMoveOutPlan,
   nonce: string,
   agentRoot: string,
-): unknown {
-  return {
+): MoveOutInput[] {
+  const fresh = (): MoveOutInput => ({
     nonce,
     agentRoot,
     fileMax: deps.fileMax,
-    trees: plan.sources
-      .filter((s) => s.kind === "tree" || s.kind === "claude-dir")
-      .map((s) => ({ index: s.index, path: (s as { path: string }).path })),
-    files: plan.sources
-      .filter((s) => s.kind === "claude-file")
-      .map((s) => ({ index: s.index, path: (s as { path: string }).path })),
-    codex: plan.sources
-      .filter((s) => s.kind === "codex")
-      .map((s) => ({ index: s.index, home: s.home, threadId: s.threadId })),
-  };
+    trees: [],
+    files: [],
+    codex: [],
+  });
+  const requests = [fresh()];
+  let bytes = 0;
+  let entries = 0;
+  for (const source of plan.sources) {
+    const entry =
+      source.kind === "codex"
+        ? { index: source.index, home: source.home, threadId: source.threadId }
+        : { index: source.index, path: source.path };
+    const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
+    if (entries > 0 && bytes + size > MOVE_OUT_REQUEST_MAX) {
+      requests.push(fresh());
+      bytes = 0;
+      entries = 0;
+    }
+    const request = requests[requests.length - 1];
+    if (source.kind === "codex")
+      request.codex.push(entry as MoveOutInput["codex"][number]);
+    else if (source.kind === "claude-file")
+      request.files.push(entry as MoveOutInput["files"][number]);
+    else request.trees.push(entry as MoveOutInput["trees"][number]);
+    bytes += size;
+    entries++;
+  }
+  return requests;
 }
 
 function escapeRegExp(text: string): string {
@@ -423,6 +448,23 @@ class Reader {
       if (all.length > max)
         throw new Error("the runner's first line is too long");
       await this.fill();
+    }
+  }
+  // End the stream early; an error ending it is ignored.
+  async close(): Promise<void> {
+    try {
+      await this.iterator.return?.(undefined);
+    } catch {}
+  }
+  // The stream after its zero-length end: nothing more may come, and it
+  // must end (a failed entry throws here).
+  async end(): Promise<void> {
+    if (this.buffered > 0) throw new Error("bytes after the end of a stream");
+    for (;;) {
+      const next = await this.iterator.next();
+      if (next.done) return;
+      if (next.value.length > 0)
+        throw new Error("bytes after the end of a stream");
     }
   }
   async some(max: number): Promise<Buffer> {
@@ -573,15 +615,19 @@ function destRootOf(source: MoveOutSource): string {
   return source.kind === "claude-file" ? dirname(source.dest) : source.destRoot;
 }
 
-// Write the runner's stream into the office: staged, then placed. Throws on
-// a refused record or a failed place, after undoing what it placed.
+// Write the runner's streams into the office: one files-out stream per
+// request of moveOutRequests, opened by `open` one at a time, each read to
+// its end before the next opens. Every file is staged, and placed only
+// after the last stream. Throws on a refused record or a failed place,
+// after undoing what it placed.
 export async function writeMoveOut(
   plan: MemberMoveOutPlan,
-  body: AsyncIterable<Uint8Array>,
-  nonce: string = randomBytes(16).toString("hex"),
+  open: (input: MoveOutInput) => AsyncIterable<Uint8Array>,
+  nonce: string,
+  agentRoot: string,
 ): Promise<WrittenOut> {
   const { userId } = plan;
-  const byIndex = new Map(plan.sources.map((s) => [s.index, s]));
+  const sourceByIndex = new Map(plan.sources.map((s) => [s.index, s]));
   const staging = new Staging(userId, nonce, stagingBases());
   const written: WrittenOut = {
     placed: [],
@@ -595,108 +641,122 @@ export async function writeMoveOut(
   const arrived = new Set<number>();
   const arrivedRels = new Set<string>();
   const codexSeen = new Set<number>();
+  // The runner is held to the totals it declares: the space check counts
+  // only them, so a record may not add bytes past its index's total.
+  const declared = new Map<number, number>();
+  let planned = 0;
+  let total = 0;
+  // The stream being read, ended on a refusal so that the runner lets go.
+  let current: Reader | undefined;
   try {
-    const reader = new Reader(body);
-    const first = JSON.parse(await reader.line(1024 * 1024)) as {
-      totals?: Record<string, unknown>;
-    };
-    // The space check per file system, before a byte is written.
-    const perDev = new Map<number, { path: string; total: number }>();
-    // The runner is held to the totals it declares: the space check counts
-    // only them, so a record may not add bytes past its index's total.
-    const declared = new Map<number, number>();
-    let planned = 0;
-    for (const [key, value] of Object.entries(first?.totals ?? {})) {
-      const source = byIndex.get(Number(key));
-      if (!source || !Number.isSafeInteger(value) || (value as number) < 0)
-        throw new Error("the runner's totals name no requested source");
-      if (declared.has(source.index))
-        throw new Error("the runner's totals name a source twice");
-      declared.set(source.index, value as number);
-      planned += value as number;
-      const at = nearestExisting(destRootOf(source));
-      const dev = lstatSync(at).dev;
-      const entry = perDev.get(dev) ?? { path: at, total: 0 };
-      entry.total += value as number;
-      perDev.set(dev, entry);
-    }
-    if (planned > deps.totalMax)
-      throw new Error(
-        `the member's files take ${planned} bytes; a move takes at most ${deps.totalMax}`,
+    for (const request of moveOutRequests(plan, nonce, agentRoot)) {
+      // A stream names only the sources of its own request.
+      const byIndex = new Map(
+        [...request.trees, ...request.files, ...request.codex].map((entry) => [
+          entry.index,
+          sourceByIndex.get(entry.index)!,
+        ]),
       );
-    for (const { path, total } of perDev.values()) {
-      const free = deps.freeBytes(path);
-      if (spaceNeeded(total) > free)
-        throw Object.assign(
-          new Error(
-            `not enough free space at ${path}: ${spaceNeeded(total)} bytes needed, ${free} free`,
-          ),
-          { code: "ENOSPC" },
+      const reader = new Reader(open(request));
+      current = reader;
+      const first = JSON.parse(await reader.line(1024 * 1024)) as {
+        totals?: Record<string, unknown>;
+      };
+      // The space check per file system, before a byte of this stream is
+      // written: the free space now, after the earlier streams' files.
+      const perDev = new Map<number, { path: string; total: number }>();
+      for (const [key, value] of Object.entries(first?.totals ?? {})) {
+        const source = byIndex.get(Number(key));
+        if (!source || !Number.isSafeInteger(value) || (value as number) < 0)
+          throw new Error("the runner's totals name no requested source");
+        if (declared.has(source.index))
+          throw new Error("the runner's totals name a source twice");
+        declared.set(source.index, value as number);
+        planned += value as number;
+        const at = nearestExisting(destRootOf(source));
+        const dev = lstatSync(at).dev;
+        const entry = perDev.get(dev) ?? { path: at, total: 0 };
+        entry.total += value as number;
+        perDev.set(dev, entry);
+      }
+      if (planned > deps.totalMax)
+        throw new Error(
+          `the member's files take ${planned} bytes; a move takes at most ${deps.totalMax}`,
         );
-    }
-    let total = 0;
-    for (;;) {
-      const length = (await reader.exact(4)).readUInt32BE(0);
-      if (length === 0) break;
-      if (length > 64 * 1024) throw new Error("a record header is too long");
-      const header = JSON.parse(
-        (await reader.exact(length)).toString("utf8"),
-      ) as { index?: unknown; rel?: unknown; size?: unknown };
-      const source = byIndex.get(Number(header?.index));
-      const dest = recordDest(source, header?.rel);
-      if (typeof dest !== "string") throw new Error(dest.refused);
-      if (source!.kind === "claude-file" || source!.kind === "codex") {
-        if (codexSeen.has(source!.index))
-          throw new Error("a second record for one file");
-        codexSeen.add(source!.index);
+      for (const { path, total } of perDev.values()) {
+        const free = deps.freeBytes(path);
+        if (spaceNeeded(total) > free)
+          throw Object.assign(
+            new Error(
+              `not enough free space at ${path}: ${spaceNeeded(total)} bytes needed, ${free} free`,
+            ),
+            { code: "ENOSPC" },
+          );
       }
-      const size = header.size;
-      if (!Number.isSafeInteger(size) || (size as number) < 0)
-        throw new Error("a record with a bad size");
-      if ((size as number) > deps.fileMax)
-        throw new Error(`a file larger than ${deps.fileMax} bytes`);
-      const left = declared.get(source!.index);
-      if (left === undefined)
-        throw new Error("a record for a source the totals do not name");
-      if ((size as number) > left)
-        throw new Error("the files are larger than the runner's totals");
-      declared.set(source!.index, left - (size as number));
-      total += size as number;
-      if (total > deps.totalMax)
-        throw new Error(`the files are larger than ${deps.totalMax} bytes`);
-      const path = staging.next(dest);
-      const hash = createHash("sha256");
-      const fd = openSync(
-        path,
-        constants.O_WRONLY |
-          constants.O_CREAT |
-          constants.O_EXCL |
-          constants.O_NOFOLLOW,
-        0o600,
-      );
-      try {
-        let left = size as number;
-        while (left > 0) {
-          const chunk = await reader.some(Math.min(left, 1024 * 1024));
-          hash.update(chunk);
-          let off = 0;
-          while (off < chunk.length)
-            off += writeSync(fd, chunk, off, chunk.length - off);
-          left -= chunk.length;
+      for (;;) {
+        const length = (await reader.exact(4)).readUInt32BE(0);
+        if (length === 0) break;
+        if (length > 64 * 1024) throw new Error("a record header is too long");
+        const header = JSON.parse(
+          (await reader.exact(length)).toString("utf8"),
+        ) as { index?: unknown; rel?: unknown; size?: unknown };
+        const source = byIndex.get(Number(header?.index));
+        const dest = recordDest(source, header?.rel);
+        if (typeof dest !== "string") throw new Error(dest.refused);
+        if (source!.kind === "claude-file" || source!.kind === "codex") {
+          if (codexSeen.has(source!.index))
+            throw new Error("a second record for one file");
+          codexSeen.add(source!.index);
         }
-      } finally {
-        closeSync(fd);
+        const size = header.size;
+        if (!Number.isSafeInteger(size) || (size as number) < 0)
+          throw new Error("a record with a bad size");
+        if ((size as number) > deps.fileMax)
+          throw new Error(`a file larger than ${deps.fileMax} bytes`);
+        const left = declared.get(source!.index);
+        if (left === undefined)
+          throw new Error("a record for a source the totals do not name");
+        if ((size as number) > left)
+          throw new Error("the files are larger than the runner's totals");
+        declared.set(source!.index, left - (size as number));
+        total += size as number;
+        if (total > deps.totalMax)
+          throw new Error(`the files are larger than ${deps.totalMax} bytes`);
+        const path = staging.next(dest);
+        const hash = createHash("sha256");
+        const fd = openSync(
+          path,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            constants.O_NOFOLLOW,
+          0o600,
+        );
+        try {
+          let left = size as number;
+          while (left > 0) {
+            const chunk = await reader.some(Math.min(left, 1024 * 1024));
+            hash.update(chunk);
+            let off = 0;
+            while (off < chunk.length)
+              off += writeSync(fd, chunk, off, chunk.length - off);
+            left -= chunk.length;
+          }
+        } finally {
+          closeSync(fd);
+        }
+        staged.push({
+          source: source!,
+          staged: path,
+          dest,
+          size: size as number,
+          sha256: hash.digest("hex"),
+        });
+        arrived.add(source!.index);
+        if (source!.index === 0 && typeof header.rel === "string")
+          arrivedRels.add(header.rel);
       }
-      staged.push({
-        source: source!,
-        staged: path,
-        dest,
-        size: size as number,
-        sha256: hash.digest("hex"),
-      });
-      arrived.add(source!.index);
-      if (source!.index === 0 && typeof header.rel === "string")
-        arrivedRels.add(header.rel);
+      await reader.end();
     }
     // Place: link with no replace.
     for (const file of staged) {
@@ -722,6 +782,7 @@ export async function writeMoveOut(
       unlinkSync(file.staged);
     }
   } catch (error) {
+    await current?.close();
     undoMoveOut(written);
     throw error;
   }
@@ -787,14 +848,19 @@ export async function transferMemberFilesOut(
   const nonce = randomBytes(16).toString("hex");
   const agentRoot = resolve(host.agentRoot());
   clearMoveOutStaging(userId);
+  const runEntryOut = host.runEntryOut.bind(host);
+  // One time bound over every request.
+  const deadline = Date.now() + MOVE_IN_TIMEOUT_MS;
   const written = await writeMoveOut(
     plan,
-    host.runEntryOut(
-      "files-out",
-      moveOutRequest(plan, nonce, agentRoot),
-      MOVE_IN_TIMEOUT_MS,
-    ),
+    (input) => {
+      const left = deadline - Date.now();
+      if (left <= 0)
+        throw new Error("agent runner entry files-out failed: timed out");
+      return runEntryOut("files-out", input, left);
+    },
     nonce,
+    agentRoot,
   );
   for (const index of written.missing) {
     const source = plan.sources[index];

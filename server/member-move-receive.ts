@@ -554,13 +554,26 @@ function moveOutDir(input: { nonce: string; agentRoot: string }): string {
 // {totals: {<index>: bytes}}, then for each file u32 BE length, header JSON
 // {index, rel, size, mode} and the bytes, then a zero length. What was sent
 // (path and inode) and the folders walked are kept in
-// <agentRoot>/.move-out/<nonce>/sent.jsonl for files-remove.
+// <agentRoot>/.move-out/<nonce>/sent.jsonl for files-remove; the requests
+// of one move (one nonce) add to it.
 export async function sendFiles(
   input: MoveOutInput,
   write: (chunk: Uint8Array) => void | Promise<void>,
 ): Promise<void> {
   const dir = moveOutDir(input);
-  rmSync(join(input.agentRoot, ".move-out"), { recursive: true, force: true });
+  // What another move left goes; this move's journal stays, for a move
+  // asked in several requests.
+  const outRoot = dirname(dir);
+  // A link or a file there goes itself; nothing is listed through it.
+  const outStats = lstatOrNull(outRoot);
+  if (outStats && !outStats.isDirectory()) rmSync(outRoot, { force: true });
+  let others: string[] = [];
+  try {
+    others = readdirSync(outRoot);
+  } catch {}
+  for (const name of others)
+    if (name !== input.nonce)
+      rmSync(join(outRoot, name), { recursive: true, force: true });
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const max = input.fileMax;
   const files: OutFile[] = [];
