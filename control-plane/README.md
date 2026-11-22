@@ -2414,8 +2414,10 @@ hand when they get in the way.
   enforces only the DNS-label syntax and the reserved-name refusal, which are
   pure Checkout-boundary rules; nothing in this section, and nothing in the
   metadata it writes, makes a name unique.
-- No resume from suspension. `power_on` stays declared-but-not-driven: ending a
-  suspension is a billing recovery transition nobody has ruled on.
+- No resume from suspension - it arrived later (see "Resume, and the box that
+  must never be resumed", below): when Stripe reports the subscription healthy
+  again, reconcile opens a `power_on` and the provisioner drives it. A paying
+  customer's box needs no manual `power_on`.
 - No cancellation or deprovisioning, which is slice 5. A `customer.subscription.
 deleted` event is cached and, if a dunning episode was open, escalated - and
   that is all.
