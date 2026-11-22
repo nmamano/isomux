@@ -206,8 +206,12 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
   const results = await runPipeline(
     async (name) => {
       if (name === "bun test") expect(buildComplete).toBe(true);
-      else if (name === "opencode live") expect(testsComplete).toBe(true);
-      else expect(completed).toBe(0);
+      else if (name === "opencode live") {
+        // Beside bun test, not after it: after the build settles, while bun
+        // test still runs.
+        expect(buildComplete).toBe(true);
+        expect(testsComplete).toBe(false);
+      } else expect(completed).toBe(0);
       active += 1;
       if (active > 1) concurrent = true;
       calls.push(name);
@@ -251,7 +255,7 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
   );
 });
 
-it("skips tests only when the UI build fails", async () => {
+it("skips bun test, not the OpenCode live tier, when the UI build fails", async () => {
   const calls: string[] = [];
   const results = await runPipeline(
     async (name) => {
@@ -275,6 +279,7 @@ it("skips tests only when the UI build fails", async () => {
     "tsc",
     "build:ui",
     "ci:web",
+    "opencode live",
   ]);
   expect(calls).toContain("audit");
   expect(results.find((result) => result.name === "bun test")).toEqual({
@@ -284,17 +289,22 @@ it("skips tests only when the UI build fails", async () => {
     status: "skipped",
     reason: "build:ui failed",
   });
-  expect(
-    results.find((result) => result.name === "opencode live")?.status,
-  ).toBe("skipped");
+  // The live tier reads no UI build: it reports its own verdict.
+  expect(results.find((result) => result.name === "opencode live")).toEqual({
+    name: "opencode live",
+    log: "opencode live.log",
+    seconds: 0,
+    status: "passed",
+    exitCode: 0,
+  });
 });
 
-it("skips, without failing, the OpenCode live tier when bun test fails", async () => {
+it("runs the OpenCode live tier, with its own verdict, when bun test fails", async () => {
   const calls: string[] = [];
   const results = await runPipeline(
     async (name) => {
       calls.push(name);
-      const failed = name === "bun test";
+      const failed = name === "bun test" || name === "opencode live";
       return {
         name,
         log: `${name}.log`,
@@ -308,16 +318,17 @@ it("skips, without failing, the OpenCode live tier when bun test fails", async (
   );
 
   expect(calls).toContain("bun test");
-  expect(calls).not.toContain("opencode live");
-  const live = results.find((result) => result.name === "opencode live");
-  expect(live?.status).toBe("skipped");
-  expect(live?.log).toBe("opencode live.skipped.log");
-  expect(live?.reason).toContain("bun test");
+  expect(calls).toContain("opencode live");
+  // Both reds count: the live tier's failure is not hidden behind bun test's.
   expect(
     results
       .filter((result) => result.status === "failed")
-      .map((result) => result.name),
-  ).toEqual(["bun test"]);
+      .map((result) => result.name)
+      .sort(),
+  ).toEqual(["bun test", "opencode live"]);
+  expect(results.find((result) => result.name === "opencode live")?.log).toBe(
+    "opencode live.log",
+  );
 });
 
 it("waits for a running container stage and reports its failure", async () => {

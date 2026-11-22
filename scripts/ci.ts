@@ -69,8 +69,9 @@ export const stages: Stage[] = [
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
   { name: "bun test", command: ["bun", "scripts/test-shards.ts"] },
   // The OpenCode live tier on a pinned server and mock providers: no key, no
-  // model credits. It runs after bun test, never beside it: its first-reply
-  // waits fail under load.
+  // model credits. About 30 s, most of it the real waits of the steer and
+  // slow-plugin cases (2026-11-22, task 2131541a). It runs beside bun test,
+  // off the critical path.
   { name: "opencode live", command: ["bun", "run", "test:opencode:ci"] },
   {
     name: "ci:web",
@@ -441,11 +442,9 @@ export async function runPipeline(
       ? stage("bun test")
       : skipped("bun test", "build:ui failed"),
   );
-  const openCode = tests.then((result): Promise<StageResult> | StageResult =>
-    result.status === "passed"
-      ? stage("opencode live")
-      : skipped("opencode live", `bun test ${result.status}`),
-  );
+  // It reads no UI build: it starts when the build settles only so that it
+  // runs beside bun test, whose load its waits were measured under.
+  const openCode = build.then(() => stage("opencode live"));
   return Promise.all([
     format,
     lint,
