@@ -339,3 +339,316 @@ it("Undo and Don't save still send their requests from a stalled banner", async 
     `/api/asks/${id}/dismiss`,
   ]);
 });
+
+// Task d6f3d315: a banner that the member's own action on this card brought
+// (a rewrite, the rule's Change, an answer with automate) is scrolled into
+// view once, with block "nearest": the tap is at the bottom of a long card
+// and the banner at its top. The server's push may come before or after the
+// POST's reply. A banner from elsewhere (another device, a page load), a
+// failed POST, and a push more than a minute after the POST do not move the
+// page.
+const { ASK_UNDO_MS } = await import("../components/AsksView.tsx");
+type Scroll = { ask: string | null; banner: boolean; block: unknown };
+let scrolls: Scroll[] = [];
+let restoreScroll: (() => void) | null = null;
+function spyScroll() {
+  scrolls = [];
+  const proto = Element.prototype as unknown as {
+    scrollIntoView?: (options?: unknown) => void;
+  };
+  const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
+  proto.scrollIntoView = function (this: Element, options?: unknown) {
+    scrolls.push({
+      ask: this.closest("[data-ask]")?.getAttribute("data-ask") ?? null,
+      banner: this.hasAttribute("data-ask-updating"),
+      block: (options as { block?: unknown } | undefined)?.block,
+    });
+  };
+  restoreScroll = () => {
+    if (before) Object.defineProperty(proto, "scrollIntoView", before);
+    else delete proto.scrollIntoView;
+  };
+}
+afterEach(() => {
+  restoreScroll?.();
+  restoreScroll = null;
+});
+const bannerScrolls = () => scrolls.filter((s) => s.banner);
+
+// The POST whose path ends with `route` waits until the test settles it,
+// with success or with a failure.
+function holdPost(route: string) {
+  let settle: ((ok: boolean) => void) | null = null;
+  setApiShim(async (method, path, body) => {
+    if (method !== "POST") return undefined;
+    posts.push({ path, body: (body ?? {}) as Record<string, unknown> });
+    if (!path.endsWith(route)) return undefined;
+    await new Promise<void>((resolve, reject) => {
+      settle = (ok) => (ok ? resolve() : reject(new Error("offline")));
+    });
+    return undefined;
+  });
+  return async (ok: boolean) => {
+    expect(settle !== null).toBe(true);
+    await act(async () => settle!(ok));
+    await act(async () => {});
+  };
+}
+
+const open = (id: string): AskEntry => ({
+  ...inbox.ask(id, AGENT, 5),
+  options: ["Ship now", "Wait"],
+});
+// What the server pushes once it took each request.
+function pushed(id: string, kind: Kind): AskEntry {
+  const at = Date.now();
+  if (kind === "rewrite") return { ...open(id), simplifyRequestedAt: at };
+  const rule = waiting(id, "change", 0);
+  if (kind === "change") return { ...rule, simplifyRequestedAt: at };
+  return {
+    ...open(id),
+    automateRequest: {
+      at,
+      byUserId: "u1",
+      words: "Pick the copy yourself next time.",
+      answer: { outcome: "replied", text: "Ship now", at },
+    },
+  };
+}
+// The rule stage with the agent's rule in place: Change is open.
+const ruleShown = (id: string): AskEntry => {
+  const { simplifyRequestedAt: _, ...rest } = waiting(id, "change", 0);
+  return rest;
+};
+
+const q = <T extends HTMLElement = HTMLElement>(
+  root: HTMLElement,
+  id: string,
+  sel: string,
+) => card(root, id).querySelector<T>(sel)!;
+const type = (el: HTMLElement, value: string) =>
+  act(async () => void fireEvent.change(el, { target: { value } }));
+
+// The member's action on the card, up to its POST being sent.
+async function act_(root: HTMLElement, id: string, kind: Kind) {
+  if (kind === "rewrite") {
+    await click(q(root, id, '[data-ask-tag="rewrite"]'));
+    await type(q(root, id, "[data-ask-reply-input]"), "Shorter please");
+    await click(q(root, id, "[data-ask-send]"));
+  } else if (kind === "change") {
+    await type(q(root, id, "[data-ask-rule-change-input]"), "Only copy");
+    await click(q(root, id, "[data-ask-rule-change]"));
+  } else {
+    await type(q(root, id, "[data-ask-reply-input]"), "Ship now");
+    await click(q(root, id, "[data-ask-automate-open]"));
+    await type(q(root, id, "[data-ask-automate-input]"), "Copy: your pick.");
+    await click(q(root, id, "[data-ask-automate-send]"));
+    // The Inbox holds the answer for its Undo time, then sends it.
+    await advance(ASK_UNDO_MS);
+  }
+}
+const ROUTE: Record<Kind, string> = {
+  rewrite: "/rewrite",
+  change: "/rewrite",
+  rule: "/reply",
+};
+
+it("a banner brought by the member's own rewrite, Change or answer with automate is scrolled into view once, whether the push comes before or after the POST's reply", async () => {
+  const cases: [Kind, "post-first" | "push-first"][] = [
+    ["rewrite", "post-first"],
+    ["rewrite", "push-first"],
+    ["change", "post-first"],
+    ["change", "push-first"],
+    ["rule", "post-first"],
+    ["rule", "push-first"],
+  ];
+  for (const [i, [kind, order]] of cases.entries()) {
+    const id = `us0${i}`;
+    posts = [];
+    spyScroll();
+    const settle = holdPost(ROUTE[kind]);
+    const { view, latest } = inbox.mount(
+      [kind === "change" ? ruleShown(id) : open(id)],
+      place("waiting_for_response"),
+    );
+    const root = view.container;
+    await advance(1);
+    expect({ kind, ...look(root, id) }).toEqual({ kind, ...NONE });
+    await act_(root, id, kind);
+    expect({ kind, order, posts: posts.map((p) => p.path) }).toEqual({
+      kind,
+      order,
+      posts: [`/api/asks/${id}${ROUTE[kind]}`],
+    });
+    const push = () =>
+      act(async () => {
+        latest.dispatch({
+          type: "ask_upserted",
+          entry: pushed(id, kind),
+        } as never);
+      });
+    if (order === "push-first") {
+      await push();
+      await settle(true);
+    } else {
+      await settle(true);
+      await push();
+    }
+    expect({ kind, order, ...look(root, id) }).toEqual({
+      kind,
+      order,
+      ...UPDATING,
+    });
+    expect({ kind, order, scrolls: bannerScrolls() }).toEqual({
+      kind,
+      order,
+      scrolls: [{ ask: id, banner: true, block: "nearest" }],
+    });
+    view.unmount();
+    restoreScroll?.();
+  }
+});
+
+it("the scroll is not repeated when the wait turns stalled or the card renders again", async () => {
+  spyScroll();
+  const id = "us10";
+  const settle = holdPost("/rewrite");
+  const { view, latest } = inbox.mount(
+    [open(id)],
+    place("waiting_for_response"),
+  );
+  const root = view.container;
+  await advance(1);
+  await act_(root, id, "rewrite");
+  await settle(true);
+  await act(async () => {
+    latest.dispatch({
+      type: "ask_upserted",
+      entry: pushed(id, "rewrite"),
+    } as never);
+  });
+  expect(bannerScrolls()).toHaveLength(1);
+  await act(async () => {
+    latest.dispatch({
+      type: "agent_updated",
+      agentId: AGENT,
+      changes: { state: "thinking" },
+    });
+  });
+  await advance(61 * SEC);
+  await act(async () => {
+    latest.dispatch({
+      type: "agent_updated",
+      agentId: AGENT,
+      changes: { state: "waiting_for_response" },
+    });
+  });
+  expect(look(root, id)).toEqual(STALLED);
+  expect(bannerScrolls()).toHaveLength(1);
+});
+
+it("the scroll uses up the member's action: a rewrite from elsewhere on the same ask a moment later is not scrolled to", async () => {
+  spyScroll();
+  const id = "us11";
+  const settle = holdPost("/rewrite");
+  const { view, latest } = inbox.mount(
+    [open(id)],
+    place("waiting_for_response"),
+  );
+  const root = view.container;
+  const push = (entry: AskEntry) =>
+    act(async () => {
+      latest.dispatch({ type: "ask_upserted", entry } as never);
+    });
+  await advance(1);
+  await act_(root, id, "rewrite");
+  await settle(true);
+  await push(pushed(id, "rewrite"));
+  expect({ ...look(root, id), scrolls: bannerScrolls().length }).toEqual({
+    ...UPDATING,
+    scrolls: 1,
+  });
+  // The agent's edit lands, then another device asks for a rewrite.
+  await push({ ...open(id), prompt: "Ship it now?" });
+  expect(look(root, id)).toEqual(NONE);
+  await advance(5 * SEC);
+  await push(pushed(id, "rewrite"));
+  expect({ ...look(root, id), scrolls: bannerScrolls().length }).toEqual({
+    ...UPDATING,
+    scrolls: 1,
+  });
+});
+
+it("a banner from elsewhere is not scrolled to: a rewrite pending at page load, and one pushed with no action on this card", async () => {
+  spyScroll();
+  const { view, latest } = inbox.mount(
+    [waiting("us20", "rewrite", 5 * SEC), open("us21")],
+    place("waiting_for_response"),
+  );
+  const root = view.container;
+  await advance(1);
+  await act(async () => {
+    latest.dispatch({
+      type: "ask_upserted",
+      entry: pushed("us21", "rewrite"),
+    } as never);
+  });
+  expect([look(root, "us20"), look(root, "us21")]).toEqual([
+    UPDATING,
+    UPDATING,
+  ]);
+  expect(bannerScrolls()).toEqual([]);
+});
+
+it("after a failed rewrite POST, a banner that comes later is not scrolled to", async () => {
+  spyScroll();
+  const id = "us30";
+  const settle = holdPost("/rewrite");
+  const { view, latest } = inbox.mount(
+    [open(id)],
+    place("waiting_for_response"),
+  );
+  const root = view.container;
+  await advance(1);
+  await act_(root, id, "rewrite");
+  await settle(false);
+  expect({
+    posts: posts.map((p) => p.path),
+    failed: card(root, id).querySelectorAll('[role="alert"]').length,
+    ...look(root, id),
+  }).toEqual({ posts: [`/api/asks/${id}/rewrite`], failed: 1, ...NONE });
+  await act(async () => {
+    latest.dispatch({
+      type: "ask_upserted",
+      entry: pushed(id, "rewrite"),
+    } as never);
+  });
+  expect(look(root, id)).toEqual(UPDATING);
+  expect(bannerScrolls()).toEqual([]);
+});
+
+it("a banner pushed more than a minute after the member's rewrite is not scrolled to", async () => {
+  spyScroll();
+  const id = "us40";
+  const settle = holdPost("/rewrite");
+  const { view, latest } = inbox.mount(
+    [open(id)],
+    place("waiting_for_response"),
+  );
+  const root = view.container;
+  await advance(1);
+  await act_(root, id, "rewrite");
+  await settle(true);
+  expect(look(root, id)).toEqual(NONE);
+  const before = Date.now();
+  await advance(61 * SEC);
+  expect(Date.now() - before).toBeGreaterThanOrEqual(61 * SEC);
+  await act(async () => {
+    latest.dispatch({
+      type: "ask_upserted",
+      entry: pushed(id, "rewrite"),
+    } as never);
+  });
+  expect(look(root, id)).toEqual(UPDATING);
+  expect(bannerScrolls()).toEqual([]);
+});

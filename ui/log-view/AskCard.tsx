@@ -74,6 +74,7 @@
 import {
   createContext,
   Fragment,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -444,6 +445,23 @@ function updateWait(
   return pastMark && connected && !working ? "stalled" : "updating";
 }
 
+// The member's own Rewrite or answer with automate, sent from the bottom of
+// a long card, brings the banner at its top: the banner is scrolled into view
+// once (task d6f3d315). Not for a banner another device or tab brought. The
+// arm is kept by ask id, not in the card: on the Inbox the card that sent is
+// gone when the rule stage's card mounts. An arm older than the stall mark is
+// dropped.
+const bannerArms = new Map<string, number>();
+function armBannerFor(askId: string) {
+  bannerArms.set(askId, Date.now());
+}
+function takeBannerArm(askId: string): boolean {
+  const at = bannerArms.get(askId);
+  if (at === undefined) return false;
+  bannerArms.delete(askId);
+  return Date.now() - at <= UPDATE_STALL_MS;
+}
+
 function AskAffordances({
   entry,
   isMobile,
@@ -658,6 +676,26 @@ function ReplyAskCard({
   const heldRef = useRef<HeldAnswer | null>(null);
   const [held, setHeld] = useState<HeldAnswer | null>(null);
   const heldLineRef = useRef<HTMLDivElement>(null);
+  // The update banner, scrolled into view once after this client's own
+  // request (bannerArms): when it mounts, or at once when the push came
+  // before the request's reply.
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+  const askId = entry.id;
+  const revealBanner = useCallback(() => {
+    const el = bannerRef.current;
+    if (el && takeBannerArm(askId)) el.scrollIntoView?.({ block: "nearest" });
+  }, [askId]);
+  const setBannerEl = useCallback(
+    (el: HTMLDivElement | null) => {
+      bannerRef.current = el;
+      revealBanner();
+    },
+    [revealBanner],
+  );
+  function armBanner() {
+    armBannerFor(entry.id);
+    revealBanner();
+  }
   const undoHost = useContext(AskUndoHost);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
@@ -1011,6 +1049,7 @@ function ReplyAskCard({
         automate: undefined,
       });
       dispatch({ type: "ask_undone", id: entry.id });
+      armBanner();
     } catch (err) {
       sending.current = false;
       setBusy(false);
@@ -1125,6 +1164,7 @@ function ReplyAskCard({
         askId: entry.id,
         automate: undefined,
       });
+      armBanner();
       return true;
     } catch (err) {
       setSimplifyError(
@@ -1605,6 +1645,7 @@ function ReplyAskCard({
   const stalled = wait === "stalled";
   const updateBanner = wait !== "none" && (
     <div
+      ref={setBannerEl}
       role="status"
       data-ask-updating=""
       {...(ruleStage
