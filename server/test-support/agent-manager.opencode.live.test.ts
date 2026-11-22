@@ -161,7 +161,7 @@ it.skipIf(!LIVE)(
     });
     reaper.track(supervisor);
     const teardown = reaper.add(async () => {
-      await measure("first reply teardown", () => supervisor.shutdown());
+      await measure("first reply teardown", () => supervisor.close());
       await mock.stop(true);
     });
     try {
@@ -296,7 +296,7 @@ it.skipIf(!LIVE)(
     });
     reaper.track(supervisor);
     const teardown = reaper.add(async () => {
-      await measure("provider error teardown", () => supervisor.shutdown());
+      await measure("provider error teardown", () => supervisor.close());
       await mock.stop(true);
     });
     try {

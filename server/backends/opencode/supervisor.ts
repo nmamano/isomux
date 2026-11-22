@@ -47,6 +47,10 @@ import {
 
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
 
+// Thrown by a supervisor that close() stopped for good: it starts no server
+// and grants no lease or turn.
+export class OpenCodeSupervisorClosedError extends Error {}
+
 interface ServerRecord {
   pid: number;
   port: number;
@@ -290,6 +294,8 @@ export class OpenCodeSupervisor {
   private serverLeaseCount: { key: string; count: number } | null = null;
   // A member's reload waits for the replacement, like a stale record.
   private reloadRequested = false;
+  // Set by close(); never reset.
+  private closed = false;
   readonly profileDir: string;
   readonly recordPath: string;
   private resolvedBinary: string | undefined;
@@ -349,6 +355,7 @@ export class OpenCodeSupervisor {
   }
 
   async acquire(): Promise<OpenCodeLease> {
+    this.assertOpen();
     // Taken before the first wait, so no replacement can start between the
     // check below and the caller's work.
     let entry: (() => void) | null = this.hold();
@@ -366,6 +373,8 @@ export class OpenCodeSupervisor {
         !processIdentityMatches(record.pid, record.startTicks)
       )
         await this.ensureServer(replaceMarked);
+      // A close() during the waits: no lease on a stopping server.
+      this.assertOpen();
     } catch (error) {
       entry();
       throw error;
@@ -456,6 +465,8 @@ export class OpenCodeSupervisor {
             (await this.replaceServerIfRequested(1)) === "replaced"
           )
             await this.validateServerForTurn(this.use.turns > 0);
+          // A close() during the health check: the turn does not count.
+          this.assertOpen();
           turnActive = true;
           this.changeUse("turns", 1);
         } finally {
@@ -615,6 +626,20 @@ export class OpenCodeSupervisor {
         });
     }
     return this.beginStop(false);
+  }
+
+  // A stop for good (the office stops, the member moves): no server, lease
+  // or turn starts after it.
+  close(): Promise<void> {
+    this.closed = true;
+    return this.shutdown();
+  }
+
+  private assertOpen(): void {
+    if (this.closed)
+      throw new OpenCodeSupervisorClosedError(
+        "OpenCode server closed: the office is stopping, or the member moved to their own OS user.",
+      );
   }
 
   // The server phase changes only through the methods below.
@@ -813,6 +838,7 @@ export class OpenCodeSupervisor {
         !(replaceMarked && record.pid === this.unresponsive?.pid)
       )
         return;
+      this.assertOpen();
       await this.beginStart(replaceMarked);
       // A stop asked during this start runs now: start again after it.
       if (this.server.phase === "running") return;
@@ -1167,9 +1193,10 @@ export function openCodeSupervisorForEnvironment(
   return supervisor;
 }
 
-// The servers of these environment keys stop and their supervisors go, so
-// the next acquire starts one where the profile is now (a member's move to
-// their own OS user, server/member-move.ts).
+// The servers of these environment keys stop and their supervisors close and
+// go, so the next acquire starts one where the profile is now (a member's
+// move to their own OS user, server/member-move.ts). A caller that still
+// holds an old supervisor is refused.
 export async function stopOpenCodeServers(
   environmentKeys: string[],
 ): Promise<void> {
@@ -1179,17 +1206,18 @@ export async function stopOpenCodeServers(
       const supervisor = environmentSupervisors.get(key);
       if (!supervisor) return;
       environmentSupervisors.delete(key);
-      await supervisor.shutdown();
+      await supervisor.close();
     }),
   );
 }
 
-// Reap the OpenCode servers before the office process exits.
+// Reap the OpenCode servers before the office process exits. Closed, so a
+// turn or one-shot still in flight starts no server that outlives the office.
 runAtServerStop(() =>
   Promise.all([
-    openCodeSupervisor.shutdown(),
+    openCodeSupervisor.close(),
     ...[...environmentSupervisors.values()].map((supervisor) =>
-      supervisor.shutdown(),
+      supervisor.close(),
     ),
   ]),
 );

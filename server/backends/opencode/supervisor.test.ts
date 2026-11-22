@@ -25,10 +25,12 @@ import { localAgentHost, setOfficeAgentHost } from "../../agent-host.ts";
 import {
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
   OpenCodeSupervisor,
+  OpenCodeSupervisorClosedError,
   openCodeAgentRules,
   openCodeDefaultConfig,
   openCodeSupervisorForEnvironment,
   reloadOpenCodeServer,
+  stopOpenCodeServers,
   updateOpenCodeSupervisorSettings,
 } from "./supervisor.ts";
 import {
@@ -2063,6 +2065,259 @@ describe("OpenCode shared server supervisor", () => {
       lease.release();
     } finally {
       setOfficeAgentHost(localAgentHost);
+    }
+  }, 20_000);
+
+  // Task 86cb07ee: a supervisor closed for good (office stop, member move)
+  // starts no server again. A plain shutdown(), as the idle stop runs, stays
+  // a stop the next acquire starts a server after.
+  async function settle<T>(work: Promise<T>): Promise<unknown> {
+    return work.then(
+      (value) => {
+        // A lease the refusal should not have given: let the teardown stop
+        // its server.
+        (value as { release?: () => void } | undefined)?.release?.();
+        return null;
+      },
+      (error: unknown) => error,
+    );
+  }
+
+  it("starts a server again after a shutdown, and never after a close", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const first = await supervisor.acquire();
+    const firstPid = first.pid;
+    first.release();
+    await supervisor.shutdown();
+    expect(alive(firstPid)).toBe(false);
+    const second = await supervisor.acquire();
+    const secondPid = second.pid;
+    expect(
+      secondPid,
+      "the acquire after a shutdown got no new server",
+    ).not.toBe(firstPid);
+    expect(alive(secondPid)).toBe(true);
+    second.release();
+    await supervisor.close();
+    expect(alive(secondPid)).toBe(false);
+    const refused = await settle(supervisor.acquire());
+    expect(refused).toBeInstanceOf(OpenCodeSupervisorClosedError);
+    expect(await launchedPids(launchMarker)).toEqual([firstPid, secondPid]);
+  }, 20_000);
+
+  it("refuses an acquire whose start is in flight at the close, and leaves no server", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const runs = gateServerRuns();
+    try {
+      runs.hold("start");
+      const acquiring = settle(supervisor.acquire());
+      await runs.waiting("start");
+      const closing = supervisor.close();
+      runs.open("start");
+      const [refused] = await Promise.all([acquiring, closing]);
+      expect(refused).toBeInstanceOf(OpenCodeSupervisorClosedError);
+      // The case's condition: the held start ran and gave a server.
+      const pids = await launchedPids(launchMarker);
+      expect(pids).toHaveLength(1);
+      expect(alive(pids[0]!), "the started server outlived the close").toBe(
+        false,
+      );
+      expect(runs.finished("start")).toBe(1);
+    } finally {
+      setOfficeAgentHost(localAgentHost);
+    }
+  }, 20_000);
+
+  it("refuses the next turn of a lease held across the close, and starts nothing", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const lease = await supervisor.acquire();
+    const pid = lease.pid;
+    await supervisor.close();
+    expect(alive(pid)).toBe(false);
+    const refused = await settle(lease.beginTurn());
+    expect(refused).toBeInstanceOf(OpenCodeSupervisorClosedError);
+    expect(await launchedPids(launchMarker)).toEqual([pid]);
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("refuses a turn whose health check is in flight at the close", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    let gate: Promise<void> | null = null;
+    let openGate = () => {};
+    let gated = false;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+      turnHealthCheck: async () => {
+        if (!gate) return "healthy";
+        gated = true;
+        await gate;
+        return "healthy";
+      },
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    const pid = lease.pid;
+    gate = new Promise<void>((resolve) => (openGate = resolve));
+    const entering = settle(lease.beginTurn());
+    while (!gated) await Bun.sleep(5);
+    const closing = supervisor.close();
+    openGate();
+    const [refused] = await Promise.all([entering, closing]);
+    // The case's condition: the check ran, and said healthy, during the close.
+    expect(gated as boolean).toBe(true);
+    expect(refused).toBeInstanceOf(OpenCodeSupervisorClosedError);
+    expect(alive(pid)).toBe(false);
+    expect(await launchedPids(launchMarker)).toEqual([pid]);
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("refuses an acquire that a close overtakes while a replacement waits for a turn", async () => {
+    const path = await root();
+    let ensures = 0;
+    const { supervisor, long, priorPid } = await pendingReplacement(path, {
+      ensureServerSink: () => ensures++,
+    });
+    const ensuresBefore = ensures;
+    // In one tick: the close lands at the acquire's first wait.
+    const acquiring = settle(supervisor.acquire());
+    const closing = supervisor.close();
+    const [refused] = await Promise.all([acquiring, closing]);
+    // The case's condition: the pending replacement kept the acquire on the
+    // running server, so it asked for no start.
+    expect(ensures).toBe(ensuresBefore);
+    expect(refused).toBeInstanceOf(OpenCodeSupervisorClosedError);
+    expect(alive(priorPid)).toBe(false);
+    long.endTurn();
+    long.release();
+  }, 20_000);
+
+  it("closes the supervisor of a member move, and gives the next caller an open one", async () => {
+    const key = "source-move-close";
+    const old = openCodeSupervisorForEnvironment(key, {}, "rev");
+    let starts = 0;
+    setOfficeAgentHost({
+      ...localAgentHost,
+      openCodeBin: () => "/nonexistent/opencode",
+      run: async (argv, options) => {
+        if (options?.env?.OPENCODE_SERVER_ACTION === "stop")
+          return localAgentHost.run(argv, options);
+        // A start the test counts and fails: no server runs.
+        starts++;
+        return { exitCode: 1, stdout: "", stderr: "test start refused" };
+      },
+    });
+    try {
+      await stopOpenCodeServers([key]);
+      const refused = await settle(old.acquire());
+      expect(refused).toBeInstanceOf(OpenCodeSupervisorClosedError);
+      expect(starts).toBe(0);
+      const fresh = openCodeSupervisorForEnvironment(key, {}, "rev");
+      expect(fresh === old, "the next caller got the closed supervisor").toBe(
+        false,
+      );
+      const failed = await settle(fresh.acquire());
+      // The case's condition: the fresh supervisor reached a start.
+      expect(starts).toBe(1);
+      expect(failed).toBeInstanceOf(Error);
+      expect(failed).not.toBeInstanceOf(OpenCodeSupervisorClosedError);
+    } finally {
+      setOfficeAgentHost(localAgentHost);
+    }
+  });
+
+  it("closes every supervisor at the office stop", async () => {
+    const path = await root();
+    const marker = join(path, "acquires");
+    // A fresh office process with the supervisor module's stop hook. A hook
+    // registered after it acquires once the stop began; no start may run.
+    const code = `
+      const { writeFileSync } = await import("node:fs");
+      const { runAtServerStop } = await import(${JSON.stringify(join(import.meta.dir, "..", "..", "server-stop.ts"))});
+      const { localAgentHost, setOfficeAgentHost } = await import(${JSON.stringify(join(import.meta.dir, "..", "..", "agent-host.ts"))});
+      const supervisorModule = await import(${JSON.stringify(join(import.meta.dir, "supervisor.ts"))});
+      let starts = 0;
+      setOfficeAgentHost({
+        ...localAgentHost,
+        openCodeBin: () => "/nonexistent/opencode",
+        run: async (argv, options) => {
+          if (options?.env?.OPENCODE_SERVER_ACTION === "stop")
+            return { exitCode: 0, stdout: "", stderr: "" };
+          starts++;
+          return { exitCode: 1, stdout: "", stderr: "test start refused" };
+        },
+      });
+      const environment = supervisorModule.openCodeSupervisorForEnvironment("source-office-stop", {}, "rev");
+      runAtServerStop(async () => {
+        const results = await Promise.all(
+          [supervisorModule.openCodeSupervisor, environment].map((supervisor) =>
+            supervisor.acquire().then(
+              () => "lease",
+              (error) => error instanceof supervisorModule.OpenCodeSupervisorClosedError ? "closed" : "other",
+            ),
+          ),
+        );
+        writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ results, starts }));
+      });
+      process.stdout.write("ready\\n");
+      setInterval(() => {}, 1000);
+    `;
+    const office = spawn(process.execPath, ["-e", code], {
+      cwd: path,
+      env: { ...process.env, ISOMUX_HOME: join(path, "state") },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    office.stderr!.on("data", (chunk: Buffer) => (stderr += String(chunk)));
+    const ready = new Promise<void>((resolve) =>
+      office.stdout!.on("data", (chunk: Buffer) => {
+        if (String(chunk).includes("ready")) resolve();
+      }),
+    );
+    const died = new Promise<string | null>((resolve) =>
+      office.once("exit", (_code, signalCode) => resolve(signalCode)),
+    );
+    try {
+      await ready;
+      office.kill("SIGTERM");
+      expect(await died, stderr).toBe("SIGTERM");
+      expect(JSON.parse(await readFile(marker, "utf8"))).toEqual({
+        results: ["closed", "closed"],
+        starts: 0,
+      });
+    } finally {
+      office.kill("SIGKILL");
     }
   }, 20_000);
 
