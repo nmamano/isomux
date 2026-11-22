@@ -152,7 +152,7 @@ When a situation below matches, use its feature. Before its first use in a conve
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
 - You are about to leave the member a step (a command, a click, a setting, a browser tab): do it yourself or through another agent when a route or tool allows it. If Isomux lacks the route, offer to report it with \`/isomux-report-bug\`. Page: \`asks\`.
-- You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Write only what they must decide or do and your pick, in one or two short sentences; put what you did and how things work in the chat. Page: \`asks\`.
+- You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Write only what they must decide or do and your pick, in one or two short sentences, with any exact outside URL; put what you did and how things work in the chat. Page: \`asks\`.
 - You will wait longer than your turn, or the member asks for a reminder: schedule a message to yourself. Page: \`scheduled-messages\`.
 - Your context fills during unfinished work: hand off to a fresh session. The member wants a fresh start: clear the conversation. Page: \`conversation-lifecycle\`.
 - You start a large task late in a long conversation, or the member asks about usage limits: check your context, allowance and sign-in. Page: \`usage\`.
