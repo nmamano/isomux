@@ -1178,6 +1178,7 @@ Coses que pots fer per ell:
   "settings.apiTokens.unlimited": "Sense límit",
   "settings.apiTokens.creating": "Creant…",
   "settings.apiTokens.create": "Crea el token",
+  "settings.apiTokens.newToken": "Nou token",
   "settings.apiTokens.copyNow": "Copia aquest token ara",
   "settings.apiTokens.shownOnce": "No es tornarà a mostrar.",
   "settings.apiTokens.clipboardBlocked":

@@ -11,7 +11,7 @@ import {
 } from "../../shared/api-token-limits.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogInput } from "./dialog-styles.ts";
+import { dialogInput, disabledFieldLook } from "./dialog-styles.ts";
 
 export const AREA_LABEL: Record<ApiTokenArea, PlainMessageKey> = {
   office: "settings.apiTokens.area.office",
@@ -117,7 +117,9 @@ function AreaRow({
         onChange={(event) =>
           onChange(event.target.value as ApiTokenAccess | "none")
         }
-        style={dialogInput}
+        style={
+          disabled ? { ...dialogInput, ...disabledFieldLook } : dialogInput
+        }
       >
         {(["none", "read", "write"] as const).map((option) => (
           <option key={option} value={option}>

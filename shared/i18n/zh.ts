@@ -1050,6 +1050,7 @@ export const zh: Catalog = {
   "settings.apiTokens.unlimited": "无限制",
   "settings.apiTokens.creating": "正在创建…",
   "settings.apiTokens.create": "创建令牌",
+  "settings.apiTokens.newToken": "新令牌",
   "settings.apiTokens.copyNow": "立即复制此令牌",
   "settings.apiTokens.shownOnce": "之后将不再显示。",
   "settings.apiTokens.clipboardBlocked":

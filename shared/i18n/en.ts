@@ -1161,6 +1161,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.apiTokens.unlimited": "Unlimited",
   "settings.apiTokens.creating": "Creating…",
   "settings.apiTokens.create": "Create token",
+  "settings.apiTokens.newToken": "New token",
   "settings.apiTokens.copyNow": "Copy this token now",
   "settings.apiTokens.shownOnce": "It will not be shown again.",
   "settings.apiTokens.clipboardBlocked":

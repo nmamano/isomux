@@ -1,4 +1,4 @@
-import { dialogInput } from "./dialog-styles.ts";
+import { dialogInput, disabledFieldLook } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { MemberRoom } from "./ApiTokensPane.tsx";
 
@@ -11,6 +11,7 @@ export function RoomPicker({
   onPicked,
   rooms,
   testId,
+  disabled = false,
 }: {
   scope: "all" | "some";
   onScope: (scope: "all" | "some") => void;
@@ -18,6 +19,7 @@ export function RoomPicker({
   onPicked: (picked: string[]) => void;
   rooms: readonly MemberRoom[];
   testId: string;
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -28,11 +30,13 @@ export function RoomPicker({
           data-testid={testId}
           value={scope}
           onChange={(event) => onScope(event.target.value as "all" | "some")}
+          disabled={disabled}
           style={{
             ...dialogInput,
             display: "block",
             width: "100%",
             marginTop: 5,
+            ...(disabled ? disabledFieldLook : {}),
           }}
         >
           <option value="all">{t("settings.apiTokens.rooms.all")}</option>
@@ -47,6 +51,7 @@ export function RoomPicker({
             gap: 6,
             marginTop: 10,
             fontSize: 12,
+            ...(disabled ? { color: "var(--text-hint)" } : {}),
           }}
         >
           {rooms.map((room) => (
@@ -57,6 +62,7 @@ export function RoomPicker({
               <input
                 type="checkbox"
                 data-room={room.id}
+                disabled={disabled}
                 checked={picked.includes(room.id)}
                 onChange={(event) =>
                   onPicked(

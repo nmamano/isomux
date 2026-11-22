@@ -1,5 +1,6 @@
 // The Access and Rooms choices in the API token mint form and the access and
-// rooms lines on each token card (task 23339bea). The server's parse and refusal are pinned in
+// rooms lines on each token card (task 23339bea), and the form frozen on a
+// minted token until New token (task c9835622). The server's parse and refusal are pinned in
 // shared/api-token-limits.test.ts and
 // server/test-support/routes-api-tokens-rest.test.ts; this file pins what the
 // form sends and what the cards show.
@@ -32,6 +33,9 @@ function token(id: string, limits?: ApiTokenWire["limits"]): ApiTokenWire {
 let listed: ApiTokenWire[] = [];
 const minted: unknown[] = [];
 const revoked: string[] = [];
+// Task c9835622: a refused mint, and a mint held in flight until released.
+let refuseMint = false;
+let mintGate: Promise<void> = Promise.resolve();
 // The member's ordinary rooms, as GET /api/me/rooms lists them.
 const ROOMS = [
   { id: "room-a", name: "Alpha" },
@@ -42,8 +46,13 @@ setApiShim(async (method, path, body) => {
   if (path === "/api/me/api-tokens" && method === "GET")
     return { apiTokens: listed };
   if (path === "/api/me/api-tokens" && method === "POST") {
+    if (refuseMint) throw new Error("mint refused");
     minted.push(body);
-    return { token: "isomux_pat_new", apiToken: token("new") };
+    await mintGate;
+    return {
+      token: `isomux_pat_new${minted.length}`,
+      apiToken: token(`new${minted.length}`),
+    };
   }
   if (method === "DELETE" && path.startsWith("/api/me/api-tokens/")) {
     revoked.push(path);
@@ -57,6 +66,8 @@ beforeEach(() => {
   listed = [];
   minted.length = 0;
   revoked.length = 0;
+  refuseMint = false;
+  mintGate = Promise.resolve();
 });
 
 type View = ReturnType<typeof render>;
@@ -441,5 +452,219 @@ describe("API token cards: replies only", () => {
     }).toEqual({ replies: "repliesOnly", talker: "talkToAgents" });
     // Every area plus the switch is neither the pack nor full access.
     expect(access("roomsReplies")).toBe("custom");
+  });
+});
+
+// Task c9835622: once a token is minted, the form shows what was minted and
+// takes no edit (an edit would not change that token) until New token.
+const nameInput = (view: View) =>
+  el<HTMLInputElement>(view, '[data-testid="api-token-name"]');
+const createButton = (view: View) =>
+  view.container.querySelector<HTMLButtonElement>(
+    '[data-testid="api-token-create"]',
+  );
+const newTokenButton = (view: View) =>
+  view.container.querySelector<HTMLButtonElement>(
+    '[data-testid="api-token-new"]',
+  );
+// The expiry select is the only select with a "never" option.
+const expirySelect = (view: View) =>
+  el<HTMLOptionElement>(view, 'select option[value="never"]')
+    .parentElement as HTMLSelectElement;
+// The shown-once secrets on the page (the how-to block uses <pre>, not <code>).
+const secrets = (view: View) =>
+  [...view.container.querySelectorAll("code")]
+    .map((node) => node.textContent ?? "")
+    .filter((text) => text.startsWith("isomux_pat_new"));
+// Every form control, each with whether it is disabled.
+function formControls(view: View): [string, boolean][] {
+  const controls: [string, HTMLInputElement | HTMLSelectElement][] = [
+    ["name", nameInput(view)],
+    ["expiry", expirySelect(view)],
+    ["access", accessSelect(view)],
+    ["rooms", roomsSelect(view)],
+    ...[
+      ...view.container.querySelectorAll<HTMLSelectElement>(
+        "select[data-area]",
+      ),
+    ].map(
+      (node) =>
+        [`area:${node.getAttribute("data-area")}`, node] as [
+          string,
+          HTMLSelectElement,
+        ],
+    ),
+    ...roomBoxes(view).map(
+      (node) =>
+        [`room:${node.getAttribute("data-room")}`, node] as [
+          string,
+          HTMLInputElement,
+        ],
+    ),
+  ];
+  const replies = repliesBox(view);
+  if (replies) controls.push(["repliesOnly", replies]);
+  return controls.map(([key, node]) => [key, node.disabled]);
+}
+const allDisabled = (view: View) =>
+  formControls(view).every(([, disabled]) => disabled);
+const noneDisabled = (view: View) =>
+  formControls(view).every(([, disabled]) => !disabled);
+
+async function click(target: Element) {
+  await act(async () => {
+    fireEvent.click(target);
+  });
+}
+
+// Mint the Replies only pack, 365 days, room-a only: a choice off every
+// default, so a reset that misses one field shows.
+async function mintOffDefaults(view: View) {
+  await change(nameInput(view), "Warden");
+  await change(expirySelect(view), "365");
+  await change(accessSelect(view), "repliesOnly");
+  await change(roomsSelect(view), "some");
+  await tick(el<HTMLInputElement>(view, 'input[data-room="room-a"]'));
+  await click(createButton(view)!);
+}
+
+describe("API token mint form: frozen after a mint", () => {
+  it("shows what was minted with every control disabled, the secret, and no Create", async () => {
+    const view = await mount();
+    await mintOffDefaults(view);
+    expect(minted).toEqual([
+      {
+        name: "Warden",
+        expiresInDays: 365,
+        limits: { ...API_TOKEN_PRESETS.repliesOnly, rooms: ["room-a"] },
+      },
+    ]);
+    // The frozen form still shows the minted choices, name included.
+    expect(nameInput(view).value).toBe("Warden");
+    expect(expirySelect(view).value).toBe("365");
+    expect(accessSelect(view).value).toBe("repliesOnly");
+    expect(repliesBox(view)?.checked).toBe(true);
+    expect(roomsSelect(view).value).toBe("some");
+    expect(
+      roomBoxes(view).map((box) => [
+        box.getAttribute("data-room"),
+        box.checked,
+      ]),
+    ).toEqual([
+      ["room-a", true],
+      ["room-b", false],
+    ]);
+    // Every control, the area grid, the switch and each room box included.
+    expect(formControls(view).map(([key]) => key)).toEqual([
+      "name",
+      "expiry",
+      "access",
+      "rooms",
+      ...API_TOKEN_AREAS.map((area) => `area:${area}`),
+      "room:room-a",
+      "room:room-b",
+      "repliesOnly",
+    ]);
+    expect(formControls(view).filter(([, disabled]) => !disabled)).toEqual([]);
+    // No second mint from this form: Create is gone until New token.
+    expect(createButton(view)).toBeNull();
+    expect(secrets(view)).toEqual(["isomux_pat_new1"]);
+    // The secret sits above the step that clears it.
+    const secret = [...view.container.querySelectorAll("code")].find((node) =>
+      node.textContent?.startsWith("isomux_pat_new"),
+    )!;
+    expect(newTokenButton(view)).not.toBeNull();
+    expect(
+      secret.compareDocumentPosition(newTokenButton(view)!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("freezes while the mint is in flight, not only after it", async () => {
+    let release!: () => void;
+    mintGate = new Promise((resolve) => (release = resolve));
+    const view = await mount();
+    await change(nameInput(view), "Script");
+    await change(accessSelect(view), "readOnly");
+    await click(createButton(view)!);
+    expect(minted).toHaveLength(1);
+    expect(secrets(view)).toEqual([]);
+    expect(formControls(view).filter(([, disabled]) => !disabled)).toEqual([]);
+    await act(async () => {
+      release();
+      await mintGate;
+    });
+    expect(secrets(view)).toEqual(["isomux_pat_new1"]);
+    expect(allDisabled(view)).toBe(true);
+  });
+
+  it("New token asks first, then clears the secret and resets every field, and the next mint sends the new choices", async () => {
+    const view = await mount();
+    await mintOffDefaults(view);
+    expect(newTokenButton(view)).not.toBeNull();
+    // The secret is shown once: the first click only arms the step.
+    await click(newTokenButton(view)!);
+    expect(newTokenButton(view)?.hasAttribute("data-confirm-armed")).toBe(true);
+    expect(secrets(view)).toEqual(["isomux_pat_new1"]);
+    expect(allDisabled(view)).toBe(true);
+    await click(newTokenButton(view)!);
+    expect(secrets(view)).toEqual([]);
+    expect(newTokenButton(view)).toBeNull();
+    expect(createButton(view)).not.toBeNull();
+    expect(noneDisabled(view)).toBe(true);
+    // The defaults: empty name, 30 days, Full access, every room.
+    expect(nameInput(view).value).toBe("");
+    expect(expirySelect(view).value).toBe("30");
+    expect(accessSelect(view).value).toBe("full");
+    expect(roomsSelect(view).value).toBe("all");
+    expect(roomBoxes(view)).toHaveLength(0);
+    // No areas and replies only off: Custom starts from an empty grid, and
+    // Agents at Read and write shows the switch unticked.
+    await change(accessSelect(view), "custom");
+    expect(
+      Object.values(areaValues(view)).filter((level) => level !== "none"),
+    ).toEqual([]);
+    await change(
+      el<HTMLSelectElement>(view, 'select[data-area="agents"]'),
+      "write",
+    );
+    expect(repliesBox(view)?.checked).toBe(false);
+    // No picked rooms carried over.
+    await change(roomsSelect(view), "some");
+    expect(roomBoxes(view).filter((box) => box.checked)).toHaveLength(0);
+    await tick(el<HTMLInputElement>(view, 'input[data-room="room-b"]'));
+    await change(nameInput(view), "Second");
+    await click(createButton(view)!);
+    expect(minted).toHaveLength(2);
+    expect(minted[1]).toEqual({
+      name: "Second",
+      expiresInDays: 30,
+      limits: { areas: { agents: "write" }, rooms: ["room-b"] },
+    });
+    expect(secrets(view)).toEqual(["isomux_pat_new2"]);
+    expect(allDisabled(view)).toBe(true);
+  });
+
+  it("a refused mint does not freeze: the form stays editable and Create mints again", async () => {
+    refuseMint = true;
+    const view = await mount();
+    await change(nameInput(view), "Script");
+    await change(accessSelect(view), "readOnly");
+    await click(createButton(view)!);
+    expect(minted).toEqual([]);
+    expect(secrets(view)).toEqual([]);
+    expect(newTokenButton(view)).toBeNull();
+    expect(noneDisabled(view)).toBe(true);
+    expect(nameInput(view).value).toBe("Script");
+    refuseMint = false;
+    await change(accessSelect(view), "talkToAgents");
+    await click(createButton(view)!);
+    expect(minted).toEqual([
+      {
+        name: "Script",
+        expiresInDays: 30,
+        limits: API_TOKEN_PRESETS.talkToAgents,
+      },
+    ]);
   });
 });

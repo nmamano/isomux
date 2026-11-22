@@ -1183,6 +1183,7 @@ Cosas que puedes hacer por él:
   "settings.apiTokens.unlimited": "Sin límite",
   "settings.apiTokens.creating": "Creando…",
   "settings.apiTokens.create": "Crear el token",
+  "settings.apiTokens.newToken": "Nuevo token",
   "settings.apiTokens.copyNow": "Copia este token ahora",
   "settings.apiTokens.shownOnce": "No se volverá a mostrar.",
   "settings.apiTokens.clipboardBlocked":

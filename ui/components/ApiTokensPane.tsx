@@ -11,6 +11,7 @@ import {
   dialogLabel,
   dialogSaveBtn,
   armedConfirmLook,
+  disabledFieldLook,
 } from "./dialog-styles.ts";
 import {
   MintedSecretBox,
@@ -48,6 +49,11 @@ const ACCESS_CHOICES = [
 ] as const;
 type AccessChoice = (typeof ACCESS_CHOICES)[number];
 type Areas = ApiTokenAreaLevels;
+
+// The mint form's state: editable, frozen while the mint is in flight, or
+// frozen on what was minted, with its secret, until New token. A change to a
+// frozen form would not reach the token.
+type MintState = "editing" | "minting" | { token: string };
 
 const ACCESS_LABEL: Record<AccessChoice, PlainMessageKey> = {
   full: "settings.apiTokens.access.full",
@@ -89,9 +95,11 @@ export function ApiTokensPane() {
   const [roomScope, setRoomScope] = useState<"all" | "some">("all");
   const [pickedRooms, setPickedRooms] = useState<string[]>([]);
   const memberRooms = useMemberRooms();
-  const [rawToken, setRawToken] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const [mint, setMint] = useState<MintState>("editing");
+  const frozen = mint !== "editing";
   const [error, setError] = useState<string | null>(null);
+  // New token clears a secret shown once: it asks first.
+  const newTokenStep = useConfirmStep();
 
   function load() {
     apiFetch<ApiTokenListRes>("GET", "/api/me/api-tokens")
@@ -112,10 +120,9 @@ export function ApiTokensPane() {
   useEffect(load, []);
 
   function create() {
-    if (!name.trim()) return;
-    setPending(true);
+    if (frozen || !name.trim()) return;
+    setMint("minting");
     setError(null);
-    setRawToken(null);
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
@@ -130,17 +137,29 @@ export function ApiTokensPane() {
     })
       .then((res) => {
         setTokens((current) => [res.apiToken, ...current]);
-        setRawToken(res.token);
-        setName("");
+        setMint({ token: res.token });
       })
-      .catch((err) =>
+      .catch((err) => {
+        setMint("editing");
         setError(
           err instanceof ApiError
             ? err.message
             : t("settings.apiTokens.createFailed"),
-        ),
-      )
-      .finally(() => setPending(false));
+        );
+      });
+  }
+
+  // Clears the secret and starts a new token from the defaults.
+  function newToken() {
+    setMint("editing");
+    setError(null);
+    setName("");
+    setExpiresInDays(30);
+    setAccess("full");
+    setAreas({});
+    setRepliesOnly(false);
+    setRoomScope("all");
+    setPickedRooms([]);
   }
 
   function chooseAccess(choice: AccessChoice) {
@@ -236,11 +255,13 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             onChange={(event) => setName(event.target.value)}
             placeholder={t("settings.apiTokens.namePlaceholder")}
             maxLength={64}
+            disabled={frozen}
             style={{
               ...dialogInput,
               display: "block",
               width: "100%",
               marginTop: 5,
+              ...(frozen ? disabledFieldLook : {}),
             }}
           />
         </label>
@@ -255,11 +276,13 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                   : (Number(event.target.value) as ExpiryChoice),
               )
             }
+            disabled={frozen}
             style={{
               ...dialogInput,
               display: "block",
               width: "100%",
               marginTop: 5,
+              ...(frozen ? disabledFieldLook : {}),
             }}
           >
             {EXPIRY_OPTIONS.map((days) => (
@@ -282,11 +305,13 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             onChange={(event) =>
               chooseAccess(event.target.value as AccessChoice)
             }
+            disabled={frozen}
             style={{
               ...dialogInput,
               display: "block",
               width: "100%",
               marginTop: 5,
+              ...(frozen ? disabledFieldLook : {}),
             }}
           >
             {ACCESS_CHOICES.map((choice) => (
@@ -296,7 +321,9 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             ))}
           </select>
         </label>
-        {access !== "full" && <AreaLevelsGrid areas={areas} onArea={setArea} />}
+        {access !== "full" && (
+          <AreaLevelsGrid areas={areas} onArea={setArea} disabled={frozen} />
+        )}
         {access !== "full" && areas.agents === "write" && (
           <label
             style={{
@@ -305,11 +332,13 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
               gap: 6,
               marginTop: 10,
               fontSize: 12,
+              ...(frozen ? { color: "var(--text-hint)" } : {}),
             }}
           >
             <input
               type="checkbox"
               data-testid="api-token-replies-only"
+              disabled={frozen}
               checked={repliesOnly}
               onChange={(event) => toggleRepliesOnly(event.target.checked)}
             />
@@ -324,32 +353,51 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
           onPicked={setPickedRooms}
           rooms={memberRooms}
           testId="api-token-rooms"
+          disabled={frozen}
         />
-        <button
-          data-testid="api-token-create"
-          onClick={create}
-          disabled={pending || !name.trim()}
-          style={{
-            ...dialogSaveBtn,
-            marginTop: 12,
-          }}
-        >
-          {pending
-            ? t("settings.apiTokens.creating")
-            : t("settings.apiTokens.create")}
-        </button>
+        {typeof mint === "object" ? (
+          <>
+            <div style={{ marginTop: 12 }}>
+              <MintedSecretBox
+                value={mint.token}
+                label={t("settings.apiTokens.copyNow")}
+                hint={t("settings.apiTokens.shownOnce")}
+                blocked={t("settings.apiTokens.clipboardBlocked")}
+              />
+            </div>
+            <button
+              data-testid="api-token-new"
+              {...newTokenStep.bind("new")}
+              onClick={() => newTokenStep.confirm("new", newToken)}
+              style={{
+                ...dialogSaveBtn,
+                marginTop: 12,
+                ...(newTokenStep.armed === "new" ? armedConfirmLook : {}),
+              }}
+            >
+              {t(
+                newTokenStep.armed === "new"
+                  ? "common.confirmQuestion"
+                  : "settings.apiTokens.newToken",
+              )}
+            </button>
+          </>
+        ) : (
+          <button
+            data-testid="api-token-create"
+            onClick={create}
+            disabled={frozen || !name.trim()}
+            style={{
+              ...dialogSaveBtn,
+              marginTop: 12,
+            }}
+          >
+            {mint === "minting"
+              ? t("settings.apiTokens.creating")
+              : t("settings.apiTokens.create")}
+          </button>
+        )}
       </div>
-
-      {rawToken && (
-        <div style={{ marginTop: 12 }}>
-          <MintedSecretBox
-            value={rawToken}
-            label={t("settings.apiTokens.copyNow")}
-            hint={t("settings.apiTokens.shownOnce")}
-            blocked={t("settings.apiTokens.clipboardBlocked")}
-          />
-        </div>
-      )}
 
       {error && (
         <p style={{ color: "var(--red-text)", fontSize: 12 }}>{error}</p>
