@@ -1114,6 +1114,9 @@ describe("OpenCode shared server supervisor", () => {
       {
         OPENCODE_API_KEY: apiKeyCanary,
         OPENCODE_UNRELATED: "must-not-reach-child",
+        // The models catalog is the supervisor's option, never a member's.
+        OPENCODE_MODELS_PATH: "hostile-member-catalog",
+        OPENCODE_DISABLE_MODELS_FETCH: "1",
         OPENCODE_CONFIG: "hostile-parent-config",
         OPENCODE_SERVER_PASSWORD: "hostile-parent-password",
         TMPDIR: debugRoot,
@@ -1131,6 +1134,8 @@ describe("OpenCode shared server supervisor", () => {
     await expectChildEnvironment(lease.pid, {
       OPENCODE_API_KEY: apiKeyCanary,
       OPENCODE_UNRELATED: undefined,
+      OPENCODE_MODELS_PATH: undefined,
+      OPENCODE_DISABLE_MODELS_FETCH: undefined,
       OPENCODE_CONFIG: join(supervisor.profileDir, "opencode.json"),
       OPENCODE_SERVER_PASSWORD: record.password,
     });
@@ -1154,6 +1159,33 @@ describe("OpenCode shared server supervisor", () => {
         apiKeyCanary,
       );
     }
+    lease.release();
+  }, 20_000);
+
+  // Task 51aa8b13: the live tier's servers read an empty catalog file in
+  // place of models.dev, which costs seconds per start on a loaded box.
+  it("gives the server the supervisor's models catalog with no models.dev fetch, over a member's variable", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const catalog = join(path, "models-catalog.json");
+    await writeFile(catalog, "{}\n");
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      idleShutdownMs: 1000,
+      launchEnv: {
+        OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+        OPENCODE_MODELS_PATH: "hostile-member-catalog",
+      },
+      modelsCatalog: catalog,
+      binary,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    await expectChildEnvironment(lease.pid, {
+      OPENCODE_MODELS_PATH: catalog,
+      OPENCODE_DISABLE_MODELS_FETCH: "1",
+    });
     lease.release();
   }, 20_000);
 

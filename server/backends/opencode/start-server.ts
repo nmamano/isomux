@@ -93,6 +93,8 @@ const binary = required("OPENCODE_BINARY");
 const password = required("OPENCODE_SERVER_PASSWORD");
 const serverCwd = required("OPENCODE_SERVER_CWD");
 const configPath = required("OPENCODE_CONFIG");
+// OpenCodeSupervisorOptions.modelsCatalog; unset on a production server.
+const modelsPath = process.env.OPENCODE_MODELS_PATH || undefined;
 const environmentRevision = required("OPENCODE_ENVIRONMENT_REVISION");
 // Keep this below the stop early-return. Stop intentionally receives only the
 // action, profile and record; requiring start-only state above it breaks the
@@ -558,6 +560,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       configPath,
       configContent: configOverride,
       password,
+      modelsPath,
     }),
   });
   child.on("error", () => {});

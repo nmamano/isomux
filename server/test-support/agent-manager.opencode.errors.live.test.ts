@@ -12,6 +12,7 @@ import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
 
 import {
   openCodeLiveConfig,
+  OPENCODE_LIVE_MODELS_CATALOG,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "./opencode-live-config.ts";
@@ -125,6 +126,7 @@ for (const scenario of [
         profileDir,
         serverCwd: STATE_ROOT,
         launchEnv: openCodeLiveLaunchEnv(profileDir),
+        modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
         config: openCodeLiveConfig(
           "control/control",
           {

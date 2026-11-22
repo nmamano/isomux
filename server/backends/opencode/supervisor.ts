@@ -216,6 +216,9 @@ export interface OpenCodeSupervisorOptions {
   serverCwd?: string;
   idleShutdownMs?: number;
   launchEnv?: Record<string, string | undefined>;
+  // A models.dev-shaped catalog file the server reads in place of models.dev,
+  // with no fetch: for tests and offline use. Production needs the real one.
+  modelsCatalog?: string;
   environmentRevision?: string;
   // The Isomux MCP servers the transport adds to each folder at run time.
   mcpServers?: AgentMcpServer[];
@@ -296,6 +299,7 @@ export class OpenCodeSupervisor {
   private readonly serverCwd: string;
   private readonly idleShutdownMs: number;
   private launchEnv: Record<string, string | undefined>;
+  private readonly modelsCatalog: string | undefined;
   private environmentRevision: string;
   // The host of this profile's member: an isolated member's launch env names
   // them (launchEnvFor keeps the tag), and the profile is theirs alone.
@@ -332,6 +336,7 @@ export class OpenCodeSupervisor {
     this.serverCwd = options.serverCwd ?? AGENT_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
+    this.modelsCatalog = options.modelsCatalog;
     this.environmentRevision = options.environmentRevision ?? "default";
     this.currentMcpServers = options.mcpServers ?? [];
     this.idleScheduler = options.idleScheduler ?? {
@@ -853,6 +858,9 @@ export class OpenCodeSupervisor {
         OPENCODE_SERVER_PASSWORD: password,
         OPENCODE_SERVER_CWD: this.serverCwd,
         OPENCODE_CONFIG: configPath,
+        // Set even when unset: a member's variable of this name never
+        // reaches the helper.
+        OPENCODE_MODELS_PATH: this.modelsCatalog,
         // After the launch env, which holds the member's variables: the
         // safety plugin uses this process's roots, as Claude's hook does.
         OPENCODE_SAFETY_ROOTS: JSON.stringify({

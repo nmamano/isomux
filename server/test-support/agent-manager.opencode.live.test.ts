@@ -20,6 +20,7 @@ import { environmentSourceKeyForUserId } from "../env-loader.ts";
 import {
   livePhase,
   openCodeLiveConfig,
+  OPENCODE_LIVE_MODELS_CATALOG,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "./opencode-live-config.ts";
@@ -152,6 +153,7 @@ it.skipIf(!LIVE)(
       launchEnv: openCodeLiveLaunchEnv(
         `${STATE_ROOT}/opencode-success-profile`,
       ),
+      modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
       idleShutdownMs: 100,
       config: openCodeLiveConfig("gate/gate-model", {
         gate: openCodeMockProvider(`http://127.0.0.1:${mock.port}/v1`),
@@ -167,6 +169,9 @@ it.skipIf(!LIVE)(
       let reportStoredSessionAsDurable = false;
       const backendWithControlledStorage: Backend = {
         ...backend,
+        // The topic label without a second turn on the server, which the
+        // teardown would cut and which starts a server after it.
+        oneShotPrompt: async () => "Tracer",
         inspectStoredSession: (sessionId, opts) =>
           reportStoredSessionAsDurable
             ? "durable"
@@ -281,6 +286,7 @@ it.skipIf(!LIVE)(
       profileDir: `${STATE_ROOT}/opencode-error-profile`,
       serverCwd: STATE_ROOT,
       launchEnv: openCodeLiveLaunchEnv(`${STATE_ROOT}/opencode-error-profile`),
+      modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
       idleShutdownMs: 100,
       config: openCodeLiveConfig("gate/gate-model", {
         gate: openCodeMockProvider(`http://127.0.0.1:${mock.port}/v1`, {
@@ -510,6 +516,7 @@ function bootSteerOffice(room: string, profile: string, mockPort: number) {
     profileDir: `${STATE_ROOT}/${profile}`,
     serverCwd: STATE_ROOT,
     launchEnv: openCodeLiveLaunchEnv(`${STATE_ROOT}/${profile}`),
+    modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
     // Long enough that the server stays warm between a test's turns.
     idleShutdownMs: 30_000,
     config: openCodeLiveConfig("gate/gate-model", {
@@ -518,6 +525,9 @@ function bootSteerOffice(room: string, profile: string, mockPort: number) {
   });
   reaper.track(supervisor);
   const backend = createOpenCodeBackend({ supervisor });
+  // The topic label without a second turn on the server, which the teardown
+  // would cut and which starts a server after it.
+  backend.oneShotPrompt = async () => "Steer";
   const sink: EventHandler = (event) => {
     events.push(event);
   };

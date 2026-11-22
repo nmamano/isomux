@@ -70,6 +70,8 @@ export interface OpenCodeServerVariables {
   configPath: string;
   configContent: string;
   password: string;
+  // OpenCodeSupervisorOptions.modelsCatalog.
+  modelsPath?: string;
 }
 
 // The database 2.1.4 opens, relative to XDG_DATA_HOME/opencode: a copy of
@@ -116,6 +118,9 @@ export function openCodeServerEnvironment(
     OPENCODE_DISABLE_PROJECT_CONFIG:
       env.OPENCODE_DISABLE_PROJECT_CONFIG === "1" ? "1" : undefined,
     OPENCODE_SERVER_PASSWORD: server.password,
+    // A catalog file in place of models.dev, with no fetch.
+    OPENCODE_MODELS_PATH: server.modelsPath,
+    OPENCODE_DISABLE_MODELS_FETCH: server.modelsPath ? "1" : undefined,
   };
   return Object.fromEntries(
     Object.entries(variables).filter(

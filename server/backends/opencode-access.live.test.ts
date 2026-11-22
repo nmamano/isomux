@@ -30,6 +30,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
 import {
+  OPENCODE_LIVE_MODELS_CATALOG,
   openCodeLiveConfig,
   openCodeMockProvider,
 } from "../test-support/opencode-live-config.ts";
@@ -301,6 +302,7 @@ const backend = createOpenCodeBackend({
         serverCwd: root,
         idleShutdownMs: 60_000,
         launchEnv: env,
+        modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
         environmentRevision: revision,
         mcpServers: mcpServers ?? [],
         config: openCodeLiveConfig(GATE, { gate }),

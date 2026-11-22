@@ -22,6 +22,7 @@ import { OpenCodeTransport } from "./transport.ts";
 import {
   livePhase,
   openCodeLiveConfig,
+  OPENCODE_LIVE_MODELS_CATALOG,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "../../test-support/opencode-live-config.ts";
@@ -243,6 +244,7 @@ it.skipIf(!LIVE || INTEL_MAC)(
       profileDir: join(root, "profile"),
       serverCwd: root,
       launchEnv: openCodeLiveLaunchEnv(join(root, "profile")),
+      modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
       config: openCodeLiveConfig("gate/gate-model", {
         gate: openCodeMockProvider(`http://127.0.0.1:${provider.port}/v1`),
       }),

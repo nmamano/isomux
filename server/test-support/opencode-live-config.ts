@@ -39,6 +39,15 @@ export function openCodeLiveConfig(
   return { ...openCodeDefaultConfig(), model, providers, ...extra };
 }
 
+// The models catalog of a live-tier supervisor: empty, so a server start
+// neither parses the models.dev catalog nor fetches it. The tier's providers
+// are mocks in the config; the catalog cost several seconds per start on a
+// loaded box (task 51aa8b13).
+export const OPENCODE_LIVE_MODELS_CATALOG = join(
+  import.meta.dir,
+  "../backends/opencode/fixtures/models-catalog-empty.json",
+);
+
 // A launch env whose member OpenCode folder is missing, so a live server
 // never reads the OS user's real one (a missing folder is left out).
 export function openCodeLiveLaunchEnv(

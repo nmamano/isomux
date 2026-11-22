@@ -31,6 +31,7 @@ import {
 import {
   livePhase,
   openCodeLiveConfig,
+  OPENCODE_LIVE_MODELS_CATALOG,
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "../../test-support/opencode-live-config.ts";
@@ -80,6 +81,7 @@ function liveSupervisor(): Promise<OpenCodeSupervisor> {
       serverCwd: root,
       idleShutdownMs: 100,
       launchEnv: openCodeLiveLaunchEnv(join(root, "profile")),
+      modelsCatalog: OPENCODE_LIVE_MODELS_CATALOG,
       config: openCodeLiveConfig("gate/gate-model", {
         gate: provider("reply"),
         tools: provider("tools"),
@@ -957,6 +959,12 @@ describe("OpenCode pinned transport", () => {
     expect(discovered.some((model) => model.id.startsWith("offline/"))).toBe(
       false,
     );
+    // Task 51aa8b13: the server read the supervisor's empty models catalog,
+    // so only the config's providers list models. With the models.dev
+    // catalog, its providers that need no key (OpenCode's own) list too.
+    expect(
+      [...new Set(discovered.map((model) => model.id.split("/")[0]))].sort(),
+    ).toStrictEqual(["gate", "tools"]);
     expect(JSON.stringify(discovered)).not.toContain("test-only");
     const skippedMarker = "SYNTHETIC_RETIRED_TOPIC_MARKER";
     const beforeSkipped = providerRequests.length;
