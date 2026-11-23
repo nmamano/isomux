@@ -2078,7 +2078,6 @@ export const zh: Catalog = {
     "让智能体自动处理类似的请示。说明哪些请示算作“类似”，以及要遵循什么决策流程。\n\n智能体处理完这条请示后，会新开一条请示，提出一条自动化规则供你批准。",
   "asks.automate.close": "关闭",
   "asks.automate.box": "此类请示的规则",
-  "asks.automate.held": "自动化",
   "asks.automateLine": "自动处理此类请示：{rule}",
   "asks.automateLineBare": "自动处理此类请示",
   "asks.rule.writing": "正在等待智能体提出规则。",

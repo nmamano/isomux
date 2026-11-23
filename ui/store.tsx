@@ -80,7 +80,7 @@ import type {
   UnavailableFeatures,
 } from "../shared/types.ts";
 import { cronjobRunStreamId } from "../shared/types.ts";
-import type { AskTag } from "../shared/types.ts";
+import type { AskAutomateAnswer, AskTag } from "../shared/types.ts";
 
 // The card's "... and automate" section (task 33891b5b). `text` absent: the
 // member has not typed, and the box shows the agent's automateText.
@@ -354,11 +354,15 @@ export interface AppState {
   // ask_removed keep it live. App-level: the desk dots read it.
   asks: AskMemberWire[];
   // askId → where an answer the member gave on the Inbox stands: "undo" while
-  // its Undo line shows, "sending" once it is sent. Every count, dot and the
-  // chat's ask stack leave these asks out (openAsks); the Inbox keeps an
-  // "undo" one as its Undo line. Per tab: another device counts the ask until
-  // ask_removed.
-  answeredAsks: Map<string, "undo" | "sending">;
+  // its Undo line shows, "sending" once it is sent, "kept" for an answer with
+  // automate, held or sent, whose card stays in place (task 2b814eda). Every
+  // count, dot and the chat's ask stack leave these asks out (openAsks); the
+  // Inbox keeps an "undo" one as its Undo line and a "kept" one as its card.
+  // Per tab: another device counts the ask until ask_removed.
+  answeredAsks: Map<string, "undo" | "sending" | "kept">;
+  // askId → an answer with automate this tab sent or holds (task 2b814eda),
+  // until the pushed ask carries its own answer (automateRequest.answer).
+  askSentAnswers: Map<string, AskAutomateAnswer>;
   // The asks this tab is answering, from the first tap to the answer's end
   // (sent, failed or undone), so a close by another member can be told.
   answeringAsks: Set<string>;
@@ -733,7 +737,9 @@ export type Action =
   | { type: "ask_answer_started"; id: string }
   // An Inbox answer enters its Undo time or is sent. No-op for an ask not in
   // the slice.
-  | { type: "ask_answered"; id: string; phase: "undo" | "sending" }
+  | { type: "ask_answered"; id: string; phase: "undo" | "sending" | "kept" }
+  // An answer with automate is held or sent (answer), or undone (null).
+  | { type: "ask_sent_answer"; id: string; answer: AskAutomateAnswer | null }
   | { type: "ask_undone"; id: string }
   // An Apply made a sign-in link or a token; the member closed its card.
   | { type: "ask_result_shown"; askId: string; result: AskResult }
@@ -817,6 +823,15 @@ function without<V>(byAsk: Map<string, V>, askId: string): Map<string, V> {
   const next = new Map(byAsk);
   next.delete(askId);
   return next;
+}
+// A sent answer with automate goes once the pushed ask carries the server's.
+function withoutServerAnswer(
+  sent: Map<string, AskAutomateAnswer>,
+  entry: AskMemberWire,
+): Map<string, AskAutomateAnswer> {
+  return entry.automateRequest?.answer === undefined
+    ? sent
+    : without(sent, entry.id);
 }
 function withoutId(ids: Set<string>, askId: string): Set<string> {
   if (!ids.has(askId)) return ids;
@@ -1887,6 +1902,11 @@ function reduceAction(state: AppState, action: Action): AppState {
           action.entries,
           state.othersAsks,
         ),
+        askSentAnswers: keepOpenAsks(
+          state.askSentAnswers,
+          action.entries,
+          state.othersAsks,
+        ),
         askErrors: keepOpenAsks(
           state.askErrors,
           action.entries,
@@ -1903,6 +1923,7 @@ function reduceAction(state: AppState, action: Action): AppState {
             : state.asks.map((e) =>
                 e.id === action.entry.id ? action.entry : e,
               ),
+        askSentAnswers: withoutServerAnswer(state.askSentAnswers, action.entry),
         asksRevision: state.asksRevision + 1,
       };
     }
@@ -1932,6 +1953,7 @@ function reduceAction(state: AppState, action: Action): AppState {
         askTags: without(state.askTags, action.id),
         askAutomate: without(state.askAutomate, action.id),
         answeredAsks: without(state.answeredAsks, action.id),
+        askSentAnswers: without(state.askSentAnswers, action.id),
         askErrors: without(state.askErrors, action.id),
         asksRevision: state.asksRevision + 1,
         ...(wasOthers
@@ -1981,6 +2003,11 @@ function reduceAction(state: AppState, action: Action): AppState {
           state.asks,
           action.entries,
         ),
+        askSentAnswers: keepOpenAsks(
+          state.askSentAnswers,
+          state.asks,
+          action.entries,
+        ),
         askErrors: keepOpenAsks(state.askErrors, state.asks, action.entries),
       };
     case "others_ask_upserted": {
@@ -1993,6 +2020,7 @@ function reduceAction(state: AppState, action: Action): AppState {
             : state.othersAsks.map((e) =>
                 e.id === action.entry.id ? action.entry : e,
               ),
+        askSentAnswers: withoutServerAnswer(state.askSentAnswers, action.entry),
         othersAsksRevision: state.othersAsksRevision + 1,
       };
     }
@@ -2004,6 +2032,7 @@ function reduceAction(state: AppState, action: Action): AppState {
         askTags: without(state.askTags, action.id),
         askAutomate: without(state.askAutomate, action.id),
         answeredAsks: without(state.answeredAsks, action.id),
+        askSentAnswers: without(state.askSentAnswers, action.id),
         askErrors: without(state.askErrors, action.id),
         othersAsksRevision: state.othersAsksRevision + 1,
       };
@@ -2023,6 +2052,14 @@ function reduceAction(state: AppState, action: Action): AppState {
         askErrors: without(state.askErrors, action.id),
       };
     }
+    case "ask_sent_answer":
+      return {
+        ...state,
+        askSentAnswers:
+          action.answer === null
+            ? without(state.askSentAnswers, action.id)
+            : new Map(state.askSentAnswers).set(action.id, action.answer),
+      };
     case "ask_undone":
       return {
         ...state,
@@ -2043,6 +2080,7 @@ function reduceAction(state: AppState, action: Action): AppState {
       return {
         ...state,
         answeredAsks: without(state.answeredAsks, action.id),
+        askSentAnswers: without(state.askSentAnswers, action.id),
         answeringAsks: withoutId(state.answeringAsks, action.id),
         askErrors,
       };
@@ -2437,6 +2475,7 @@ export const initialState: AppState = {
   appsRevision: 0,
   asks: [],
   answeredAsks: new Map(),
+  askSentAnswers: new Map(),
   answeringAsks: new Set(),
   askErrors: new Map(),
   askResults: new Map(),

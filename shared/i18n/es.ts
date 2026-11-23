@@ -2353,7 +2353,6 @@ Cosas que puedes hacer por él:
     "Pide al agente que gestione automáticamente las peticiones similares. Explica qué peticiones cuentan como «similares» y qué proceso de decisión debe seguir.\n\nCuando el agente gestione esta petición, abrirá una petición nueva con una regla de automatización propuesta para que la apruebes.",
   "asks.automate.close": "Cerrar",
   "asks.automate.box": "Regla para peticiones como esta",
-  "asks.automate.held": "Automatizar",
   "asks.automateLine": "Automatizar peticiones como esta: {rule}",
   "asks.automateLineBare": "Automatizar peticiones como esta",
   "asks.rule.writing": "Esperando a que el agente proponga la regla.",

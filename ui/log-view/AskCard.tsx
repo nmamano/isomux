@@ -58,7 +58,9 @@
 // list, and the card leaves the list at once: what the member reads next does
 // not move when the line goes (task 02274529). When the card's place starts
 // above the view (a tall card answered at its foot), the list scrolls it to
-// the top, so the next ask starts in view. A held answer is
+// the top, so the next ask starts in view. An answer with automate is held
+// on the card instead: it stays in place, frozen at the rule stage, with Undo
+// on its banner (task 2b814eda). A held answer is
 // sent at once when the card unmounts (the member leaves the Inbox) and when
 // the page is hidden or closes, with keepalive so the request outlives the
 // page. A send that fails brings the ask back everywhere, with the error
@@ -97,6 +99,7 @@ import {
   automateOffered,
   isActionStep,
   type AgentState,
+  type AskAutomateAnswer,
   type AskMemberWire,
   type AskReadFile,
   type AskTag,
@@ -258,14 +261,32 @@ function ReplacedLine({
 export const AskUndoHost = createContext<HTMLElement | null>(null);
 
 // An answer the card holds for the undo window. `shown` is the reply, or the
-// note that goes with a dismiss or a filing (null for none); `automate`,
-// whether it goes with "... and automate".
+// note that goes with a dismiss or a filing (null for none); `toRule`,
+// whether it goes to the rule stage (toRuleStage).
 interface HeldAnswer {
   kind: AnswerKind;
   shown: string | null;
-  automate: boolean;
+  toRule: boolean;
   body: AnswerBody;
   timer: ReturnType<typeof setTimeout>;
+}
+
+// An answer with automate as the rule stage shows it, from the tap until the
+// server's comes (askSentAnswers). `shown`: the reply or the note, if any.
+function sentAnswerOf(
+  kind: AnswerKind,
+  shown: string | null,
+): AskAutomateAnswer {
+  return {
+    outcome:
+      kind === "reply"
+        ? "replied"
+        : kind === "dismiss"
+          ? "dismissed"
+          : "postponed",
+    ...(shown !== null ? { text: shown } : {}),
+    at: Date.now(),
+  };
 }
 
 // Tab and Shift+Tab to the next or previous reply field of the list. No move
@@ -448,9 +469,9 @@ function updateWait(
 // The member's own Rewrite or answer with automate, sent from the bottom of
 // a long card, brings the banner at its top: the banner is scrolled into view
 // once (task d6f3d315). Not for a banner another device or tab brought. The
-// arm is kept by ask id, not in the card: on the Inbox the card that sent is
-// gone when the rule stage's card mounts. An arm older than the stall mark is
-// dropped.
+// arm is kept by ask id, not in the card: the card that draws the banner may
+// not be the one that sent (the Inbox's pin closed while its answer was
+// held). An arm older than the stall mark is dropped.
 const bannerArms = new Map<string, number>();
 function armBannerFor(askId: string) {
   bannerArms.set(askId, Date.now());
@@ -605,6 +626,7 @@ function ReplyAskCard({
     askTags,
     askAutomate,
     askErrors,
+    askSentAnswers,
     agents,
     rooms,
     sessionContext,
@@ -918,14 +940,30 @@ function ReplyAskCard({
   const rewriting = entry.simplifyRequestedAt !== undefined;
   // "... and automate" in the same ask (task 1b4dfa91): at the rule stage
   // the member has answered and only the rule is open, so the answer
-  // controls go.
+  // controls go. Only the server's answer opens what posts at the rule stage
+  // (Don't save, Change, the rule's step).
   const ruleStage = entry.automateRequest?.answer !== undefined;
-  const hideAnswer = rewriting || ruleStage;
+  // The answer with automate this tab holds or sent, until the push carries
+  // the server's (task 2b814eda): the card shows the rule stage's frozen look
+  // from the tap, whichever card draws the ask.
+  const sentAnswer =
+    entry.automateRequest?.answer ?? askSentAnswers.get(entry.id);
+  const answered = sentAnswer !== undefined;
+  // An answer goes to the rule stage with automate, or after a "Rewrite and
+  // automate" that waits for it (the server carries its words).
+  function toRuleStage(automate: string | undefined): boolean {
+    return (
+      automate !== undefined ||
+      (entry.automateRequest !== undefined &&
+        entry.automateRequest.answer === undefined)
+    );
+  }
+  const hideAnswer = rewriting || answered;
   // The edit the card waits for, from the request's time (updateWait).
   const waitSince = rewriting
     ? entry.simplifyRequestedAt
-    : ruleStage && entry.step?.kind !== "instructions-line"
-      ? entry.automateRequest?.answer?.at
+    : answered && entry.step?.kind !== "instructions-line"
+      ? sentAnswer.at
       : undefined;
   // One timer to the stall mark: it records the request whose mark passed.
   const [markPassed, setMarkPassed] = useState<number | null>(null);
@@ -1027,14 +1065,9 @@ function ReplyAskCard({
           ? { keepalive: true }
           : undefined,
       );
-      // With automate (sent now, or kept from a "Rewrite and automate"), the
-      // ask stays open for its rule (task 1b4dfa91): the card stays, whether
-      // the server's push came first or comes later.
-      const automated =
-        body.automate !== undefined ||
-        (entry.automateRequest !== undefined &&
-          entry.automateRequest.answer === undefined);
-      if (!automated) {
+      // To the rule stage, the ask stays open for its rule (task 1b4dfa91):
+      // the card stays, whether the server's push came first or comes later.
+      if (!toRuleStage(body.automate)) {
         dispatch({ type: "ask_removed", id: entry.id });
         return;
       }
@@ -1049,7 +1082,6 @@ function ReplyAskCard({
         automate: undefined,
       });
       dispatch({ type: "ask_undone", id: entry.id });
-      armBanner();
     } catch (err) {
       sending.current = false;
       setBusy(false);
@@ -1122,6 +1154,17 @@ function ReplyAskCard({
             ...(device ? { device } : {}),
             ...withAutomate,
           };
+    // To the rule stage the card goes straight to its frozen look and stays
+    // in place; the banner is scrolled into view as it mounts.
+    const toRule = toRuleStage(automate);
+    if (toRule) {
+      dispatch({
+        type: "ask_sent_answer",
+        id: entry.id,
+        answer: sentAnswerOf(kind, kind === "reply" ? text : reason),
+      });
+      armBanner();
+    }
     if (undoMs === undefined) {
       setBusy(true);
       void send(kind, body, false);
@@ -1130,13 +1173,17 @@ function ReplyAskCard({
     const pending: HeldAnswer = {
       kind,
       shown: kind === "reply" ? text : reason,
-      automate: automate !== undefined,
+      toRule,
       body,
       timer: setTimeout(() => flushRef.current(false), undoMs),
     };
     heldRef.current = pending;
     setHeld(pending);
-    dispatch({ type: "ask_answered", id: entry.id, phase: "undo" });
+    dispatch({
+      type: "ask_answered",
+      id: entry.id,
+      phase: toRule ? "kept" : "undo",
+    });
   }
 
   // Asks the agent to rewrite the ask as the field says, in plain words when
@@ -1220,7 +1267,10 @@ function ReplyAskCard({
     // The ask closed while held, as another member answered it: nothing to
     // send.
     if (closedHere.has(entry.id)) return;
-    dispatch({ type: "ask_answered", id: entry.id, phase: "sending" });
+    // An answer to the rule stage keeps its card ("kept"); the banner's Undo
+    // goes.
+    if (pending.toRule) setHeld(null);
+    else dispatch({ type: "ask_answered", id: entry.id, phase: "sending" });
     void send(pending.kind, pending.body, keepalive);
   }
 
@@ -1232,13 +1282,15 @@ function ReplyAskCard({
     sending.current = false;
     pendingFocus.current = true;
     setHeld(null);
+    if (pending.toRule)
+      dispatch({ type: "ask_sent_answer", id: entry.id, answer: null });
     dispatch({ type: "ask_undone", id: entry.id });
   }
 
   // Bring the Undo line, or the card's empty place, into view when it
   // replaces the card, so the next ask starts under it.
   useLayoutEffect(() => {
-    if (!held) return;
+    if (!held || held.toRule) return;
     heldLineRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [held]);
 
@@ -1303,7 +1355,9 @@ function ReplyAskCard({
     marginBottom: 6,
     fontFamily: "var(--font-ui)",
   } as const;
-  if (held) {
+  // An answer to the rule stage is held on the card itself, Undo on its
+  // banner.
+  if (held && !held.toRule) {
     const shown =
       held.shown === null ? null : <span {...noTranslate()}>{held.shown}</span>;
     const toastBox = {
@@ -1352,12 +1406,6 @@ function ReplyAskCard({
                 : shown === null
                   ? t("asks.filedAsTaskPending")
                   : rich("asks.filedAsTaskPendingNote", { note: shown })}
-          {held.automate && (
-            <span data-ask-pending-automate="">
-              {" · "}
-              {t("asks.automate.held")}
-            </span>
-          )}
         </span>
         <button
           type="button"
@@ -1460,9 +1508,10 @@ function ReplyAskCard({
   // waits then) the rule with Apply, a Change box (a rewrite request in the
   // member's words) and Don't save (a dismiss, which closes the ask without
   // the rule).
-  const sentAnswer = entry.automateRequest?.answer;
   const ruleStep =
-    entry.step?.kind === "instructions-line" ? entry.step : undefined;
+    ruleStage && entry.step?.kind === "instructions-line"
+      ? entry.step
+      : undefined;
   const declineButton = (
     <button
       type="button"
@@ -1502,7 +1551,7 @@ function ReplyAskCard({
           isMobile={isMobile}
         />
       )}
-      {wait === "none" && (
+      {ruleStage && wait === "none" && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1643,12 +1692,19 @@ function ReplyAskCard({
   // of the card is frozen (greyed and inert). A stalled wait says the update
   // has not come, and the card is unfrozen (updateWait).
   const stalled = wait === "stalled";
+  // The banner's Undo: a rewrite's, or a held answer's to the rule stage.
+  const bannerUndoButton = {
+    ...secondaryButton,
+    color: "var(--accent-text)",
+    border: "1px solid var(--accent-text)",
+    fontWeight: 600,
+  } as const;
   const updateBanner = wait !== "none" && (
     <div
       ref={setBannerEl}
       role="status"
       data-ask-updating=""
-      {...(ruleStage
+      {...(answered
         ? { "data-ask-rule-pending": "" }
         : { "data-ask-simplify-pending": "" })}
       {...(stalled ? { "data-ask-update-stalled": "" } : {})}
@@ -1696,12 +1752,17 @@ function ReplyAskCard({
           data-ask-simplify-undo=""
           disabled={undoingSimplify}
           onClick={() => void undoSimplify()}
-          style={{
-            ...secondaryButton,
-            color: "var(--accent-text)",
-            border: "1px solid var(--accent-text)",
-            fontWeight: 600,
-          }}
+          style={bannerUndoButton}
+        >
+          {t("asks.undo")}
+        </button>
+      )}
+      {held?.toRule && (
+        <button
+          type="button"
+          data-ask-undo=""
+          onClick={undo}
+          style={bannerUndoButton}
         >
           {t("asks.undo")}
         </button>
@@ -1969,7 +2030,7 @@ function ReplyAskCard({
         {stepView && (
           <AskStepBlock askId={entry.id} view={stepView} isMobile={isMobile} />
         )}
-        {!ruleStage && entry.step && isActionStep(entry.step) && (
+        {!answered && entry.step && isActionStep(entry.step) && (
           <AskActionBlock
             askId={entry.id}
             askingAgentId={entry.agentId}
@@ -1993,7 +2054,7 @@ function ReplyAskCard({
             buttonStyle={secondaryButton}
           />
         )}
-        {ruleStage && ruleSection}
+        {ruleSection}
         {!hideAnswer &&
           !noAgent &&
           entry.options &&

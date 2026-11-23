@@ -67,17 +67,22 @@ export function mount(
     requestAgent: (agentId: string) => void;
     // How many times AsksView reported a request handled.
     handled: number;
+    // The pinned ask, as App holds it: the pin's close clears it.
+    focus: string | null;
   } = {
     state: seeded,
     dispatch: () => {},
     setPlace: () => {},
     requestAgent: () => {},
     handled: 0,
+    focus: focusAskId,
   };
   function Harness() {
     const [reduced, dispatch] = useReducer(reducer, seeded);
     const [place, setPlace] = useState<Partial<AppState>>({});
     const [request, setRequest] = useState<string | null>(filterAgentId);
+    const [focus, setFocus] = useState<string | null>(focusAskId);
+    const onClearFocus = useCallback(() => setFocus(null), []);
     const onFilterAgentHandled = useCallback(() => {
       latest.handled++;
       setRequest(null);
@@ -87,6 +92,7 @@ export function mount(
     latest.dispatch = dispatch;
     latest.setPlace = setPlace;
     latest.requestAgent = setRequest;
+    latest.focus = focus;
     return createElement(
       StateCtx.Provider,
       { value: state },
@@ -97,7 +103,8 @@ export function mount(
           onFocusAgent: (id: string) => focused.push(id),
           filterAgentId: request,
           onFilterAgentHandled,
-          focusAskId,
+          focusAskId: focus,
+          onClearFocus,
         }),
       ),
     );

@@ -2299,7 +2299,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     'Tell the agent to handle similar Asks automatically. Elaborate on which Asks count as "similar" and what decision process to follow.\n\nAfter the agent handles this Ask, it will open a new Ask with a proposed automation rule for you to approve.',
   "asks.automate.close": "Close",
   "asks.automate.box": "Rule for asks like this",
-  "asks.automate.held": "Automate",
   "asks.automateLine": "Automate asks like this: {rule}",
   "asks.automateLineBare": "Automate asks like this",
   "asks.rule.writing": "Waiting for the agent to propose the rule.",

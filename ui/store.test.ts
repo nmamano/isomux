@@ -2432,6 +2432,86 @@ describe("reducer: Inbox answers and send errors", () => {
     expect([...late.answeredAsks]).toEqual([]);
     expect([...late.askErrors]).toEqual([["k2", "offline"]]);
   });
+
+  // An answer with automate (task 2b814eda): the Inbox keeps the card in
+  // place ("kept", out of every count like the other phases), and the sent
+  // answer stays in the store from the tap until the pushed ask carries its
+  // own, through the 204's ask_undone, so the card stays frozen whichever
+  // comes first and whichever card draws it.
+  it("an answer with automate: kept leaves the counts; the sent answer outlives ask_undone and goes with Undo, a failed send, a close, the pushed answer or a fresh list without the ask", async () => {
+    const { openAsks } = await import("./asks-sync.ts");
+    const sent = { outcome: "replied" as const, text: "Ship now", at: 5 };
+    const withSent = (s: AppState, id: string) =>
+      reducer(s, { type: "ask_sent_answer", id, answer: sent });
+    let s = withSent(open(), "k1");
+    s = reducer(s, { type: "ask_answered", id: "k1", phase: "kept" });
+    expect([...s.answeredAsks]).toEqual([["k1", "kept"]]);
+    expect(openAsks(s.asks, s.answeredAsks).map((e) => e.id)).toEqual([
+      "k2",
+      "k3",
+    ]);
+    // The 204 before the push: the ask counts again, the answer stays.
+    s = reducer(s, { type: "ask_undone", id: "k1" });
+    expect([...s.answeredAsks]).toEqual([]);
+    expect([...s.askSentAnswers]).toEqual([["k1", sent]]);
+    // A push without the answer (an unrelated edit) keeps it; the push with
+    // the server's answer drops it.
+    s = reducer(s, {
+      type: "ask_upserted",
+      entry: { ...ask("k1"), updatedAt: 2 },
+    });
+    expect([...s.askSentAnswers]).toEqual([["k1", sent]]);
+    s = reducer(s, {
+      type: "ask_upserted",
+      entry: {
+        ...ask("k1"),
+        updatedAt: 3,
+        automateRequest: { at: 6, words: "", answer: { ...sent, at: 6 } },
+      },
+    });
+    expect([...s.askSentAnswers]).toEqual([]);
+
+    // Each other way out, from a held answer.
+    const held = () =>
+      reducer(withSent(open(), "k2"), {
+        type: "ask_answered",
+        id: "k2",
+        phase: "kept",
+      });
+    const outs: [string, AppState][] = [
+      [
+        "undo",
+        reducer(held(), { type: "ask_sent_answer", id: "k2", answer: null }),
+      ],
+      [
+        "failed",
+        reducer(held(), { type: "ask_answer_failed", id: "k2", error: "x" }),
+      ],
+      ["removed", reducer(held(), { type: "ask_removed", id: "k2" })],
+      [
+        "fresh list",
+        reducer(held(), {
+          type: "asks_loaded",
+          entries: [ask("k1")],
+          revision: held().asksRevision,
+        }),
+      ],
+    ];
+    expect(outs.map(([how, r]) => [how, r.askSentAnswers.size])).toEqual([
+      ["undo", 0],
+      ["failed", 0],
+      ["removed", 0],
+      ["fresh list", 0],
+    ]);
+    // A fresh list that still holds the ask keeps the answer.
+    const kept = held();
+    const still = reducer(kept, {
+      type: "asks_loaded",
+      entries: [ask("k1"), ask("k2")],
+      revision: kept.asksRevision,
+    });
+    expect([...still.askSentAnswers]).toEqual([["k2", sent]]);
+  });
 });
 
 // Unread badge and turn-end sound (task 10d7ead6, Nil 2026-10-23): only for a

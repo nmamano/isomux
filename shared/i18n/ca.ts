@@ -2357,7 +2357,6 @@ Coses que pots fer per ell:
     "Demana a l'agent que gestioni automàticament les peticions similars. Explica quines peticions compten com a «similars» i quin procés de decisió ha de seguir.\n\nQuan l'agent gestioni aquesta petició, obrirà una petició nova amb una proposta de regla d'automatització perquè l'aprovis.",
   "asks.automate.close": "Tanca",
   "asks.automate.box": "Regla per a peticions com aquesta",
-  "asks.automate.held": "Automatitza",
   "asks.automateLine": "Automatitza peticions com aquesta: {rule}",
   "asks.automateLineBare": "Automatitza peticions com aquesta",
   "asks.rule.writing": "Esperant que l'agent proposi la regla.",

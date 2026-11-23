@@ -411,7 +411,7 @@ it("on a touch screen, opening the section leaves the focus out of the box", asy
   }
 });
 
-it("on the Inbox, holds Dismiss and automate on its line; Undo brings the card back with the section open and its words; the held send carries automate", async () => {
+it("on the Inbox, holds Dismiss and automate with Undo on the card's banner; Undo brings the section back open with its words; the held send carries automate", async () => {
   jest.useFakeTimers();
   const { view } = inbox.mount([inbox.ask("held", "a1", 5)]);
   const root = view.container;

@@ -260,7 +260,7 @@ it("the card that sends an answer with automate stays, at its rule stage, whethe
   }
 });
 
-it("on the Inbox, after the Undo time, the sent answer with automate brings the card back at its rule stage", async () => {
+it("on the Inbox, after the Undo time, the card of the sent answer with automate is at its rule stage", async () => {
   jest.useFakeTimers();
   const id = "held";
   const { view, latest } = inbox.mount([inbox.ask(id, "a1", 5)]);
