@@ -35,7 +35,7 @@ export function InvitesPane() {
 
       <h5 style={subsectionHeader}>{t("settings.invites.outstanding")}</h5>
       {renderListSection(i18n, invitesList, invitesLoaded, (rows) => (
-        <InvitesTable invites={rows} />
+        <InvitesTable invites={rows} extend />
       ))}
     </div>
   );

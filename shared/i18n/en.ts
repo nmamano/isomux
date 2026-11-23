@@ -1124,6 +1124,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.invites.outstanding": "Outstanding invites",
   "settings.invites.columnFor": "For",
   "settings.invites.columnExpires": "Expires",
+  "settings.invites.expired": "Expired",
+  "settings.invites.extend": "Extend",
   "settings.invites.bootstrap": "(bootstrap)",
 
   "settings.sessions.intro":
@@ -2273,6 +2275,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.openSite": "Open {site}",
   "asks.fromApp": "From app {app}",
   "asks.fromOffice": "From {name}",
+  "asks.renewLink.button": "Re-enable",
+  "asks.renewLink.failed": "Could not re-enable the link.",
   "asks.discuss": "Discuss in chat",
   "asks.copyId": "Copy ask ID",
   "asks.idCopied": "Copied!",
@@ -4789,6 +4793,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preAuth.inviteError.seatRefused":
     "This office cannot add members right now. Ask an office owner.",
   "preAuth.inviteError.generic": "This invite is no longer valid.",
+  "preAuth.inviteError.expiredRenewable":
+    "This invite has expired. Ask the owner to re-enable it.",
+  "preAuth.inviteError.askOwner": "Ask the owner",
+  "preAuth.inviteRenewal.heading": "Request sent",
+  "preAuth.inviteRenewal.sent":
+    "The owner got your request. When they re-enable the invite, open the same link again.",
   "preAuth.conflict.heading": "This invite is for a different member",
   "preAuth.conflict.body":
     "You are signed in as {current}. This invite is for {invitee}: open it on their device or in a separate browser profile.",

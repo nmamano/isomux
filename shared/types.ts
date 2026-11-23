@@ -1794,6 +1794,10 @@ export interface AskCommandRun {
 export type AskMemberWire = Omit<AskEntry, "sessionId" | "page"> & {
   members?: string[];
   page?: AskPageWire;
+  // A page asking to re-enable an expired sign-in link (task 1492af52): the
+  // link the card's Re-enable button extends. Derived from the page key,
+  // never stored.
+  signInLinkRenewal?: { tokenPrefix: string };
 };
 
 // How an ask closed (task ff590b5e). The record of each closed ask is kept in
@@ -2758,6 +2762,11 @@ export interface InviteWire {
   createdAt: number;
   expiresAt: number;
   bootstrap?: true; // present on bootstrap invites so the UI can label them
+  // Owner list only (task 1492af52): the link has expired, and an owner can
+  // still extend it.
+  expired?: true;
+  // An owner can give the link another 3 days (POST /api/invites/:prefix/extend).
+  extendable?: true;
   // Legacy new-member invites only: room grants attached at mint time, which
   // seed the created record's allowedRooms on accept. Present only when
   // non-empty. Sign-in links for existing members never carry grants.

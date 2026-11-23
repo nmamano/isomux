@@ -1887,6 +1887,7 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["invites_list"],
   },
   "invites.list": { caps: ["invite:manage"], emits: [] },
+  "invites.extend": { caps: ["invite:manage"], emits: ["invites_list"] },
   "invites.revoke": {
     caps: ["invite:manage"],
     emits: ["invite_revoked", "invites_list"],

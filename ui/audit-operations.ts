@@ -100,6 +100,7 @@ export const AUDIT_OPERATIONS = [
   "githubSync.set",
   "githubSync.update",
   "hooks.deliver",
+  "invites.extend",
   "invites.mint",
   "invites.mintRecovery",
   "invites.mintSelf",

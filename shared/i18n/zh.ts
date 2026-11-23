@@ -1016,6 +1016,8 @@ export const zh: Catalog = {
   "settings.invites.outstanding": "尚未接受的邀请",
   "settings.invites.columnFor": "受邀者",
   "settings.invites.columnExpires": "过期时间",
+  "settings.invites.expired": "已过期",
+  "settings.invites.extend": "延长",
   "settings.invites.bootstrap": "（初始设置）",
   "settings.sessions.intro":
     "所有成员已登录此办公室的设备。撤销会话会使该设备退出登录。新成员通过「邀请」部分获得邀请；已有成员可在<i>登录链接</i>中自行添加设备。",
@@ -2052,6 +2054,8 @@ export const zh: Catalog = {
   "asks.openSite": "打开 {site}",
   "asks.fromApp": "来自应用 {app}",
   "asks.fromOffice": "来自 {name}",
+  "asks.renewLink.button": "重新启用",
+  "asks.renewLink.failed": "无法重新启用该链接。",
   "asks.discuss": "在聊天中讨论",
   "asks.copyId": "复制请示 ID",
   "asks.idCopied": "已复制！",
@@ -4349,6 +4353,11 @@ export const zh: Catalog = {
   "preAuth.inviteError.seatRefused":
     "此办公室目前无法添加成员。请联系办公室所有者。",
   "preAuth.inviteError.generic": "此邀请已失效。",
+  "preAuth.inviteError.expiredRenewable": "此邀请已过期。请让所有者重新启用。",
+  "preAuth.inviteError.askOwner": "请求所有者",
+  "preAuth.inviteRenewal.heading": "请求已发送",
+  "preAuth.inviteRenewal.sent":
+    "所有者已收到你的请求。所有者重新启用邀请后，请再次打开同一链接。",
   "preAuth.conflict.heading": "此邀请属于其他成员",
   "preAuth.conflict.body":
     "当前以 {current} 身份登录。此邀请属于 {invitee}，请在对方设备上或独立的浏览器配置档案中打开。",

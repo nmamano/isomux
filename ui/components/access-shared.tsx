@@ -238,7 +238,16 @@ export function MintedUrlBox({
   );
 }
 
-export function InvitesTable({ invites }: { invites: InviteWire[] }) {
+// `extend` (the owner's Sign-in links pane only, task 1492af52): an Extend
+// button on each row the server marks extendable, and "Expired" for an
+// expired row.
+export function InvitesTable({
+  invites,
+  extend = false,
+}: {
+  invites: InviteWire[];
+  extend?: boolean;
+}) {
   const { rooms, allRooms } = useAppState();
   const i18n = useI18n();
   const { t } = i18n;
@@ -283,7 +292,11 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
                 <i> - </i>
               )}
             </td>
-            <td style={td}>{formatExpiry(i18n, i.expiresAt)}</td>
+            <td style={td}>
+              {extend && i.expired
+                ? t("settings.invites.expired")
+                : formatExpiry(i18n, i.expiresAt)}
+            </td>
             <td style={mono}>{i.tokenPrefix}…</td>
             <td style={td}>
               <button
@@ -309,6 +322,19 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
                     : "common.revoke",
                 )}
               </button>
+              {extend && i.extendable && (
+                <button
+                  onClick={() => {
+                    apiFetch(
+                      "POST",
+                      `/api/invites/${encodeURIComponent(i.tokenPrefix)}/extend`,
+                    ).catch(() => {});
+                  }}
+                  style={{ ...smallBtn, marginLeft: 6 }}
+                >
+                  {t("settings.invites.extend")}
+                </button>
+              )}
             </td>
           </tr>
         ))}

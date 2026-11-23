@@ -212,8 +212,13 @@ import {
   untrustedFileHeaders,
   setOnOwnerCreated,
   setInviteSeatGate,
+  setInviteRenewalRequest,
 } from "./auth-middleware.ts";
 import { activeSetupKey, setupKeyAtBoot, setupKeyFile } from "./setup-key.ts";
+import {
+  reconcileSignInLinkPages,
+  requestSignInLinkRenewal,
+} from "./sign-in-link-renewal.ts";
 import {
   buildPublicOrigin,
   freezeBootState,
@@ -1219,6 +1224,9 @@ function registerBootHooks(): void {
       : null;
   });
   setInviteSeatGate(() => enterpriseSeats);
+  setInviteRenewalRequest((rawToken) =>
+    requestSignInLinkRenewal(askStore, rawToken),
+  );
   setOnOwnerCreated(async ({ username }) => {
     takeOwnerClaimedInThisProcess();
     await seedWelcomeAgentsForFirstOwner!(username);
@@ -2334,6 +2342,9 @@ function emitInvitesList(): void {
   }
   // A link made or taken back may be the change a step ask waits for.
   stepsChanged();
+  // And may end a guest's request to re-enable an expired link (task
+  // 1492af52).
+  reconcileSignInLinkPages(askStore);
 }
 
 // The removed members, to every owner (task 321e7b8e).
@@ -7359,6 +7370,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnMemberPromptChanged(() => {});
   setOnOwnerCreated(async () => {});
   setInviteSeatGate(null);
+  setInviteRenewalRequest(null);
   setAppOwnerAgentResolver(() => null);
   seedWelcomeAgentsForFirstOwner = null;
   stopFallbackRepick();

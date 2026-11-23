@@ -4,6 +4,7 @@
 // inviteOwnerOrSelf and sessionOwnerOrSelf preconditions.
 import {
   buildPublicOrigin,
+  extendInvite,
   INVITE_TTL_MS,
   SELF_INVITE_TTL_MS,
   listActiveSessionsForUserId,
@@ -13,6 +14,7 @@ import {
   revokeInviteByPrefix,
   revokeOutstandingInviteByPrefixForUser,
   revokeSessionByPrefix,
+  ownerInviteWire,
   toInviteWire,
   type MintErr,
   type RevokeResult,
@@ -152,6 +154,47 @@ export function createInvitesRoutes(
       };
     },
     listScoped: (identity) => scopedInvitesFor(identity.userId),
+    // Another 3 days for an owner-made link (task 1492af52). The owners see
+    // the new expiry, and an open renewal page for it closes (reconcile in
+    // emitInvitesList).
+    extend: async (tokenPrefix) => {
+      const r = await extendInvite(tokenPrefix);
+      if (r.ok) {
+        emitInvitesList();
+        return { ok: true, invite: ownerInviteWire(r.invite) };
+      }
+      switch (r.error) {
+        case "not_found":
+          return {
+            ok: false,
+            status: 404,
+            code: "not_found",
+            message: "No sign-in link has this prefix.",
+          };
+        case "ambiguous":
+          return {
+            ok: false,
+            status: 409,
+            code: "ambiguous_prefix",
+            message: "Two sign-in links share this prefix.",
+          };
+        case "replaced":
+          return {
+            ok: false,
+            status: 409,
+            code: "replaced",
+            message: "A newer sign-in link replaced this one.",
+          };
+        case "not_extendable":
+          return {
+            ok: false,
+            status: 409,
+            code: "not_extendable",
+            message:
+              "Only an unused 3-day sign-in link of an existing member can be extended.",
+          };
+      }
+    },
     revoke: async (identity, tokenPrefix) => {
       const u = identity.userId ? getUserById(identity.userId) : undefined;
       // inviteOwnerOrSelf already passed; a missing record here is a torn-down

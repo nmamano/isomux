@@ -1145,6 +1145,8 @@ Cosas que puedes hacer por él:
   "settings.invites.outstanding": "Invitaciones pendientes",
   "settings.invites.columnFor": "Para",
   "settings.invites.columnExpires": "Caduca",
+  "settings.invites.expired": "Caducada",
+  "settings.invites.extend": "Ampliar",
   "settings.invites.bootstrap": "(inicial)",
 
   "settings.sessions.intro":
@@ -2327,6 +2329,8 @@ Cosas que puedes hacer por él:
   "asks.openSite": "Abrir {site}",
   "asks.fromApp": "De la app {app}",
   "asks.fromOffice": "De {name}",
+  "asks.renewLink.button": "Volver a activar",
+  "asks.renewLink.failed": "No se ha podido volver a activar el enlace.",
   "asks.discuss": "Comentar en el chat",
   "asks.copyId": "Copiar el ID de la petición",
   "asks.idCopied": "¡Copiado!",
@@ -4893,6 +4897,12 @@ Cosas que puedes hacer por él:
   "preAuth.inviteError.seatRefused":
     "Esta oficina no puede añadir miembros ahora. Pregunta a un propietario de la oficina.",
   "preAuth.inviteError.generic": "Esta invitación ya no es válida.",
+  "preAuth.inviteError.expiredRenewable":
+    "Esta invitación ha caducado. Pide al propietario que la vuelva a activar.",
+  "preAuth.inviteError.askOwner": "Pedir al propietario",
+  "preAuth.inviteRenewal.heading": "Solicitud enviada",
+  "preAuth.inviteRenewal.sent":
+    "El propietario ha recibido tu solicitud. Cuando vuelva a activar la invitación, abre el mismo enlace otra vez.",
   "preAuth.conflict.heading": "Esta invitación es para otro miembro",
   "preAuth.conflict.body":
     "Has iniciado sesión como {current}. Esta invitación es para {invitee}: ábrela en su dispositivo o en otro perfil del navegador.",

@@ -21,6 +21,7 @@ import { defuseFileMentions } from "../shared/identity.ts";
 import { readFileSync, renameSync } from "fs";
 import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { renewalPrefixOf } from "./sign-in-link-key.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   tokenRooms,
@@ -1618,6 +1619,7 @@ export function askMemberWire(
   memberName: (userId: string) => string | null,
   audience: AskAudienceDeps,
 ): AskMemberWire {
+  const renewal = renewalPrefixOf({ office: entry.office, page });
   return {
     ...entry,
     members: askMemberIds(entry, audience).map(
@@ -1625,6 +1627,9 @@ export function askMemberWire(
     ),
     ...(page && !ringsNobody({ page })
       ? { page: askPageWire(page, memberName) }
+      : {}),
+    ...(renewal !== null
+      ? { signInLinkRenewal: { tokenPrefix: renewal } }
       : {}),
   };
 }

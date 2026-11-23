@@ -1140,6 +1140,8 @@ Coses que pots fer per ell:
   "settings.invites.outstanding": "Invitacions pendents",
   "settings.invites.columnFor": "Per a",
   "settings.invites.columnExpires": "Caduca",
+  "settings.invites.expired": "Caducada",
+  "settings.invites.extend": "Allarga",
   "settings.invites.bootstrap": "(inicial)",
 
   "settings.sessions.intro":
@@ -2331,6 +2333,8 @@ Coses que pots fer per ell:
   "asks.openSite": "Obre {site}",
   "asks.fromApp": "De l'app {app}",
   "asks.fromOffice": "De {name}",
+  "asks.renewLink.button": "Torna a activar",
+  "asks.renewLink.failed": "No s'ha pogut tornar a activar l'enllaç.",
   "asks.discuss": "Comenta-ho al xat",
   "asks.copyId": "Copia l'ID de la petició",
   "asks.idCopied": "Copiat!",
@@ -4894,6 +4898,12 @@ Coses que pots fer per ell:
   "preAuth.inviteError.seatRefused":
     "Aquesta oficina ara no pot afegir membres. Demana-ho a un propietari de l'oficina.",
   "preAuth.inviteError.generic": "Aquesta invitació ja no és vàlida.",
+  "preAuth.inviteError.expiredRenewable":
+    "Aquesta invitació ha caducat. Demana al propietari que la torni a activar.",
+  "preAuth.inviteError.askOwner": "Demana-ho al propietari",
+  "preAuth.inviteRenewal.heading": "Sol·licitud enviada",
+  "preAuth.inviteRenewal.sent":
+    "El propietari ha rebut la teva sol·licitud. Quan torni a activar la invitació, obre el mateix enllaç un altre cop.",
   "preAuth.conflict.heading": "Aquesta invitació és per a un altre membre",
   "preAuth.conflict.body":
     "Has iniciat la sessió com a {current}. Aquesta invitació és per a {invitee}: obre-la al seu dispositiu o en un altre perfil del navegador.",

@@ -129,6 +129,7 @@ import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
 import { isRunnableCommand } from "../../shared/runnable-command.ts";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskActionBlock } from "./AskActionBlock.tsx";
+import { AskRenewLinkBlock } from "./AskRenewLinkBlock.tsx";
 import { AskStepBlock, useStepView } from "./AskStepBlock.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { AskPageLine } from "./AskPageLine.tsx";
@@ -2036,6 +2037,12 @@ function ReplyAskCard({
             askingAgentId={entry.agentId}
             memberUserId={entry.memberUserId}
             step={entry.step}
+            isMobile={isMobile}
+          />
+        )}
+        {entry.signInLinkRenewal && (
+          <AskRenewLinkBlock
+            tokenPrefix={entry.signInLinkRenewal.tokenPrefix}
             isMobile={isMobile}
           />
         )}

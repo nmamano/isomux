@@ -45,8 +45,11 @@ export function MyDevicesPane() {
   // (userId isn't stored on invites), so match by the same lowercase key the
   // server uses. For members both are no-ops (already server-scoped).
   const myKey = sessionContext ? lowercaseKey(sessionContext.username) : null;
+  // An owner's list also holds expired links an owner can extend (task
+  // 1492af52): those belong on the Sign-in links pane, not here.
   const myInvites = invitesList.filter(
     (i) =>
+      !i.expired &&
       i.username !== null &&
       myKey !== null &&
       lowercaseKey(i.username) === myKey,

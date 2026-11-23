@@ -486,6 +486,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "apiTokens.adminRevoke",
       "invites.mint",
       "invites.mintRecovery",
+      "invites.extend",
       "office.getAccess",
       "office.setAccess",
       "office.updateInfo",

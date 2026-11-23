@@ -43,6 +43,12 @@ type MintOutcome =
 type RevokeOutcome =
   { ok: true } | { ok: false; status: HandlerErrorStatus; code: string };
 
+// Extend outcome (task 1492af52): the extended row, or a status-mapped
+// refusal (404 not_found; 409 replaced, not_extendable, ambiguous_prefix).
+type ExtendOutcome =
+  | { ok: true; invite: InviteWire }
+  | { ok: false; status: HandlerErrorStatus; code: string; message: string };
+
 export interface InvitesDeps {
   // Owner mint (officeOwner guard already enforced) - a sign-in link for an
   // EXISTING member, by stable userId (404 when missing). The seam derives
@@ -59,6 +65,9 @@ export interface InvitesDeps {
   // member own-only via the atomic scoped mutator; on ok the seam emits
   // invite_revoked (owners) + emitInvitesList().
   revoke(identity: Identity, tokenPrefix: string): Promise<RevokeOutcome>;
+  // Extend (officeOwner guard already enforced); on ok the seam fans out
+  // emitInvitesList().
+  extend(tokenPrefix: string): Promise<ExtendOutcome>;
 }
 
 // Fields of the retired new-member invite body. A caller that still sends
@@ -109,6 +118,13 @@ export function invitesHandlers(
     },
 
     "invites.list": (ctx) => ok({ invites: deps.listScoped(ctx.identity) }),
+
+    "invites.extend": async (ctx) => {
+      const r = await deps.extend(ctx.params.tokenPrefix);
+      return r.ok
+        ? ok({ invite: r.invite })
+        : fail(r.status, r.code, r.message);
+    },
 
     "invites.revoke": async (ctx) => {
       const r = await deps.revoke(ctx.identity, ctx.params.tokenPrefix);

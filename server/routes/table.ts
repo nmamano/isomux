@@ -3337,6 +3337,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["invite_revoked", "invites_list"],
     preconditions: ["inviteOwnerOrSelf"],
   }),
+  // Another 3 days for an owner-made sign-in link, live or expired (task
+  // 1492af52). The same link: its URL does not change.
+  defineRoute<void, { invite: InviteWire }>({
+    opId: "invites.extend",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/invites/:tokenPrefix/extend",
+    auth: cap("invite:manage", officeOwner),
+    emits: ["invites_list"],
+  }),
   defineRoute<void, { sessions: SessionWire[] }>({
     opId: "sessions.list",
     tokenArea: "always",
@@ -4603,6 +4613,19 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     opId: "auth.accept",
     method: "POST",
     path: "/auth/accept",
+    auth: pub,
+    emits: [],
+  }),
+  // The expired-link page's button: asks the owner to re-enable the link
+  // (task 1492af52). Never signs anyone in.
+  defineRoute({
+    opId: "auth.inviteRenewal",
+    audit: {
+      owner: "none",
+      reason: "Opens an owner ask; the owner's extend is the audited change.",
+    },
+    method: "POST",
+    path: "/auth/invite-renewal",
     auth: pub,
     emits: [],
   }),

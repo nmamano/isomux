@@ -484,9 +484,11 @@ export async function mintInvite(
     if (!user)
       return { ok: false, error: "User not found.", code: "USER_NOT_FOUND" };
     const now = Date.now();
+    // Expired rows go too (task 1492af52): a replaced link left behind could
+    // be extended back to life once the newer one is revoked.
     const prior: string[] = [];
     for (const [k, v] of invites!) {
-      if (v.consumed || v.expiresAt < now) continue;
+      if (v.consumed) continue;
       if (inviteBelongsTo(v, user)) prior.push(k);
     }
     const { raw, hash, prefix } = randomToken();
@@ -1102,16 +1104,149 @@ export async function revokeInviteByPrefix(
     if (matches.length === 0) return "not_found";
     if (matches.length > 1) return "ambiguous";
     const k = matches[0];
-    const prev = invites!.get(k)!;
-    invites!.delete(k);
+    removeInvites([k, ...olderUnconsumedKeys(invites!.get(k)!)]);
+    return "ok";
+  });
+}
+
+// Why an owner cannot extend a link (task 1492af52), or null when they can.
+// "replaced": a newer link of the same member exists, which only a file
+// written before mints dropped expired rows can hold. "not_extendable": the
+// row is consumed, a bootstrap or legacy new-member row, or its member is
+// gone, or it was issued for less than INVITE_TTL_MS. A short window is
+// deliberate (a member's 1h self link, the admin socket's 15min owner login)
+// and must not grow to 3 days; an extend only lengthens the window, so an
+// extended link stays extendable. Live or expired does not matter.
+function extendRefusal(v: StoredInvite): "replaced" | "not_extendable" | null {
+  if (v.consumed || v.bootstrap || v.newUser) return "not_extendable";
+  if (v.expiresAt - v.createdAt < INVITE_TTL_MS) return "not_extendable";
+  if (!getUserById(v.userId)) return "not_extendable";
+  for (const other of invites!.values())
+    if (
+      other !== v &&
+      other.userId === v.userId &&
+      other.createdAt > v.createdAt
+    )
+      return "replaced";
+  return null;
+}
+
+// Keys of the member's unconsumed rows made before `row`. Only a file
+// written before task 1492af52 holds such rows; a revoke drops them with the
+// newer link, so the older one does not become the member's newest link.
+function olderUnconsumedKeys(row: StoredInvite): string[] {
+  const keys: string[] = [];
+  for (const [k, v] of invites!)
+    if (
+      v !== row &&
+      !v.consumed &&
+      v.userId === row.userId &&
+      v.createdAt < row.createdAt
+    )
+      keys.push(k);
+  return keys;
+}
+
+// Remove `keys` in one mutation; a persist failure puts them back. Caller
+// holds the mutex.
+function removeInvites(keys: string[]): void {
+  const removed = keys.map((k) => [k, invites!.get(k)!] as const);
+  for (const k of keys) invites!.delete(k);
+  try {
+    persistInvites();
+  } catch (err) {
+    for (const [k, v] of removed) invites!.set(k, v);
+    throw err;
+  }
+}
+
+// The owner-list wire of a row: marked expired, and extendable when an owner
+// can give it another INVITE_TTL_MS.
+export function ownerInviteWire(v: StoredInvite, now = Date.now()): InviteWire {
+  return {
+    ...toInviteWire(v),
+    ...(v.expiresAt < now ? { expired: true as const } : {}),
+    ...(extendRefusal(v) === null ? { extendable: true as const } : {}),
+  };
+}
+
+// Result of extendInvite (task 1492af52).
+export type ExtendResult =
+  | { ok: true; invite: StoredInvite }
+  | {
+      ok: false;
+      error: "not_found" | "ambiguous" | "replaced" | "not_extendable";
+    };
+
+// Give an owner-made sign-in link another INVITE_TTL_MS from now, live or
+// expired. The token and its URL stay the same. A live link never gets
+// shorter.
+export async function extendInvite(prefix: string): Promise<ExtendResult> {
+  return mutate((): ExtendResult => {
+    ensureLoaded();
+    const matches: StoredInvite[] = [];
+    for (const v of invites!.values()) {
+      if (v.tokenPrefix === prefix) matches.push(v);
+      if (matches.length > 1) break;
+    }
+    if (matches.length === 0) return { ok: false, error: "not_found" };
+    if (matches.length > 1) return { ok: false, error: "ambiguous" };
+    const row = matches[0];
+    const refusal = extendRefusal(row);
+    if (refusal) return { ok: false, error: refusal };
+    const prev = row.expiresAt;
+    row.expiresAt = Math.max(prev, Date.now() + INVITE_TTL_MS);
     try {
       persistInvites();
     } catch (err) {
-      invites!.set(k, prev);
+      row.expiresAt = prev;
       throw err;
     }
-    return "ok";
+    return { ok: true, invite: { ...row } };
   });
+}
+
+// The expired link a guest holds, when an owner can still extend it: what
+// the expired-link page needs to offer the renewal request. null otherwise.
+export interface InviteRenewal {
+  tokenPrefix: string;
+  userId: string;
+  memberName: string;
+  // The display name that made the link (StoredInvite.createdBy).
+  createdBy: string | null;
+}
+export function expiredInviteRenewal(rawToken: string): InviteRenewal | null {
+  ensureLoaded();
+  if (!rawToken) return null;
+  const hash = hashOf(rawToken);
+  const row = invites!.get(hash);
+  if (!row || !safeHashEq(row.tokenHash, hash)) return null;
+  return renewalOf(row);
+}
+
+function renewalOf(row: StoredInvite): InviteRenewal | null {
+  if (row.expiresAt >= Date.now() || extendRefusal(row)) return null;
+  const member = getUserById(row.userId);
+  if (!member) return null;
+  return {
+    tokenPrefix: row.tokenPrefix,
+    userId: member.id,
+    memberName: member.name,
+    createdBy: row.createdBy,
+  };
+}
+
+// Whether the link with this display prefix is still an expired link an
+// owner can extend: an open renewal page for it stays open only then.
+export function inviteRenewableByPrefix(prefix: string): boolean {
+  ensureLoaded();
+  let found: StoredInvite | null = null;
+  for (const v of invites!.values()) {
+    if (v.tokenPrefix !== prefix) continue;
+    if (found) return false;
+    found = v;
+  }
+  return !!found && renewalOf(found) !== null;
 }
 
 // The lockout check runs inside mutate(), so two concurrent revokes cannot
@@ -1413,13 +1548,13 @@ export function noteSessionDeviceByHash(
 export function listInvites(): InviteWire[] {
   ensureLoaded();
   const now = Date.now();
-  // Surface only outstanding (not consumed, not expired) invites; pruning
-  // consumed rows from disk happens elsewhere if it becomes worth it.
+  // Outstanding invites, plus expired ones an owner can still extend (task
+  // 1492af52), marked on the wire.
   const result: InviteWire[] = [];
   for (const v of invites!.values()) {
     if (v.consumed) continue;
-    if (v.expiresAt < now) continue;
-    result.push(toInviteWire(v));
+    if (v.expiresAt < now && extendRefusal(v) !== null) continue;
+    result.push(ownerInviteWire(v, now));
   }
   return result.sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -1503,13 +1638,7 @@ export async function revokeOutstandingInviteByPrefixForUser(
     const k = matches[0];
     const row = invites!.get(k)!;
     if (!inviteBelongsTo(row, user)) return "not_found";
-    invites!.delete(k);
-    try {
-      persistInvites();
-    } catch (err) {
-      invites!.set(k, row);
-      throw err;
-    }
+    removeInvites([k, ...olderUnconsumedKeys(row)]);
     return "ok";
   });
 }

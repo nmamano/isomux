@@ -30,7 +30,8 @@ import {
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { setUserRole, getUserByName } from "../users.ts";
-import { INVITE_TTL_MS } from "../auth.ts";
+import { INVITE_TTL_MS, peekInvite } from "../auth.ts";
+import { mintExpiredLink } from "./member-link.ts";
 import type { AgentInfo, InviteWire } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -647,5 +648,97 @@ describe("routes/invites REST: a rename refreshes the owner's invites_list", () 
       2000,
       "invites_list under the new name",
     );
+  });
+});
+
+// invites.extend (task 1492af52): an owner gives a sign-in link another 3
+// days, live or expired; the token and its URL stay the same. Owner only: a
+// member cannot extend even their own link. The route fans out invites_list.
+describe("routes/invites REST: extend a link (invites.extend)", () => {
+  async function expiredOwnerLink(name: string) {
+    const m = await mintExpiredLink(name);
+    return { rawToken: m.rawToken, prefix: m.tokenPrefix };
+  }
+
+  it("owner: 200 with the live row and a fanned-out invites_list; the same token signs in", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    // Dan has never signed in: the expired link is his newest.
+    const link = await expiredOwnerLink("Dan");
+    const ownerSock = await srv.connectWs(owner.rawSessionId);
+
+    const before = Date.now();
+    const r = await api(srv, `/api/invites/${link.prefix}/extend`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(r.status).toBe(200);
+    const inv = (r.body as { invite: InviteWire }).invite;
+    expect(inv.tokenPrefix).toBe(link.prefix);
+    expect(inv.expiresAt).toBeGreaterThanOrEqual(before + INVITE_TTL_MS);
+    expect(inv.expired).toBeUndefined();
+    await waitUntil(
+      () =>
+        lastInvitesList(ownerSock)?.some(
+          (i) => i.tokenPrefix === link.prefix && i.expiresAt === inv.expiresAt,
+        ) ?? false,
+      2000,
+      "owner invites_list carries the extended row",
+    );
+    expect(peekInvite(link.rawToken)).not.toHaveProperty("error");
+  });
+
+  it("member: 403 even on their own link, which an owner can extend", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const dan = await srv.seedMember("Dan");
+    // An owner link for Dan's next device, made after he signed in.
+    const minted = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { userId: getUserByName("Dan")!.id },
+    });
+    expect(minted.status).toBe(200);
+    const inv = (minted.body as { invite: InviteWire }).invite;
+    const extend = (session: string) =>
+      api(srv, `/api/invites/${inv.tokenPrefix}/extend`, {
+        method: "POST",
+        rawSessionId: session,
+      });
+    const byDan = await extend(dan.rawSessionId);
+    expect(byDan.status).toBe(403);
+    const listed = invitesOf(
+      await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId }),
+    ).find((i) => i.tokenPrefix === inv.tokenPrefix);
+    expect(listed?.expiresAt).toBe(inv.expiresAt);
+    // Control: the same link is extendable, so the 403 was the role.
+    expect((await extend(owner.rawSessionId)).status).toBe(200);
+  });
+
+  it("owner: unknown prefix 404 not_found; a self-made link 409 not_extendable", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const dan = await srv.seedMember("Dan");
+    const post = (prefix: string) =>
+      api(srv, `/api/invites/${prefix}/extend`, {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+      });
+    // The /api error envelope: { error: { code, message } }.
+    const codeOf = (r: Res) =>
+      (r.body as { error?: { code?: string } } | null)?.error?.code;
+
+    const missing = await post("deadbeef");
+    expect(missing.status).toBe(404);
+    expect(codeOf(missing)).toBe("not_found");
+
+    // Dan's own 1h link: by policy not extendable.
+    const selfPrefix = await mintFor(srv, dan.rawSessionId);
+    const self = await post(selfPrefix);
+    expect(self.status).toBe(409);
+    expect(codeOf(self)).toBe("not_extendable");
   });
 });

@@ -11,8 +11,9 @@
 //   - A sign-in link targets an EXISTING member by id: accept never creates a
 //     member, a rename between mint and accept is harmless, and a deleted
 //     member's link signs nobody in.
-//   - Every mint replaces the member's OUTSTANDING links (by id) and nothing
-//     else - a consumed row, an expired row, and another user's row all survive.
+//   - Every mint replaces the member's unconsumed links (by id), live or
+//     expired (task 1492af52: a replaced link can never be extended again), and
+//     nothing else - a consumed row and another user's row survive.
 //   - Legacy name-bound links bind to the member's id when the server boots,
 //     persist that, and drop a name with no member; renames and name reuse
 //     after boot cannot redirect them.
@@ -38,8 +39,12 @@ import {
   peekInvite,
   listInvites,
   revokeInvitesForUser,
+  revokeInviteByPrefix,
+  extendInvite,
+  expiredInviteRenewal,
   _testMintLegacyInvite,
   INVITE_TTL_MS,
+  SELF_INVITE_TTL_MS,
   loadAuthState,
   validateSession,
 } from "../auth.ts";
@@ -52,7 +57,7 @@ import {
   setUserRole,
   updateUserById,
 } from "../users.ts";
-import { mintMemberLink } from "./member-link.ts";
+import { inThePast, mintExpiredLink, mintMemberLink } from "./member-link.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -94,20 +99,23 @@ describe("auth/invites: an expired link", () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
 
-    const stale = await mintMemberLink("Ghost", "member", -1000);
+    const stale = await mintExpiredLink("Ghost");
 
     expect(peekInvite(stale.rawToken)).toEqual({ error: "expired" });
     const acc = await acceptInvite(stale.rawToken, { userAgent: "test" });
     expect(acc).toEqual({ ok: false, error: "expired" });
     // The member and their profile outlive the link (task ec1724a8).
     expect(getUserByName("Ghost")?.pendingSignIn).toBe(true);
-    // Expired rows drop out of the outstanding list.
-    expect(outstandingPrefixes()).not.toContain(stale.tokenPrefix);
+    // An owner can still extend it (task 1492af52), so the owner list keeps
+    // it, marked expired.
+    expect(
+      listInvites().find((i) => i.tokenPrefix === stale.tokenPrefix)?.expired,
+    ).toBe(true);
   });
 });
 
-describe("auth/invites: a mint replaces the member's outstanding links", () => {
-  it("replaces only the same member's OUTSTANDING links - consumed, expired and foreign rows survive", async () => {
+describe("auth/invites: a mint replaces the member's unconsumed links", () => {
+  it("replaces the same member's live AND expired links - consumed and foreign rows survive", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
     await server.seedMember("Alice");
@@ -131,15 +139,16 @@ describe("auth/invites: a mint replaces the member's outstanding links", () => {
     expect(outstanding).toContain(replacement.prefix);
     expect(outstanding).toContain(bobOutstanding.prefix); // another user: untouched
 
-    // The consumed and expired rows were never candidates for replacement, so
-    // they must still be REDEEMABLE-STATE-wise what they were: consumed stays
-    // consumed (not deleted-and-forgotten), expired stays expired.
+    // The consumed row was never a candidate for replacement: it stays
+    // consumed (not deleted-and-forgotten).
     expect(peekInvite(aliceConsumed.rawToken)).toEqual({ error: "consumed" });
-    expect(peekInvite(aliceExpired.rawToken)).toEqual({ error: "expired" });
-    // And the displaced ones are genuinely gone, not merely hidden from the list.
+    // The displaced ones - live and expired - are genuinely gone, not merely
+    // hidden from the list (task 1492af52: an expired row left behind could be
+    // extended back to life once the newer link is revoked).
     expect(peekInvite(aliceOutstanding.rawToken)).toEqual({
       error: "not_found",
     });
+    expect(peekInvite(aliceExpired.rawToken)).toEqual({ error: "not_found" });
   });
 });
 
@@ -475,5 +484,369 @@ describe("auth/invites: bootstrap invites go stale once an owner exists", () => 
     });
     expect(acc).toEqual({ ok: false, error: "owner_exists" });
     expect(getUserByName("Impostor")).toBeUndefined();
+  });
+});
+
+// Extending a sign-in link (task 1492af52). An owner gives a link another
+// INVITE_TTL_MS, live or expired, and the SAME token signs in again: the guest
+// reopens the email they already have. Only an owner-made link of an existing
+// member that no newer link replaced can be extended; the owner list shows
+// such a link even after it expired, and the expired-link page offers the
+// renewal request only for it.
+
+// A row as invites.json holds it today (bound to a userId), planted on disk so
+// a restart loads it. Two rows of one member side by side only exist in files
+// written before task 1492af52 (a mint then left expired rows behind).
+function plantBoundLink(
+  stateRoot: string,
+  row: {
+    userId: string;
+    username: string;
+    createdBy: string;
+    createdAt: number;
+    expiresAt: number;
+    rawToken?: string;
+  },
+): { rawToken: string; prefix: string } {
+  const raw = row.rawToken ?? randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(raw).digest("hex");
+  const file = join(stateRoot, "invites.json");
+  const rows = existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>)
+    : {};
+  rows[tokenHash] = {
+    tokenHash,
+    tokenPrefix: raw.slice(0, 8),
+    userId: row.userId,
+    username: row.username,
+    role: "member",
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+    consumed: false,
+    consumedAt: null,
+    bootstrap: false,
+  };
+  writeFileSync(file, JSON.stringify(rows, null, 2));
+  return { rawToken: raw, prefix: raw.slice(0, 8) };
+}
+
+function listed(prefix: string) {
+  return listInvites().find((i) => i.tokenPrefix === prefix);
+}
+
+describe("auth/invites: extending a link (task 1492af52)", () => {
+  it("an expired owner-made link is listed as expired and extendable, offers the renewal, and once extended the SAME token signs in", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const dan = await mintExpiredLink("Dan");
+    expect(peekInvite(dan.rawToken)).toEqual({ error: "expired" });
+
+    // The owner list keeps it, marked.
+    const row = listed(dan.tokenPrefix);
+    expect(row?.expired).toBe(true);
+    expect(row?.extendable).toBe(true);
+    // The expired-link page can offer the renewal request for it.
+    expect(expiredInviteRenewal(dan.rawToken)).toEqual({
+      tokenPrefix: dan.tokenPrefix,
+      userId: dan.userId,
+      memberName: "Dan",
+      createdBy: "Morgan",
+    });
+
+    const before = Date.now();
+    const r = await extendInvite(dan.tokenPrefix);
+    const after = Date.now();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.invite.tokenPrefix).toBe(dan.tokenPrefix);
+    expect(r.invite.expiresAt).toBeGreaterThanOrEqual(before + INVITE_TTL_MS);
+    expect(r.invite.expiresAt).toBeLessThanOrEqual(after + INVITE_TTL_MS);
+
+    // Live again: no longer expired, still extendable, nothing to renew.
+    expect(listed(dan.tokenPrefix)?.expired).toBeUndefined();
+    expect(listed(dan.tokenPrefix)?.extendable).toBe(true);
+    expect(expiredInviteRenewal(dan.rawToken)).toBeNull();
+
+    // Persisted: a cold boot reads the new expiry, and the old token signs
+    // in as Dan.
+    server = await server.restart();
+    expect(peekInvite(dan.rawToken)).not.toHaveProperty("error");
+    const acc = await acceptInvite(dan.rawToken, { userAgent: "test" });
+    expect(acc.ok && validateSession(acc.rawSessionId)?.userId).toBe(
+      dan.userId,
+    );
+  });
+
+  it("on a live link it sets the expiry to now + 3 days and never shortens it", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const userId = (await mintMemberLink("Dan")).userId;
+    // An owner link with a minute left.
+    const short = await inThePast(INVITE_TTL_MS - 60_000, () =>
+      mintInvite({ userId, createdBy: "Morgan", ttlMs: INVITE_TTL_MS }),
+    );
+    if (!short.ok) throw new Error("mint failed");
+    const before = Date.now();
+    const r1 = await extendInvite(short.invite.tokenPrefix);
+    expect(r1.ok && r1.invite.expiresAt).toBeGreaterThanOrEqual(
+      before + INVITE_TTL_MS,
+    );
+
+    const long = await mintInvite({
+      userId,
+      createdBy: "Morgan",
+      ttlMs: 2 * INVITE_TTL_MS,
+    });
+    if (!long.ok) throw new Error("mint failed");
+    const r2 = await extendInvite(long.invite.tokenPrefix);
+    expect(r2.ok && r2.invite.expiresAt).toBe(long.invite.expiresAt);
+  });
+
+  it("refuses a consumed, self-made, owner-login, bootstrap, legacy new-member or orphaned link, and none of them is offered or listed as extendable", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const outcomes: Record<string, unknown> = {};
+    const renewals: Record<string, unknown> = {};
+    const extendableRows: string[] = [];
+    const check = async (label: string, rawToken: string, prefix: string) => {
+      renewals[label] = expiredInviteRenewal(rawToken) !== null;
+      if (listed(prefix)?.extendable) extendableRows.push(label);
+      const r = await extendInvite(prefix);
+      outcomes[label] = r.ok ? "ok" : r.error;
+    };
+
+    // Consumed: Ann accepted her link.
+    const ann = await mintMemberLink("Ann");
+    expect((await acceptInvite(ann.rawToken, { userAgent: "t" })).ok).toBe(
+      true,
+    );
+    await check("consumed", ann.rawToken, ann.tokenPrefix);
+
+    // Self-made (the member's own 1h link, createdBy = their name): live,
+    // and run out after its real 1h window.
+    const benId = (await mintMemberLink("Ben")).userId;
+    const selfLive = await mintInvite({
+      userId: benId,
+      createdBy: "Ben",
+      ttlMs: SELF_INVITE_TTL_MS,
+    });
+    if (!selfLive.ok) throw new Error("mint failed");
+    await check("self live", selfLive.rawToken, selfLive.invite.tokenPrefix);
+    const selfExpired = await mintExpiredLink("Ben", {
+      createdBy: "Ben",
+      ttlMs: SELF_INVITE_TTL_MS,
+    });
+    await check("self expired", selfExpired.rawToken, selfExpired.tokenPrefix);
+    // A self-made link stays short-lived after the member is renamed.
+    const fay = await mintExpiredLink("Fay", {
+      createdBy: "Fay",
+      ttlMs: SELF_INVITE_TTL_MS,
+    });
+    updateUserById(fay.userId, { name: "Fay Lee" });
+    await check("self, member renamed", fay.rawToken, fay.tokenPrefix);
+    // The box operator's 15-minute owner-login link (admin socket) keeps its
+    // short life: nobody can stretch it to 3 days.
+    const olga = await mintExpiredLink("Olga", {
+      createdBy: "(admin-cli)",
+      ttlMs: 15 * 60 * 1000,
+      role: "owner",
+    });
+    await check("owner-login", olga.rawToken, olga.tokenPrefix);
+    // Control: the operator's link for a member has the owner window and can
+    // be extended.
+    const gus = await mintExpiredLink("Gus", { createdBy: "(admin-cli)" });
+    await check("operator member link", gus.rawToken, gus.tokenPrefix);
+
+    // A legacy bootstrap row and a legacy new-member row, both run out after
+    // the owner window.
+    const boot = await inThePast(INVITE_TTL_MS + 1000, () =>
+      _testMintLegacyInvite({
+        username: null,
+        role: "owner",
+        bootstrap: true,
+        createdBy: "Morgan",
+      }),
+    );
+    await check("bootstrap", boot.rawToken, boot.invite.tokenPrefix);
+    const legacyNew = await inThePast(INVITE_TTL_MS + 1000, () =>
+      _testMintLegacyInvite({
+        username: "Newcomer",
+        role: "member",
+        createdBy: "Morgan",
+      }),
+    );
+    await check(
+      "legacy new member",
+      legacyNew.rawToken,
+      legacyNew.invite.tokenPrefix,
+    );
+
+    // Orphaned: the member record is gone (deleted without the route's
+    // revoke).
+    const cal = await mintExpiredLink("Cal");
+    deleteUserById(cal.userId);
+    await check("member gone", cal.rawToken, cal.tokenPrefix);
+
+    expect(outcomes).toEqual({
+      consumed: "not_extendable",
+      "self live": "not_extendable",
+      "self expired": "not_extendable",
+      "self, member renamed": "not_extendable",
+      "owner-login": "not_extendable",
+      "operator member link": "ok",
+      bootstrap: "not_extendable",
+      "legacy new member": "not_extendable",
+      "member gone": "not_extendable",
+    });
+    expect(renewals).toEqual({
+      consumed: false,
+      "self live": false,
+      "self expired": false,
+      "self, member renamed": false,
+      "owner-login": false,
+      "operator member link": true,
+      bootstrap: false,
+      "legacy new member": false,
+      "member gone": false,
+    });
+    expect(extendableRows).toEqual(["operator member link"]);
+    // An expired row that cannot be extended is not on the owner list at all.
+    expect(listed(selfExpired.tokenPrefix)).toBeUndefined();
+    expect(listed(olga.tokenPrefix)).toBeUndefined();
+    expect(listed(cal.tokenPrefix)).toBeUndefined();
+    // Nothing above changed a row: each refusal left it as it was.
+    expect(peekInvite(selfExpired.rawToken)).toEqual({ error: "expired" });
+    expect(peekInvite(ann.rawToken)).toEqual({ error: "consumed" });
+  });
+
+  it("an unknown prefix is not_found and a prefix two rows share is ambiguous", async () => {
+    let srv = (server = await startTestServer());
+    await srv.seedOwner("Morgan");
+    const dan = await mintExpiredLink("Dan");
+    const eve = await mintExpiredLink("Eve");
+    // A second row whose token starts with Dan's 8-character prefix, for
+    // another member.
+    const twin = plantBoundLink(srv.stateRoot, {
+      userId: eve.userId,
+      username: "Eve",
+      createdBy: "Morgan",
+      createdAt: Date.now() - 10_000,
+      expiresAt: Date.now() - 1000,
+      rawToken:
+        dan.tokenPrefix + randomBytes(32).toString("base64url").slice(8),
+    });
+    expect(twin.prefix).toBe(dan.tokenPrefix);
+    srv = server = await srv.restart();
+
+    expect(await extendInvite("zzzzzzzz")).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(await extendInvite(dan.tokenPrefix)).toEqual({
+      ok: false,
+      error: "ambiguous",
+    });
+    expect(peekInvite(dan.rawToken)).toEqual({ error: "expired" });
+  });
+
+  it("a persist failure leaves the link expired, in memory and on disk", async () => {
+    let srv = (server = await startTestServer());
+    await srv.seedOwner("Morgan");
+    const dan = await mintExpiredLink("Dan");
+    const file = join(srv.stateRoot, "invites.json");
+    const realWrite = persistence.atomicWriteFileSync;
+    const spy = spyOn(persistence, "atomicWriteFileSync").mockImplementation(
+      (path, data, mode) => {
+        if (path === file)
+          throw new Error("injected invites.json write failure");
+        return realWrite(path, data, mode);
+      },
+    );
+    let threw = false;
+    try {
+      await extendInvite(dan.tokenPrefix).catch(() => {
+        threw = true;
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(threw).toBe(true);
+    expect(peekInvite(dan.rawToken)).toEqual({ error: "expired" });
+    expect(listed(dan.tokenPrefix)?.expired).toBe(true);
+    srv = server = await srv.restart();
+    expect(peekInvite(dan.rawToken)).toEqual({ error: "expired" });
+  });
+});
+
+describe("auth/invites: a replaced link is never extended again (task 1492af52)", () => {
+  it("an owner mint and a self-mint each remove the member's expired link", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const old1 = await mintExpiredLink("Dan");
+    const fresh = await mintMemberLink("Dan");
+    expect(peekInvite(old1.rawToken)).toEqual({ error: "not_found" });
+    expect(await extendInvite(old1.tokenPrefix)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    // Revoking the newer link brings nothing back.
+    expect(await revokeInviteByPrefix(fresh.tokenPrefix)).toBe("ok");
+    expect(listInvites().filter((i) => i.username === "Dan")).toEqual([]);
+
+    // The member's own link replaces an owner's expired one the same way.
+    const old2 = await mintExpiredLink("Dan");
+    const self = await mintInvite({
+      userId: old2.userId,
+      createdBy: "Dan",
+      ttlMs: 60_000,
+    });
+    expect(self.ok).toBe(true);
+    expect(peekInvite(old2.rawToken)).toEqual({ error: "not_found" });
+    expect(expiredInviteRenewal(old2.rawToken)).toBeNull();
+  });
+
+  it("in a file with an older expired row beside a newer one, the older is replaced, and an owner revoke of the newer removes it too", async () => {
+    let srv = (server = await startTestServer());
+    await srv.seedOwner("Morgan");
+    const { userId } = await mintMemberLink("Dan");
+    // Clear the live link the helper minted, then plant the pre-1492af52 pair.
+    await revokeInvitesForUser({ id: userId, name: "Dan" });
+    const now = Date.now();
+    const older = plantBoundLink(srv.stateRoot, {
+      userId,
+      username: "Dan",
+      createdBy: "Morgan",
+      createdAt: now - 5 * INVITE_TTL_MS,
+      expiresAt: now - 4 * INVITE_TTL_MS,
+    });
+    const newer = plantBoundLink(srv.stateRoot, {
+      userId,
+      username: "Dan",
+      createdBy: "Morgan",
+      createdAt: now - 2 * INVITE_TTL_MS,
+      expiresAt: now - INVITE_TTL_MS,
+    });
+    srv = server = await srv.restart();
+
+    expect(await extendInvite(older.prefix)).toEqual({
+      ok: false,
+      error: "replaced",
+    });
+    expect(expiredInviteRenewal(older.rawToken)).toBeNull();
+    expect(listed(older.prefix)).toBeUndefined();
+    expect(listed(newer.prefix)?.extendable).toBe(true);
+    expect(expiredInviteRenewal(newer.rawToken)?.tokenPrefix).toBe(
+      newer.prefix,
+    );
+
+    // The owner revokes the newer link: the older one must not become the
+    // member's newest link and come back.
+    expect(await revokeInviteByPrefix(newer.prefix)).toBe("ok");
+    expect(peekInvite(older.rawToken)).toEqual({ error: "not_found" });
+    expect(await extendInvite(older.prefix)).toEqual({
+      ok: false,
+      error: "not_found",
+    });
   });
 });

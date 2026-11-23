@@ -13,6 +13,7 @@ import {
   emitBrowserSessionDiagnostic,
   logoutBySessionHash,
   peekInvite,
+  expiredInviteRenewal,
   inviteCreatesMember,
   readSessionCookie,
   readSessionCookies,
@@ -83,6 +84,17 @@ export interface InviteSeatGate {
 let inviteSeatGate: (() => InviteSeatGate | null) | null = null;
 export function setInviteSeatGate(gate: (() => InviteSeatGate | null) | null) {
   inviteSeatGate = gate;
+}
+
+// Opens the owner pages for a guest's renewal request (task 1492af52):
+// server/sign-in-link-renewal.ts with the office's ask store. False when the
+// token is no expired link an owner can extend. `null` resets for repeated
+// test boots.
+let inviteRenewalRequest: ((rawToken: string) => boolean) | null = null;
+export function setInviteRenewalRequest(
+  request: ((rawToken: string) => boolean) | null,
+) {
+  inviteRenewalRequest = request;
 }
 
 // Origin check. Reverse proxies are configured by the operator setting the
@@ -489,7 +501,7 @@ export function handleInvitePeek(
       const signedIn = redirectConsumedVisitorIfSignedIn(req);
       if (signedIn) return signedIn;
     }
-    return renderInviteError(i18n, peek.error, officeName);
+    return renderInviteError(i18n, peek.error, officeName, token);
   }
   const conflict = inviteIdentityConflict(req, peek, null, onBox);
   if (conflict) return renderInviteIdentityConflict(i18n, conflict, officeName);
@@ -501,6 +513,40 @@ export function handleInvitePeek(
       null,
       officeName,
       peek,
+    ),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        ...securityHeaders(),
+      },
+    },
+  );
+}
+
+// POST /auth/invite-renewal (task 1492af52) - the button on the expired-link
+// page. Asks the owner who made the link (else every owner) to re-enable it.
+// Origin-checked like /auth/accept; never signs anyone in.
+export async function handleInviteRenewal(
+  req: Request,
+  officeName: string | null,
+  onBox: boolean,
+): Promise<Response> {
+  if (!originValidForAuthPost(req)) {
+    return new Response("bad origin", { status: 403 });
+  }
+  const read = await readAuthForm(req);
+  if (!read.ok) return authFormRefusal(read.status);
+  const i18n = translatorForVisitor(req, onBox);
+  const token = read.form.get("token") ?? "";
+  if (!token || !inviteRenewalRequest?.(token))
+    return renderInviteError(i18n, "not_found", officeName);
+  const { t } = i18n;
+  return new Response(
+    baseHtml(
+      i18n.language,
+      authPageTitle(officeName, t("common.titleInvite")),
+      `<h1>${t("preAuth.inviteRenewal.heading")}</h1><p>${escapeHtml(t("preAuth.inviteRenewal.sent"))}</p>`,
     ),
     {
       status: 200,
@@ -607,7 +653,7 @@ export async function handleAccept(
       const signedIn = redirectConsumedVisitorIfSignedIn(req);
       if (signedIn) return signedIn;
     }
-    return renderInviteError(i18n, result.error, officeName);
+    return renderInviteError(i18n, result.error, officeName, token);
   }
   const acceptedUser = getUserByName(result.username);
   if (acceptedUser)
@@ -840,6 +886,10 @@ export async function tryHandleAuthRoute(
   // POST /auth/accept - actually consumes the invite. Origin-checked.
   if (url.pathname === "/auth/accept" && req.method === "POST") {
     return handleAccept(req, officeName, onBox);
+  }
+  // POST /auth/invite-renewal - ask the owner to re-enable an expired link.
+  if (url.pathname === "/auth/invite-renewal" && req.method === "POST") {
+    return handleInviteRenewal(req, officeName, onBox);
   }
   if (url.pathname === "/auth/logout" && req.method === "POST") {
     return handleLogout(req, officeName, onBox);
@@ -1410,19 +1460,32 @@ const INVITE_ERROR_KEYS = {
   seat_refused: "preAuth.inviteError.seatRefused",
 } as const;
 
+// `token`: the link the visitor holds. An expired link an owner can still
+// extend gets the renewal button (task 1492af52), on every page that reports
+// it expired.
 function renderInviteError(
   i18n: Translator,
   kind: string,
   officeName: string | null,
+  token?: string,
 ): Response {
   const { t } = i18n;
   const key = Object.prototype.hasOwnProperty.call(INVITE_ERROR_KEYS, kind)
     ? INVITE_ERROR_KEYS[kind as keyof typeof INVITE_ERROR_KEYS]
     : "preAuth.inviteError.generic";
+  const renewable =
+    kind === "expired" && !!token && expiredInviteRenewal(token) !== null;
+  const text = renewable
+    ? `<p>${escapeHtml(t("preAuth.inviteError.expiredRenewable"))}</p>
+    <form method="POST" action="/auth/invite-renewal">
+      <input type="hidden" name="token" value="${escapeAttr(token)}" />
+      <button type="submit">${escapeHtml(t("preAuth.inviteError.askOwner"))}</button>
+    </form>`
+    : `<p>${escapeHtml(t(key))}</p>`;
   const body = baseHtml(
     i18n.language,
     authPageTitle(officeName, t("common.titleInvite")),
-    `<h1>${t("preAuth.inviteError.heading")}</h1><p>${escapeHtml(t(key))}</p>`,
+    `<h1>${t("preAuth.inviteError.heading")}</h1>${text}`,
   );
   return new Response(body, {
     status: 410, // Gone - invite was once valid (or never)
