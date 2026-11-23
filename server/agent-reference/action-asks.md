@@ -1,6 +1,6 @@
 # Action asks
 
-When only a member can make a change, open an ask with an action `step`. The card shows the change and an Apply button that makes it as the member. The ask closes when the change is made, by Apply or by hand, and you get a notice. Send no `link`.
+When only a member can make a change, open an ask with an action `step`. The card shows the change and a button that makes it as the member. The ask closes when the change is made, from the card or by hand, and you get a notice. Send no `link`.
 
 An agent's access level (the access slider, Privileged included): `step` is `{"kind": "agent-access", "agentId": "<id>", "access": "<stop>"}`, with `access` as `PUT /api/agents/:id/access` takes it. A `pack` is refused.
 
@@ -18,13 +18,13 @@ Your manager's own preferences: `step` is `{"kind": "member-preferences", "set":
 
 The office settings: `step` is `{"kind": "office-settings", "set": {...}}`, with the keys `PUT /api/office/settings` takes, less `version`. The backup settings: `step` is `{"kind": "backup-settings", "set": {...}}`, with the keys `PUT /api/backup/settings` takes. Only an office owner can apply them. A backup step refuses 409 `backup_dir_from_env` for a folder change while `ISOMUX_BACKUP_DIR` sets the folder. Each `set` takes only the keys and values its route takes, else 400.
 
-A sign-in link for a member: `step` is `{"kind": "sign-in-link", "username": "<member>"}`. Signing a member out on every device: `{"kind": "member-sessions", "username": "<member>"}`. Ending one session of a member: `{"kind": "session-revoke", "username": "<member>", "sessionPrefix": "<prefix>"}`, with a prefix from the session list below; the ask closes when the session is gone, by Apply or by hand. Taking back a member's unused sign-in links: `{"kind": "sign-in-links-revoke", "username": "<member>"}`. An office owner can apply these for any member, a member only for themself. A sign-out or a session step refuses 409 `would_strand_office` when it would end the last owner sessions. A session step also refuses 422 `unknown_session` when that member has no live session with that prefix.
+A sign-in link for a member: `step` is `{"kind": "sign-in-link", "username": "<member>"}`. Signing a member out on every device: `{"kind": "member-sessions", "username": "<member>"}`. Ending one session of a member: `{"kind": "session-revoke", "username": "<member>", "sessionPrefix": "<prefix>"}`, with a prefix from the session list below; the ask closes when the session is gone, from the card or by hand. Taking back a member's unused sign-in links: `{"kind": "sign-in-links-revoke", "username": "<member>"}`. An office owner can apply these for any member, a member only for themself. A sign-out or a session step refuses 409 `would_strand_office` when it would end the last owner sessions. A session step also refuses 422 `unknown_session` when that member has no live session with that prefix.
 
 A personal API token for the member: `step` is `{"kind": "api-token", "name": "<name>", "expiresInDays": 30}`, with the fields `POST /api/me/api-tokens` takes. Revoking a token: `{"kind": "api-token-revoke", "tokenId": "<id>"}`. It refuses 422 `unknown_token` for a token that is gone or that the member cannot revoke.
 
 The office's external access: `step` is `{"kind": "office-access", "externalAccess": true, "publicOrigin": "https://<host>"}`, as `PUT /api/office/access` takes it. Only an office owner can apply it. It refuses 403 `hosted_access_managed` on a Hosted Isomux office.
 
-A sign-in link or token that Apply makes shows only on the member's card. You never get it.
+A sign-in link or token made from the card shows only on the member's card. You never get it.
 
 To name a session, read your manager's live sessions, or any member's when your manager is an office owner: `GET /api/users/:username/sessions` returns `{sessions:[{sessionPrefix,device,userAgent,createdAt,lastSeenAt}]}`, last seen first. `device` is the name the device gave itself, or null; the user agent tells a script's session (such as `curl/8.5.0`) from a browser's. Another member, or an unknown one, returns 403.
 

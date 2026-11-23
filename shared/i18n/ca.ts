@@ -2427,6 +2427,20 @@ Coses que pots fer per ell:
   "asks.chip": "petició: {words}",
   "asks.openAsk": "Obre la petició {id}",
   "asks.action.apply": "Aplica",
+  "asks.action.button.signInLink": "Crea l'enllaç",
+  "asks.action.button.apiToken": "Crea el token",
+  "asks.action.button.memberSessions": "Tanca la sessió a tot arreu",
+  "asks.action.button.sessionRevoke": "Revoca la sessió",
+  "asks.action.button.signInLinksRevoke": "Revoca els enllaços",
+  "asks.action.button.apiTokenRevoke": "Revoca el token",
+  "asks.action.button.roomGrant": "Dona accés",
+  "asks.action.button.roomRemove": "Treu l'accés",
+  "asks.action.button.makeOwner": "Fes-lo propietari",
+  "asks.action.button.makeMember": "Fes-lo membre",
+  "asks.action.button.memberRemove": "Treu el membre",
+  "asks.action.button.memberRestore": "Restaura el membre",
+  "asks.action.button.memberPurge": "Esborra el membre",
+  "asks.action.button.instructionsLine": "Afegeix la línia",
   "asks.step.others": "Només {member} pot fer aquest pas.",
   "asks.step.othersUnknown":
     "Només el membre d’aquesta petició pot fer aquest pas.",
@@ -2482,9 +2496,9 @@ Coses que pots fer per ell:
   "asks.action.roomGone": "Aquesta sala ja no és a l'oficina.",
   "asks.action.signInLink": "Nou enllaç d'inici de sessió",
   "asks.action.signInLinkHint":
-    "L'enllaç apareix aquí després d'Aplica. El seu enllaç anterior sense fer servir deixa de funcionar.",
+    "L'enllaç apareix aquí. El seu enllaç anterior sense fer servir deixa de funcionar.",
   "asks.action.signInLinkHintSelf":
-    "L'enllaç apareix aquí després d'Aplica. El teu enllaç anterior sense fer servir deixa de funcionar.",
+    "L'enllaç apareix aquí. El teu enllaç anterior sense fer servir deixa de funcionar.",
   "asks.action.devicesSignedIn.one": "Sessió iniciada en {count} dispositiu",
   "asks.action.devicesSignedIn.other": "Sessió iniciada en {count} dispositius",
   "asks.action.signedOut": "Sessió tancada",
@@ -2497,8 +2511,7 @@ Coses que pots fer per ell:
   "asks.action.linksTakenBack": "Cap enllaç sense fer servir",
   "asks.action.tokenExpires": "Caduca als {days} dies",
   "asks.action.tokenNeverExpires": "No caduca",
-  "asks.action.tokenHint":
-    "El token apareix aquí una vegada, després d'Aplica.",
+  "asks.action.tokenHint": "El token apareix aquí una vegada.",
   "asks.action.tokenRevoked": "Revocat",
   "asks.action.sessionOwner": "És de {member}",
   "asks.action.sessionTimes":

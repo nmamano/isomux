@@ -386,3 +386,134 @@ it("an api-token-revoke card names the token and its owner, for the member's own
   );
   view.unmount();
 });
+
+// Task 29a3cb9c: the button names what the tap does. A step that sets values
+// keeps Apply; a step that makes or ends something has a label of its own.
+// The table is keyed by every kind, so a new kind fails the type check here
+// until it picks a side.
+const { actionButtonKey } = await import("./AskActionBlock.tsx");
+const { en } = await import("../../shared/i18n/en.ts");
+type ActionStepRequest = import("../../shared/types.ts").ActionStepRequest;
+const step = (s: Record<string, unknown>) => s as ActionStepRequest;
+const BUTTON_CASES: Record<
+  ActionStepRequest["kind"],
+  { sets: boolean; steps: ActionStepRequest[] }
+> = {
+  "agent-access": { sets: true, steps: [step({ kind: "agent-access" })] },
+  "member-pack": { sets: true, steps: [step({ kind: "member-pack" })] },
+  "member-preferences": {
+    sets: true,
+    steps: [step({ kind: "member-preferences" })],
+  },
+  "member-view": { sets: true, steps: [step({ kind: "member-view" })] },
+  "office-settings": { sets: true, steps: [step({ kind: "office-settings" })] },
+  "backup-settings": { sets: true, steps: [step({ kind: "backup-settings" })] },
+  "office-access": { sets: true, steps: [step({ kind: "office-access" })] },
+  "storage-retention": {
+    sets: true,
+    steps: [step({ kind: "storage-retention" })],
+  },
+  "messaging-route": { sets: true, steps: [step({ kind: "messaging-route" })] },
+  "whatsapp-route": { sets: true, steps: [step({ kind: "whatsapp-route" })] },
+  "discord-route": { sets: true, steps: [step({ kind: "discord-route" })] },
+  "sign-in-link": { sets: false, steps: [step({ kind: "sign-in-link" })] },
+  "api-token": { sets: false, steps: [step({ kind: "api-token" })] },
+  "member-sessions": {
+    sets: false,
+    steps: [step({ kind: "member-sessions" })],
+  },
+  "session-revoke": { sets: false, steps: [step({ kind: "session-revoke" })] },
+  "sign-in-links-revoke": {
+    sets: false,
+    steps: [step({ kind: "sign-in-links-revoke" })],
+  },
+  "api-token-revoke": {
+    sets: false,
+    steps: [step({ kind: "api-token-revoke" })],
+  },
+  "member-room": {
+    sets: false,
+    steps: [
+      step({ kind: "member-room", grant: true }),
+      step({ kind: "member-room", grant: false }),
+    ],
+  },
+  "member-role": {
+    sets: false,
+    steps: [
+      step({ kind: "member-role", role: "owner" }),
+      step({ kind: "member-role", role: "member" }),
+    ],
+  },
+  "member-remove": { sets: false, steps: [step({ kind: "member-remove" })] },
+  "member-restore": { sets: false, steps: [step({ kind: "member-restore" })] },
+  "member-purge": { sets: false, steps: [step({ kind: "member-purge" })] },
+  "instructions-line": {
+    sets: false,
+    steps: [step({ kind: "instructions-line" })],
+  },
+  "office-update": { sets: false, steps: [step({ kind: "office-update" })] },
+  "storage-prune": { sets: false, steps: [step({ kind: "storage-prune" })] },
+  "storage-compress": {
+    sets: false,
+    steps: [step({ kind: "storage-compress" })],
+  },
+};
+const label = (s: ActionStepRequest) =>
+  `${s.kind}${"grant" in s ? `:${s.grant}` : ""}${"role" in s ? `:${s.role}` : ""}`;
+
+it("a step that sets values keeps Apply; each step that makes or ends something has a label of its own", () => {
+  const cases = Object.values(BUTTON_CASES);
+  const setters = cases.filter((c) => c.sets).flatMap((c) => c.steps);
+  const actions = cases.filter((c) => !c.sets).flatMap((c) => c.steps);
+  // The enabling condition: both sides hold steps.
+  expect([setters.length, actions.length]).toEqual([11, 17]);
+  expect(
+    setters
+      .filter((s) => actionButtonKey(s) !== "asks.action.apply")
+      .map(label),
+  ).toEqual([]);
+  // Not Apply, by key and by text (a new key whose text is "Apply" says
+  // nothing new).
+  expect(
+    actions
+      .filter(
+        (s) =>
+          actionButtonKey(s) === "asks.action.apply" ||
+          en[actionButtonKey(s)] === en["asks.action.apply"],
+      )
+      .map(label),
+  ).toEqual([]);
+  // Each action its own label: grant and remove, owner and member differ.
+  const texts = actions.map((s) => en[actionButtonKey(s)]);
+  expect(new Set(texts).size).toBe(actions.length);
+  // The office update and the storage steps say what their settings page
+  // says for the same action.
+  expect(
+    [
+      { kind: "office-update" },
+      { kind: "storage-prune" },
+      { kind: "storage-compress" },
+    ].map((s) => actionButtonKey(step(s))),
+  ).toEqual([
+    "settings.update.updateNow",
+    "settings.storage.deletePermanently",
+    "settings.storage.compress",
+  ]);
+});
+
+it("the card's button shows the step's label: a sign-in link's is not Apply, an agent move's is", async () => {
+  const signIn = step({ kind: "sign-in-link", userId: "u2" });
+  const { view, apply } = await mount([
+    action("btn00001", "t1", "web"),
+    credAsk("btn00002", { kind: "sign-in-link", userId: "u2" }),
+  ]);
+  await waitFor(() => expect(apply("btn00002")).not.toBe(null));
+  // The enabling condition: the two labels differ in this catalog.
+  expect(en[actionButtonKey(signIn)]).not.toBe(en["asks.action.apply"]);
+  expect([
+    apply("btn00001")!.textContent,
+    apply("btn00002")!.textContent,
+  ]).toEqual([en["asks.action.apply"], en[actionButtonKey(signIn)]]);
+  view.unmount();
+});

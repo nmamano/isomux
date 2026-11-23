@@ -2423,6 +2423,20 @@ Cosas que puedes hacer por él:
   "asks.chip": "petición: {words}",
   "asks.openAsk": "Abrir la petición {id}",
   "asks.action.apply": "Aplicar",
+  "asks.action.button.signInLink": "Crear enlace",
+  "asks.action.button.apiToken": "Crear el token",
+  "asks.action.button.memberSessions": "Cerrar sesión en todas partes",
+  "asks.action.button.sessionRevoke": "Revocar la sesión",
+  "asks.action.button.signInLinksRevoke": "Revocar los enlaces",
+  "asks.action.button.apiTokenRevoke": "Revocar el token",
+  "asks.action.button.roomGrant": "Dar acceso",
+  "asks.action.button.roomRemove": "Quitar el acceso",
+  "asks.action.button.makeOwner": "Hacer propietario",
+  "asks.action.button.makeMember": "Hacer miembro",
+  "asks.action.button.memberRemove": "Quitar el miembro",
+  "asks.action.button.memberRestore": "Restaurar el miembro",
+  "asks.action.button.memberPurge": "Borrar el miembro",
+  "asks.action.button.instructionsLine": "Añadir la línea",
   "asks.step.others": "Solo {member} puede hacer este paso.",
   "asks.step.othersUnknown":
     "Solo el miembro de esta petición puede hacer este paso.",
@@ -2480,9 +2494,9 @@ Cosas que puedes hacer por él:
   "asks.action.roomGone": "Esta sala ya no está en la oficina.",
   "asks.action.signInLink": "Nuevo enlace de inicio de sesión",
   "asks.action.signInLinkHint":
-    "El enlace aparece aquí después de Aplicar. Su enlace anterior sin usar deja de funcionar.",
+    "El enlace aparece aquí. Su enlace anterior sin usar deja de funcionar.",
   "asks.action.signInLinkHintSelf":
-    "El enlace aparece aquí después de Aplicar. Tu enlace anterior sin usar deja de funcionar.",
+    "El enlace aparece aquí. Tu enlace anterior sin usar deja de funcionar.",
   "asks.action.devicesSignedIn.one": "Sesión iniciada en {count} dispositivo",
   "asks.action.devicesSignedIn.other":
     "Sesión iniciada en {count} dispositivos",
@@ -2495,7 +2509,7 @@ Cosas que puedes hacer por él:
   "asks.action.linksTakenBack": "Ningún enlace sin usar",
   "asks.action.tokenExpires": "Caduca a los {days} días",
   "asks.action.tokenNeverExpires": "No caduca",
-  "asks.action.tokenHint": "El token aparece aquí una vez, después de Aplicar.",
+  "asks.action.tokenHint": "El token aparece aquí una vez.",
   "asks.action.tokenRevoked": "Revocado",
   "asks.action.sessionOwner": "Es de {member}",
   "asks.action.sessionTimes":

@@ -97,6 +97,64 @@ type Step<K extends ActionStepRequest["kind"]> = Extract<
   { kind: K }
 >;
 
+// The button's label: the action the tap runs. A kind that sets values says
+// Apply; a kind that makes or ends something names it (task 29a3cb9c).
+export function actionButtonKey(step: ActionStepRequest): PlainMessageKey {
+  switch (step.kind) {
+    case "agent-access":
+    case "member-pack":
+    case "member-preferences":
+    case "member-view":
+    case "office-settings":
+    case "backup-settings":
+    case "office-access":
+    case "storage-retention":
+    case "messaging-route":
+    case "whatsapp-route":
+    case "discord-route":
+      return "asks.action.apply";
+    case "sign-in-link":
+      return "asks.action.button.signInLink";
+    case "api-token":
+      return "asks.action.button.apiToken";
+    case "member-sessions":
+      return "asks.action.button.memberSessions";
+    case "session-revoke":
+      return "asks.action.button.sessionRevoke";
+    case "sign-in-links-revoke":
+      return "asks.action.button.signInLinksRevoke";
+    case "api-token-revoke":
+      return "asks.action.button.apiTokenRevoke";
+    case "member-room":
+      return step.grant
+        ? "asks.action.button.roomGrant"
+        : "asks.action.button.roomRemove";
+    case "member-role":
+      return step.role === "owner"
+        ? "asks.action.button.makeOwner"
+        : "asks.action.button.makeMember";
+    case "member-remove":
+      return "asks.action.button.memberRemove";
+    case "member-restore":
+      return "asks.action.button.memberRestore";
+    case "member-purge":
+      return "asks.action.button.memberPurge";
+    case "instructions-line":
+      return "asks.action.button.instructionsLine";
+    // The settings pages' own labels for the same action.
+    case "office-update":
+      return "settings.update.updateNow";
+    case "storage-prune":
+      return "settings.storage.deletePermanently";
+    case "storage-compress":
+      return "settings.storage.compress";
+    default: {
+      const unknown: never = step;
+      return unknown;
+    }
+  }
+}
+
 interface Value {
   value: string;
   label: string;
@@ -2267,7 +2325,7 @@ export function AskActionBlock({
           }}
         >
           {phase !== "confirming"
-            ? t("asks.action.apply")
+            ? t(actionButtonKey(step))
             : preview && step.kind === "storage-prune"
               ? t("settings.storage.deleteCount", {
                   count: formatNumber(language, preview.candidates.length),
