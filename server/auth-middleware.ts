@@ -1476,7 +1476,7 @@ function renderInviteError(
   const renewable =
     kind === "expired" && !!token && expiredInviteRenewal(token) !== null;
   const text = renewable
-    ? `<p>${escapeHtml(t("preAuth.inviteError.expiredRenewable"))}</p>
+    ? `<p>${escapeHtml(t("preAuth.inviteError.expired"))}</p>
     <form method="POST" action="/auth/invite-renewal">
       <input type="hidden" name="token" value="${escapeAttr(token)}" />
       <button type="submit">${escapeHtml(t("preAuth.inviteError.askOwner"))}</button>
