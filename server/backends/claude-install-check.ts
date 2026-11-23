@@ -230,8 +230,9 @@ export interface ClaudeSignInDeps {
 // Claude Code 2.1.280 (bundled SDK 0.3.280), checked 2026-09-26: on macOS the
 // login lives in the Keychain, and .credentials.json is only its fallback. So
 // on macOS a missing file is settled by asking the bundled CLI (`claude auth
-// status`). It reads local state only, with no network call. Linux keeps the
-// file check alone.
+// status`). Linux keeps the file check alone. Claude Code 2.1.322, checked
+// 2026-11-23: the CLI sends one request to api.anthropic.com, but does not
+// wait for it, and it catches SIGTERM.
 const AUTH_STATUS_TIMEOUT_MS = 10_000;
 // Topic gating can ask on every message of a signed-out agent. One probe per
 // effective environment is in flight at a time, and its answer is reused for
@@ -256,8 +257,7 @@ function authStatusKey(env: Env): string {
 }
 
 // `claude auth status` exits 0 with loggedIn true, or 1 with loggedIn false.
-// Any other combination, and a process that was killed (the timeout included),
-// is "unknown".
+// Any other combination, and a process killed by a signal, is "unknown".
 function authStatusFromCli(
   exit: { exitCode: number | null; signalCode: string | null },
   stdout: string,
@@ -278,6 +278,9 @@ function authStatusFromCli(
   return "unknown";
 }
 
+// Settles by timeoutMs. At the deadline the CLI is killed with SIGKILL (it
+// catches SIGTERM), and the output is not waited for: a child of the CLI can
+// hold it open.
 export async function runClaudeAuthStatus(
   env: Env,
   executable = CLAUDE_NATIVE_BIN,
@@ -293,19 +296,41 @@ export async function runClaudeAuthStatus(
     stdin: "ignore",
     stdout: "pipe",
     stderr: "ignore",
-    timeout: timeoutMs,
   });
-  const [stdout] = await Promise.all([
-    new Response(child.stdout).text(),
+  const reader = child.stdout.getReader();
+  const finished = Promise.all([
+    (async () => {
+      const decoder = new TextDecoder();
+      let text = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return text + decoder.decode();
+        text += decoder.decode(value, { stream: true });
+      }
+    })(),
     child.exited,
   ]);
-  return authStatusFromCli(
-    {
-      exitCode: child.exitCode,
-      signalCode: child.signalCode === null ? null : String(child.signalCode),
-    },
-    stdout,
-  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs, null);
+  });
+  try {
+    const done = await Promise.race([finished, deadline]);
+    if (done === null) {
+      child.kill("SIGKILL");
+      reader.cancel().catch(() => {});
+      return "unknown";
+    }
+    return authStatusFromCli(
+      {
+        exitCode: child.exitCode,
+        signalCode: child.signalCode === null ? null : String(child.signalCode),
+      },
+      done[0],
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Never rejects: a probe that fails, times out or prints something unexpected

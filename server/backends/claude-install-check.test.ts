@@ -1,5 +1,12 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -225,18 +232,6 @@ describe("Claude sign-in state", () => {
     ).toBe("signed_out");
     expect(p.calls).toHaveLength(2);
   });
-
-  // Quarantined: flaky, timed out at 5000ms in CI under load (task 8705a06f).
-  it.skip("asks the bundled CLI, which reports an empty config dir as signed out", async () => {
-    const env = {
-      CLAUDE_CONFIG_DIR: tempDir(),
-      HOME: process.env.HOME,
-      PATH: process.env.PATH,
-    };
-    expect(await claudeSignInState(env, { platform: "darwin" })).toBe(
-      "signed_out",
-    );
-  });
 });
 
 describe("claude auth status result", () => {
@@ -267,9 +262,89 @@ describe("claude auth status result", () => {
       expect(await runClaudeAuthStatus({}, fakeCli(body))).toBe(expected);
   });
 
-  it("reports a probe killed by its timeout as unknown", async () => {
-    const cli = fakeCli(`echo '${out(false)}'; exec sleep 5`);
-    expect(await runClaudeAuthStatus({}, cli, 50)).toBe("unknown");
+  // The probe must settle by its deadline whatever the CLI does, or every
+  // sign-in check of that environment waits on it (task 8705a06f). Each case
+  // races the probe against an in-test timer, so a hang fails as an assertion.
+  async function settled(
+    result: Promise<ClaudeSignInState>,
+  ): Promise<ClaudeSignInState | "still pending"> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pending = new Promise<"still pending">((resolve) => {
+      timer = setTimeout(() => resolve("still pending"), 2_000);
+    });
+    try {
+      return await Promise.race([result, pending]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function alive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function readPid(file: string): number {
+    return Number(readFileSync(file, "utf8").trim());
+  }
+
+  it("kills a CLI that ignores SIGTERM at the deadline", async () => {
+    const pidFile = join(tempDir(), "pid");
+    const cli = fakeCli(
+      `trap '' TERM; echo $$ > ${pidFile}; echo '${out(false)}'; exec sleep 30`,
+    );
+    let pid = 0;
+    try {
+      const state = await settled(runClaudeAuthStatus({}, cli, 300));
+      pid = readPid(pidFile);
+      expect(state).toBe("unknown");
+      // SIGKILL lands at once; give the reaper a moment.
+      const until = Date.now() + 1_000;
+      while (alive(pid) && Date.now() < until) await Bun.sleep(20);
+      expect(alive(pid)).toBe(false);
+    } finally {
+      if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+    }
+  });
+
+  it("closes its end of the output at the deadline", async () => {
+    const status = join(tempDir(), "status");
+    // The child writes after the deadline: into a closed pipe the write fails.
+    const cli = fakeCli(
+      `( trap '' PIPE; sleep 1; echo late; echo $? > ${status}.new; mv ${status}.new ${status} ) & echo '${out(false)}'; exit 1`,
+    );
+    expect(await settled(runClaudeAuthStatus({}, cli, 300))).toBe("unknown");
+    const until = Date.now() + 2_000;
+    while (!existsSync(status) && Date.now() < until) await Bun.sleep(20);
+    const code = existsSync(status)
+      ? readFileSync(status, "utf8").trim()
+      : null;
+    expect({ lateWrite: code === "0" ? "delivered" : code }).toEqual({
+      lateWrite: "1",
+    });
+  });
+
+  it("settles at the deadline while a child of the CLI holds its output", async () => {
+    const pidFile = join(tempDir(), "pid");
+    const cli = fakeCli(
+      `sleep 30 & echo $! > ${pidFile}; echo '${out(false)}'; exit 1`,
+    );
+    let pid = 0;
+    try {
+      const state = await settled(runClaudeAuthStatus({}, cli, 300));
+      pid = readPid(pidFile);
+      // The case is only real while the child still holds the pipe.
+      expect({ state, holderAlive: alive(pid) }).toEqual({
+        state: "unknown",
+        holderAlive: true,
+      });
+    } finally {
+      if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+    }
   });
 });
 
