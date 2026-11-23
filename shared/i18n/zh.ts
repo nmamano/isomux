@@ -802,6 +802,8 @@ export const zh: Catalog = {
   "settings.devices.activeSessions": "我的活动会话",
   "settings.devices.newDeviceHint":
     "用新设备扫描二维码，或在新设备上打开链接。链接只能使用一次，1 小时后过期。再次打开“新设备”会替换它。",
+  "settings.devices.browserHint":
+    "复制链接，然后在你的浏览器中打开它。链接只能使用一次，1 小时后过期。再次打开“新设备”会替换它。",
   "settings.devices.qrAlt": "用于在新设备上登录的二维码",
   "settings.devices.retry": "重试",
   "settings.devices.generateWarning":

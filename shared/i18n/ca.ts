@@ -880,6 +880,8 @@ Coses que pots fer per ell:
   "settings.devices.activeSessions": "Les meves sessions actives",
   "settings.devices.newDeviceHint":
     "Escaneja el codi amb el dispositiu nou o obre-hi l'enllaç. L'enllaç funciona una vegada i caduca en 1 hora. Tornar a obrir Dispositiu nou el substitueix.",
+  "settings.devices.browserHint":
+    "Copia l'enllaç i després obre'l al teu navegador. L'enllaç funciona una vegada i caduca en 1 hora. Tornar a obrir Dispositiu nou el substitueix.",
   "settings.devices.qrAlt":
     "Codi QR per iniciar la sessió en un dispositiu nou",
   "settings.devices.retry": "Torna-ho a provar",

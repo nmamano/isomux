@@ -787,7 +787,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const installSteps =
     install === "browser" ? (
       newDevice ? (
-        <NewDevicePane />
+        <NewDevicePane forBrowser />
       ) : (
         <BrowserInstall
           text={t("appWidget.installInBrowser")}

@@ -50,6 +50,9 @@ export function resetDrillIn(): void {
     if (method === "POST" && path === "/api/users")
       return { user: { id: STEPHEN.id } };
     if (path === "/api/me/rooms") return { rooms: [ROOM] };
+    // Settings > New device mints one sign-in link on mount.
+    if (method === "POST" && path === "/api/invites/self")
+      return { url: SIGN_IN_LINK, invite: {} };
     if (path.endsWith("/os-user"))
       return {
         support: { ok: false, reason: "fixture" },
@@ -75,6 +78,9 @@ export const apiCalls = (): readonly Call[] => calls;
 export function setRefuse(next: { route: string; error: Error }): void {
   refuse = next;
 }
+
+/** The link POST /api/invites/self answers with. */
+export const SIGN_IN_LINK = "https://office.example/i/one-time";
 
 export const ROOM = {
   id: "r1",

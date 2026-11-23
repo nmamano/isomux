@@ -218,7 +218,9 @@ function partOf(selection: Selection): string | null | undefined {
 // part list on a phone; null: the part list.
 export type Selection =
   | { kind: "user"; id: string; part?: MemberPart | null }
-  | { kind: "section"; section: SettingsSection }
+  // forBrowser: New device opened from Install as app in another app's
+  // browser (NewDevicePane forBrowser).
+  | { kind: "section"; section: SettingsSection; forBrowser?: true }
   // Rooms are not a fixed set, so a room cannot be a section name. It carries
   // its id instead, which is also how the room-tab double-click points here.
   | { kind: "room"; roomId: string; part?: RoomPart | null }
@@ -1261,7 +1263,7 @@ export function UserSettingsView({
       <DevicePane
         closeRef={detailCloseRef}
         onOpenNewDevice={() =>
-          select({ kind: "section", section: "newDevice" })
+          select({ kind: "section", section: "newDevice", forBrowser: true })
         }
       />
     ) : selection.section === "recording" ? (
@@ -1291,7 +1293,7 @@ export function UserSettingsView({
           ) : selection.section === "signInLinks" && sessionContext ? (
             <MyDevicesPane />
           ) : selection.section === "newDevice" && sessionContext ? (
-            <NewDevicePane />
+            <NewDevicePane forBrowser={selection.forBrowser === true} />
           ) : selection.section === "enterprise" && isOwner ? (
             <EnterprisePane />
           ) : selection.section === "usage" ? (

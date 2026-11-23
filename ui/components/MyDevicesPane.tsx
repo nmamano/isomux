@@ -95,7 +95,14 @@ export function MyDevicesPane() {
 // StrictMode's second effect run, and re-selecting the open row does not
 // remount it. Leaving and coming back mints a new link, which replaces the
 // previous one on the server.
-export function NewDevicePane() {
+export function NewDevicePane({
+  forBrowser = false,
+}: {
+  // Opened from Install as app in another app's browser (Get a sign-in
+  // link): the member opens the link in their own browser on this device, so
+  // no QR code (Nil, 2026-11-23; task 149f9eac).
+  forBrowser?: boolean;
+} = {}) {
   const { t } = useI18n();
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,16 +139,24 @@ export function NewDevicePane() {
   return (
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>{t("settings.sidebar.newDevice")}</h4>
-      <p style={hint}>{t("settings.devices.newDeviceHint")}</p>
+      <p style={hint}>
+        {t(
+          forBrowser
+            ? "settings.devices.browserHint"
+            : "settings.devices.newDeviceHint",
+        )}
+      </p>
       <p style={hint}>{t("settings.devices.generateWarning")}</p>
       {pending && <p style={hint}>{t("settings.devices.generating")}</p>}
       {mintedUrl && (
         <div style={{ marginTop: 10 }}>
-          <QrImage
-            svg={renderSVG(mintedUrl)}
-            alt={t("settings.devices.qrAlt")}
-            data-device-qr=""
-          />
+          {!forBrowser && (
+            <QrImage
+              svg={renderSVG(mintedUrl)}
+              alt={t("settings.devices.qrAlt")}
+              data-device-qr=""
+            />
+          )}
           <MintedUrlBox url={mintedUrl} forSelf />
         </div>
       )}

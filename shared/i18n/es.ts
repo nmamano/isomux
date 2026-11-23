@@ -882,6 +882,8 @@ Cosas que puedes hacer por él:
   "settings.devices.activeSessions": "Mis sesiones activas",
   "settings.devices.newDeviceHint":
     "Escanea el código con tu nuevo dispositivo o abre el enlace en él. El enlace funciona una vez y caduca en 1 hora. Abrir Nuevo dispositivo de nuevo lo sustituye.",
+  "settings.devices.browserHint":
+    "Copia el enlace y luego ábrelo en tu navegador. El enlace funciona una vez y caduca en 1 hora. Abrir Nuevo dispositivo de nuevo lo sustituye.",
   "settings.devices.qrAlt":
     "Código QR para iniciar sesión en un nuevo dispositivo",
   "settings.devices.retry": "Reintentar",

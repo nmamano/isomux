@@ -1467,7 +1467,11 @@ export function App({ routing = true }: { routing?: boolean }) {
           openSettings({ kind: "section", section: "updates" })
         }
         onOpenNewDevice={() =>
-          openSettings({ kind: "section", section: "newDevice" })
+          openSettings({
+            kind: "section",
+            section: "newDevice",
+            forBrowser: true,
+          })
         }
         onSwipeLeft={swipeRoomNext}
         onSwipeRight={swipeRoomPrev}

@@ -485,10 +485,15 @@ it("gives a signed-in member a sign-in link for their browser, in an iPhone in-a
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(mintCount()).toBe(1);
-    // The link shows in place, with its QR code; nothing went to the
-    // clipboard on its own.
+    // The link shows in place to copy, with no QR code: the member opens it
+    // in their browser on this phone (Nil, 2026-11-23, task 149f9eac).
+    // Nothing went to the clipboard on its own.
     expect(popover!.isConnected).toBe(true);
-    expect(popover!.querySelector("[data-device-qr]")).not.toBeNull();
+    expect(popover!.querySelectorAll("[data-device-qr]").length).toBe(0);
+    expect(popover!.textContent).toContain(en["settings.devices.browserHint"]);
+    expect(popover!.textContent).not.toContain(
+      en["settings.devices.newDeviceHint"],
+    );
     const shown = [
       popover!.textContent ?? "",
       ...[...popover!.querySelectorAll("input, textarea")].map(

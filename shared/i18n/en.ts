@@ -877,6 +877,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.devices.activeSessions": "My active sessions",
   "settings.devices.newDeviceHint":
     "Scan the code with your new device, or open the link on it. The link works once and expires in 1 hour. Opening New device again replaces it.",
+  "settings.devices.browserHint":
+    "Copy the link, then open it in your browser. The link works once and expires in 1 hour. Opening New device again replaces it.",
   "settings.devices.qrAlt": "QR code to sign in a new device",
   "settings.devices.retry": "Try again",
   "settings.devices.generateWarning":

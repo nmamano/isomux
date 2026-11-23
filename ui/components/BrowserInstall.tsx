@@ -10,7 +10,8 @@ import { useAppState } from "../store.tsx";
 // one (task 5765f58e). Used by the app page, the Apps page and the office.
 // In another app's browser of an office with sign-in, the member's browser is
 // not signed in, so the page's link would land on sign-in: the button gets a
-// one-time sign-in link instead (Settings > New device; task 260686c9).
+// one-time sign-in link instead (Settings > New device, with no QR code;
+// tasks 260686c9, 149f9eac).
 
 // The office's primary dialog button (Nil, 2026-10-30).
 const PRIMARY: CSSProperties = { ...dialogSaveBtn, fontFamily: "inherit" };
