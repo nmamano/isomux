@@ -5005,9 +5005,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.installInBrowser":
     "To install, open this page in a browser where you are signed in.",
   "appWidget.copyLink": "Copy link",
-  "appWidget.openInSafari": "Open in Safari",
-  "appWidget.installSteps":
-    "Tap Share {share} in the toolbar or the address bar (in Safari, it can be under {more}), then Add to Home Screen {add}. If you do not see it, scroll down or tap View More.",
+  "appWidget.installSteps.safari":
+    "Tap Share {share} in the toolbar or the address bar (it can be under {more}), then Add to Home Screen {add}. If you do not see it, scroll down or tap View More.",
+  "appWidget.installSteps.chrome":
+    "Tap Share {share} on the right of the address bar, then Add to Home Screen {add}. If you do not see it, scroll down or tap Edit Actions.",
+  "appWidget.installSteps.menu":
+    "In the browser menu, tap Share {share}, then Add to Home Screen {add}. If you do not see it, scroll down or tap Edit Actions.",
   "appWidget.installConfirm": "Install {appName}",
   "officeInstall.notice": "Isomux works better as an app.",
   "officeInstall.noticeSteps": "Isomux works better as an app. {steps}",

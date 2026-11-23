@@ -51,6 +51,7 @@ import {
   installMode,
   promptInstall,
   readInstallEnv,
+  stepsBrowser,
   subscribeInstallPrompt,
 } from "./app-install.ts";
 import {
@@ -776,11 +777,10 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       <BrowserInstall
         text={t("appWidget.installInBrowser")}
         href={`${window.location.origin}/${boot.name}${INSTALL_HASH}`}
-        safari={safariEnv}
       />
     ) : (
       <p>
-        <InstallStepsText />
+        <InstallStepsText browser={stepsBrowser(readInstallEnv())} />
       </p>
     );
   return (

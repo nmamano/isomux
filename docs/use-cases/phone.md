@@ -24,7 +24,7 @@ Your phone, your laptop, and your other devices show the same conversations in r
 
 ## Install it like an app
 
-On iPhone, open the office in Safari and use Add to Home Screen. On Android, Chrome offers to install it.
+On iPhone, use Add to Home Screen in your browser's Share menu. On Android, Chrome offers to install it.
 
 ## Voice and notifications
 

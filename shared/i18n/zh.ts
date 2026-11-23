@@ -4546,9 +4546,12 @@ export const zh: Catalog = {
   "appWidget.install": "安装为应用",
   "appWidget.installInBrowser": "要安装，请在已登录的浏览器中打开此页面。",
   "appWidget.copyLink": "复制链接",
-  "appWidget.openInSafari": "在 Safari 中打开",
-  "appWidget.installSteps":
-    "点按工具栏或地址栏中的“共享”{share}（在 Safari 浏览器中，它可能在{more}中），然后点按“添加到主屏幕”{add}。如果没有看到，请向下滚动或点按“查看更多”。",
+  "appWidget.installSteps.safari":
+    "点按工具栏或地址栏中的“共享”{share}（它可能在{more}中），然后点按“添加到主屏幕”{add}。如果没有看到，请向下滚动或点按“查看更多”。",
+  "appWidget.installSteps.chrome":
+    "点按地址栏右侧的“共享”{share}，然后点按“添加到主屏幕”{add}。如果没有看到，请向下滚动或点按“编辑操作”。",
+  "appWidget.installSteps.menu":
+    "在浏览器菜单中点按“共享”{share}，然后点按“添加到主屏幕”{add}。如果没有看到，请向下滚动或点按“编辑操作”。",
   "appWidget.installConfirm": "安装 {appName}",
   "officeInstall.notice": "Isomux 作为应用使用效果更好。",
   "officeInstall.noticeSteps": "Isomux 作为应用使用效果更好。{steps}",

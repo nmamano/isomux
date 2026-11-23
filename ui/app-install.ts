@@ -22,10 +22,53 @@ export interface InstallEnv {
   promptSupported: boolean;
   // A phone or tablet (isHandheld).
   handheld: boolean;
+  // The iOS browser this page runs in (iosBrowser); null off iOS and in a
+  // Home Screen window, whose user agent names no browser.
+  iosBrowser: IosBrowser | null;
+}
+
+// The iOS browser a page runs in, from its user agent. "other": a browser
+// whose menus we do not know. "in-app": another app's browser (a mail or
+// social app), which has no Add to Home Screen.
+export type IosBrowser =
+  "safari" | "chrome" | "firefox" | "edge" | "other" | "in-app";
+
+// The browsers that get Add to Home Screen steps.
+export type StepsBrowser = Exclude<IosBrowser, "in-app">;
+
+// A browser's own token comes first: Edge also sends Version/ and Safari/.
+const IOS_BROWSER_TOKENS: readonly [RegExp, IosBrowser][] = [
+  [/\bCriOS\//, "chrome"],
+  [/\bFxiOS\//, "firefox"],
+  [/\bEdgiOS\//, "edge"],
+  [/\b(?:OPiOS|OPT|DuckDuckGo|Ddg)\//, "other"],
+];
+
+// Mail and social apps that name themselves. The Google app sends a Safari
+// token, so only its own token tells it apart.
+const IN_APP_TOKENS =
+  /FBAN|FBAV|FBIOS|\bInstagram\b|\bBarcelona\b|LinkedInApp|BytedanceWebview|musical_ly|Snapchat|\bLine\/|MicroMessenger|Pinterest|\bGSA\//;
+
+// Every iOS browser sends a Safari/ token; a plain WKWebView sends none, so
+// a user agent without one reads as an in-app view. A real browser without
+// it would get "open this page in a browser" and no steps. An in-app view
+// that sends Safari's user agent (SFSafariViewController, used by Gmail,
+// Slack and X) reads as Safari: the page cannot tell them apart.
+export function iosBrowser(userAgent: string): IosBrowser {
+  for (const [token, browser] of IOS_BROWSER_TOKENS)
+    if (token.test(userAgent)) return browser;
+  if (IN_APP_TOKENS.test(userAgent)) return "in-app";
+  return /\bSafari\//.test(userAgent) ? "safari" : "in-app";
+}
+
+// The steps to show here: an unknown or in-app browser gets the generic ones.
+export function stepsBrowser(env: InstallEnv): StepsBrowser {
+  const browser = env.iosBrowser;
+  return browser === null || browser === "in-app" ? "other" : browser;
 }
 
 // "browser": open the page in a browser, which installs it with one of the
-// other two.
+// other two (from an installed window, or from another app's browser).
 export type InstallMode = "prompt" | "ios-steps" | "browser" | null;
 
 // The Chromium event; not in the DOM typings.
@@ -42,13 +85,17 @@ export function readInstallEnv(): InstallEnv {
       standalone: false,
       promptSupported: false,
       handheld: false,
+      iosBrowser: null,
     };
   const env = readPushEnv();
+  const ios = isIos(env);
   return {
-    ios: isIos(env),
+    ios,
     standalone: env.standalone,
     promptSupported: "onbeforeinstallprompt" in window,
     handheld: isHandheld(env, isTouchPrimary()),
+    // The Home Screen window's user agent names no browser.
+    iosBrowser: ios && !env.standalone ? iosBrowser(env.userAgent) : null,
   };
 }
 
@@ -69,7 +116,8 @@ export function installMode(
   officeWindow = false,
 ): InstallMode {
   if (env.standalone) return officeWindow ? "browser" : null;
-  if (env.ios) return "ios-steps";
+  // Another app's browser has no Add to Home Screen.
+  if (env.ios) return env.iosBrowser === "in-app" ? "browser" : "ios-steps";
   return env.promptSupported && held ? "prompt" : null;
 }
 

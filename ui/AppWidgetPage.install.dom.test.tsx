@@ -34,6 +34,7 @@ const { asDevice, IPHONE_HOME_SCREEN } =
 const { en } = await import("../shared/i18n/en.ts");
 const { expectInlineInstallSteps } =
   await import("./test-support/install-steps.ts");
+const { IOS_UA, iphoneWith } = await import("./test-support/ios-browsers.ts");
 const { OFFICE_RETURN_KEY, OFFICE_WINDOW_KEY } =
   await import("./home-screen-office.ts");
 
@@ -371,6 +372,51 @@ it("shows the Add to Home Screen steps from the dock, beside the direct link, wi
   expect(button!.getAttribute("aria-expanded")).toBe("false");
 });
 
+// Each iPhone browser gets its own steps (task 5765f58e).
+it("shows Chrome's Add to Home Screen steps in iPhone Chrome", async () => {
+  undoDevice = asDevice(iphoneWith(IOS_UA.chrome));
+  const page = await mount();
+  fireEvent.click(page.install()!);
+  const popover = page.popover();
+  expect(popover).not.toBeNull();
+  expectInlineInstallSteps(popover!, "chrome");
+});
+
+// A mail or social app's view has no Add to Home Screen: the entry sends the
+// member to their own browser with the page's link.
+it("sends the member to a browser to install, in an iPhone in-app view", async () => {
+  undoDevice = asDevice(iphoneWith(IOS_UA.linkedin));
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void written.push(text) },
+  });
+  try {
+    const page = await mount();
+    const button = page.install();
+    expect(button).not.toBeNull();
+    fireEvent.click(button!);
+    const popover = page.popover();
+    expect(popover).not.toBeNull();
+    expect(page.steps()).toHaveLength(0);
+    expect(popover!.querySelector("a")).toBeNull();
+    await act(async () => {
+      fireEvent.click(
+        within(popover!).getByRole("button", {
+          name: en["appWidget.copyLink"],
+        }),
+      );
+    });
+    expect(written).toEqual([
+      `${window.location.origin}/${boot.name}${INSTALL_HASH}`,
+    ]);
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
 for (const [label, chat] of [
   ["on a phone with a chat", true],
   // Without a chat the dock still shows, for the install entry.
@@ -437,8 +483,7 @@ it("does not open the Chrome offer when the event comes without the hash, and ke
 
 // Nil, 2026-10-30: in the iPhone Home Screen office he found no way to install
 // an app. No page installs from that window, so the entry sends the member to
-// a browser that holds a session: Safari through its link, or any other one
-// through the copied link. The app's own Home Screen app offers nothing.
+// a browser that holds a session, through the copied link. The app's own Home Screen app offers nothing.
 it("offers no install entry in the app's own Home Screen app", async () => {
   undoDevice = asDevice(IPHONE_HOME_SCREEN);
   const page = await mount({ chat: true, isMobile: true });
@@ -504,10 +549,10 @@ for (const [label, chat, officeWindow] of [
       // The Share steps belong to the browser, not to this window.
       expect(page.steps()).toHaveLength(0);
       const pageLink = `${window.location.origin}/${boot.name}${INSTALL_HASH}`;
-      const safari = within(steps).getByRole("link", {
-        name: en["appWidget.openInSafari"],
-      });
-      expect(safari.getAttribute("href")).toBe("x-safari-" + pageLink);
+      // Nil, 2026-11-23: never send the member to Safari (task 5765f58e). No
+      // page opens the default browser from this window, so the link is
+      // copied.
+      expect(steps.querySelector("a")).toBeNull();
       await act(async () => {
         fireEvent.click(
           within(steps).getByRole("button", { name: en["appWidget.copyLink"] }),

@@ -1,5 +1,6 @@
 // The icons of "Install as app" (ui/app-install.ts).
 
+import type { StepsBrowser } from "../app-install.ts";
 import { useI18n } from "../i18n.tsx";
 
 export function InstallIcon({ size = 16 }: { size?: number }) {
@@ -40,16 +41,33 @@ function inlineStyle(size: number | string) {
   };
 }
 
-// The iPhone steps: one sentence with Share, ••• and Add to Home Screen
-// drawn where the sentence names them.
-export function InstallStepsText() {
+// The iPhone steps for this browser: one sentence with Share, ••• (Safari
+// only) and Add to Home Screen drawn where the sentence names them. Firefox,
+// Edge and an unknown browser reach Share through their menu.
+export function InstallStepsText({ browser }: { browser: StepsBrowser }) {
   const { rich } = useI18n();
-  return rich("appWidget.installSteps", {
-    share: <ShareIcon />,
-    more: <MoreIcon />,
-    add: <AddToHomeIcon />,
-  });
+  const share = <ShareIcon />;
+  const add = <AddToHomeIcon />;
+  const route = STEPS_ROUTE[browser];
+  if (route === "safari")
+    return rich("appWidget.installSteps.safari", {
+      share,
+      more: <MoreIcon />,
+      add,
+    });
+  if (route === "chrome")
+    return rich("appWidget.installSteps.chrome", { share, add });
+  return rich("appWidget.installSteps.menu", { share, add });
 }
+
+// The route each browser's steps take; a new browser value fails typecheck.
+const STEPS_ROUTE = {
+  safari: "safari",
+  chrome: "chrome",
+  firefox: "menu",
+  edge: "menu",
+  other: "menu",
+} as const satisfies Record<StepsBrowser, "safari" | "chrome" | "menu">;
 
 // Share, as Safari and Chrome draw it.
 export function ShareIcon({ size = "1em" }: { size?: number | string }) {

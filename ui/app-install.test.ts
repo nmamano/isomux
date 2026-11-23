@@ -11,13 +11,17 @@ import {
   captureInstallPrompt,
   heldInstallPrompt,
   installMode,
+  iosBrowser,
   isHandheld,
   promptInstall,
   showOfficeInstallNotice,
+  stepsBrowser,
   subscribeInstallPrompt,
   type InstallEnv,
+  type IosBrowser,
 } from "./app-install.ts";
 import type { PushEnv } from "./push-subscription.ts";
+import { IOS_UA } from "./test-support/ios-browsers.ts";
 
 // Android Chrome.
 const CHROME: InstallEnv = {
@@ -25,6 +29,7 @@ const CHROME: InstallEnv = {
   standalone: false,
   promptSupported: true,
   handheld: true,
+  iosBrowser: null,
 };
 const CHROME_APP: InstallEnv = { ...CHROME, standalone: true };
 const DESKTOP_CHROME: InstallEnv = { ...CHROME, handheld: false };
@@ -33,14 +38,23 @@ const IOS_SAFARI: InstallEnv = {
   standalone: false,
   promptSupported: false,
   handheld: true,
+  iosBrowser: "safari",
 };
-const IOS_HOME: InstallEnv = { ...IOS_SAFARI, standalone: true };
+const IOS_HOME: InstallEnv = {
+  ...IOS_SAFARI,
+  standalone: true,
+  iosBrowser: null,
+};
+// A mail or social app's browser: it has no Add to Home Screen (task
+// 5765f58e).
+const IOS_IN_APP: InstallEnv = { ...IOS_SAFARI, iosBrowser: "in-app" };
 // Firefox on Android.
 const FIREFOX: InstallEnv = {
   ios: false,
   standalone: false,
   promptSupported: false,
   handheld: true,
+  iosBrowser: null,
 };
 
 for (const [label, env, held, mode, officeWindow] of [
@@ -49,8 +63,46 @@ for (const [label, env, held, mode, officeWindow] of [
   ["Chrome with no event", CHROME, false, null, false],
   ["an installed Chrome window", CHROME_APP, false, null, false],
   ["iPhone Safari", IOS_SAFARI, false, "ios-steps", false],
+  [
+    "iPhone Chrome",
+    { ...IOS_SAFARI, iosBrowser: "chrome" },
+    false,
+    "ios-steps",
+    false,
+  ],
+  [
+    "iPhone Firefox",
+    { ...IOS_SAFARI, iosBrowser: "firefox" },
+    false,
+    "ios-steps",
+    false,
+  ],
+  [
+    "iPhone Edge",
+    { ...IOS_SAFARI, iosBrowser: "edge" },
+    false,
+    "ios-steps",
+    false,
+  ],
+  [
+    "an unknown iPhone browser",
+    { ...IOS_SAFARI, iosBrowser: "other" },
+    false,
+    "ios-steps",
+    false,
+  ],
+  // No Add to Home Screen there: the member opens the page in a browser.
+  ["an iPhone in-app view", IOS_IN_APP, false, "browser", false],
   // The app's own Home Screen app: there is nothing left to install.
   ["an iPhone Home Screen window", IOS_HOME, false, null, false],
+  // The window is read first, whatever the browser field holds.
+  [
+    "an iPhone Home Screen window read as in-app",
+    { ...IOS_HOME, iosBrowser: "in-app" },
+    false,
+    null,
+    false,
+  ],
   // The Home Screen office's window: a browser installs the app.
   ["the iPhone Home Screen office", IOS_HOME, false, "browser", true],
   ["an installed Chrome office", CHROME_APP, true, "browser", true],
@@ -86,11 +138,62 @@ for (const [label, env, held, seen, shows] of [
   ["an installed Chrome window", CHROME_APP, true, false, false],
   ["iPhone Safari", IOS_SAFARI, false, false, true],
   ["iPhone Safari, closed before", IOS_SAFARI, false, true, false],
+  // Its notice sends the member to a browser.
+  ["an iPhone in-app view", IOS_IN_APP, false, false, true],
+  ["an iPhone in-app view, closed before", IOS_IN_APP, false, true, false],
   ["an iPhone Home Screen window", IOS_HOME, false, false, false],
   ["Firefox on a phone", FIREFOX, false, false, false],
 ] as const) {
   it(`the office notice shows in ${label}: ${shows}`, () => {
     expect(showOfficeInstallNotice(env, held, seen)).toBe(shows);
+  });
+}
+
+// Each iPhone browser that names itself gets its own steps; a browser whose
+// menus we do not know gets the generic ones. Another app's view is told
+// apart by its own token or by the missing Safari token. SFSafariViewController
+// and Brave send Safari's user agent: no page can tell them from Safari.
+for (const [label, ua, browser] of [
+  ["Safari", IOS_UA.safari, "safari"],
+  ["iPad Safari (a desktop user agent)", IOS_UA.ipadSafari, "safari"],
+  ["Chrome", IOS_UA.chrome, "chrome"],
+  ["Firefox", IOS_UA.firefox, "firefox"],
+  ["Edge", IOS_UA.edge, "edge"],
+  ["Opera", IOS_UA.opera, "other"],
+  ["DuckDuckGo", IOS_UA.duckduckgo, "other"],
+  ["Instagram", IOS_UA.instagram, "in-app"],
+  ["Threads", IOS_UA.threads, "in-app"],
+  ["Facebook", IOS_UA.facebook, "in-app"],
+  ["LinkedIn", IOS_UA.linkedin, "in-app"],
+  ["TikTok", IOS_UA.tiktok, "in-app"],
+  // The token list alone catches it: it sends Safari's token.
+  ["the Google app", IOS_UA.google, "in-app"],
+  // The missing Safari token alone catches it.
+  ["a plain WKWebView", IOS_UA.webview, "in-app"],
+] as const) {
+  it(`reads ${label} as ${browser}`, () => {
+    expect(iosBrowser(ua)).toBe(browser satisfies IosBrowser);
+  });
+}
+
+// The condition of the two in-app rows above: each is caught by one rule.
+it("has an in-app view with Safari's token and one with no browser token", () => {
+  expect(IOS_UA.google).toContain("Safari/");
+  expect(IOS_UA.webview).not.toMatch(/Safari\/|CriOS|FxiOS|EdgiOS/);
+});
+
+for (const [browser, steps] of [
+  ["safari", "safari"],
+  ["chrome", "chrome"],
+  ["firefox", "firefox"],
+  ["edge", "edge"],
+  ["other", "other"],
+  // The steps never show there; if they do, the generic ones, never Safari's.
+  ["in-app", "other"],
+  [null, "other"],
+] as const) {
+  it(`gives ${String(browser)} the ${steps} steps`, () => {
+    expect(stepsBrowser({ ...IOS_SAFARI, iosBrowser: browser })).toBe(steps);
   });
 }
 

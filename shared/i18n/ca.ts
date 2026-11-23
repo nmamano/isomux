@@ -5111,9 +5111,12 @@ Coses que pots fer per ell:
   "appWidget.installInBrowser":
     "Per instal·lar-la, obre aquesta pàgina en un navegador on tinguis la sessió iniciada.",
   "appWidget.copyLink": "Copia l'enllaç",
-  "appWidget.openInSafari": "Obre a Safari",
-  "appWidget.installSteps":
-    "Toca Comparteix {share} a la barra d'eines o a la barra d'adreces (al Safari, pot ser a {more}) i després Afegeix a la pantalla d'inici {add}. Si no la veus, desplaça't cap avall o toca Mostra'n més.",
+  "appWidget.installSteps.safari":
+    "Toca Comparteix {share} a la barra d'eines o a la barra d'adreces (pot ser a {more}) i després Afegeix a la pantalla d'inici {add}. Si no la veus, desplaça't cap avall o toca Mostra'n més.",
+  "appWidget.installSteps.chrome":
+    "Toca Comparteix {share} a la dreta de la barra d'adreces i després Afegeix a la pantalla d'inici {add}. Si no la veus, desplaça't cap avall o toca Edita les accions.",
+  "appWidget.installSteps.menu":
+    "Al menú del navegador, toca Comparteix {share} i després Afegeix a la pantalla d'inici {add}. Si no la veus, desplaça't cap avall o toca Edita les accions.",
   "appWidget.installConfirm": "Instal·la {appName}",
   "officeInstall.notice": "Isomux funciona millor com a app.",
   "officeInstall.noticeSteps": "Isomux funciona millor com a app. {steps}",

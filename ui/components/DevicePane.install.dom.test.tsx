@@ -14,6 +14,8 @@ const { asDevice, IPHONE_HOME_SCREEN } =
   await import("../test-support/ios-home-screen.ts");
 const { expectInlineInstallSteps } =
   await import("../test-support/install-steps.ts");
+const { IOS_UA, iphoneWith } = await import("../test-support/ios-browsers.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 
 // ui/index.tsx does this at boot.
 beforeAll(() => captureInstallPrompt(window));
@@ -116,6 +118,51 @@ it("shows the Add to Home Screen steps in iPhone Safari", () => {
   expect(entry()?.dataset.officeInstallEntry).toBe("steps");
   // The icons are drawn, not glyphs: iOS draws glyphs as emoji.
   expectInlineInstallSteps(entry()!);
+});
+
+// Each iPhone browser gets its own steps (task 5765f58e), read from its user
+// agent; a browser whose menus we do not know gets the generic ones.
+for (const [label, ua, browser] of [
+  ["Chrome", IOS_UA.chrome, "chrome"],
+  ["Firefox", IOS_UA.firefox, "firefox"],
+  ["Edge", IOS_UA.edge, "edge"],
+  ["Opera", IOS_UA.opera, "other"],
+] as const) {
+  it(`shows the ${browser} steps in iPhone ${label}`, () => {
+    undoDevice = asDevice(iphoneWith(ua));
+    const entry = mount();
+    expect(entry()?.dataset.officeInstallEntry).toBe("steps");
+    expectInlineInstallSteps(entry()!, browser);
+  });
+}
+
+// A mail or social app's view has no Add to Home Screen: the entry sends the
+// member to their own browser with the office's link, never to Safari.
+it("sends the member to a browser from an iPhone in-app view", async () => {
+  undoDevice = asDevice(iphoneWith(IOS_UA.instagram));
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void written.push(text) },
+  });
+  try {
+    const entry = mount();
+    expect(entry()?.dataset.officeInstallEntry).toBe("browser");
+    expect(entry()!.querySelector("[data-install-icon]")).toBeNull();
+    expect(entry()!.querySelector("a")).toBeNull();
+    const copy = [...entry()!.querySelectorAll("button")].find(
+      (b) => b.textContent === en["appWidget.copyLink"],
+    );
+    expect(copy).toBeDefined();
+    await act(async () => {
+      fireEvent.click(copy!);
+    });
+    expect(written).toEqual([`${window.location.origin}/`]);
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
 });
 
 for (const [label, setUp] of [

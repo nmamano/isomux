@@ -10,11 +10,13 @@ import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { fireEvent, act } = await import("@testing-library/react");
-const { heldInstallPrompt } = await import("../app-install.ts");
+const { heldInstallPrompt, readInstallEnv } = await import("../app-install.ts");
+const { IOS_UA, iphoneWith } = await import("../test-support/ios-browsers.ts");
 const { expectInlineInstallSteps } =
   await import("../test-support/install-steps.ts");
 const { en } = await import("../../shared/i18n/en.ts");
 const {
+  ANDROID,
   asChrome,
   installEvent,
   IPHONE_SAFARI,
@@ -116,3 +118,57 @@ it("does not show the notice again after its Install button, and the menu instal
   expect(page.notice()).toBeNull();
   expect(page.menuItem()).toBeNull();
 });
+
+// A mail or social app's view (task 5765f58e) has no Add to Home Screen. The
+// notice sends the member to their own browser with the office's link, never
+// to Safari, and the phone menu opens it again after a close.
+it("sends the member to a browser from an iPhone in-app view, and the menu reopens it", async () => {
+  onDevice(iphoneWith(IOS_UA.facebook));
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void written.push(text) },
+  });
+  try {
+    const page = mount();
+    const notice = page.notice();
+    expect(notice?.dataset.officeInstallNotice).toBe("browser");
+    expect(notice!.querySelector("[data-install-icon]")).toBeNull();
+    expect(notice!.querySelector("a")).toBeNull();
+    const copy = [...notice!.querySelectorAll("button")].find(
+      (b) => b.textContent === en["appWidget.copyLink"],
+    );
+    expect(copy).toBeDefined();
+    await act(async () => {
+      fireEvent.click(copy!);
+    });
+    expect(written).toEqual([`${window.location.origin}/`]);
+    fireEvent.click(page.dismiss()!);
+    expect(page.notice()).toBeNull();
+    const item = page.menuItem();
+    expect(item).not.toBeNull();
+    fireEvent.click(item!);
+    expect(page.notice()?.dataset.officeInstallNotice).toBe("browser");
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+// The browser is read from the user agent in an iPhone tab only: a Home
+// Screen window's user agent names no browser, and it is no in-app view.
+for (const [label, device, browser] of [
+  ["an iPhone Chrome tab", iphoneWith(IOS_UA.chrome), "chrome"],
+  [
+    "an iPhone Home Screen window",
+    { ...iphoneWith(IOS_UA.webview), standalone: true },
+    null,
+  ],
+  ["Android", ANDROID, null],
+] as const) {
+  it(`reads the iPhone browser in ${label}: ${String(browser)}`, () => {
+    onDevice(device);
+    expect(readInstallEnv().iosBrowser).toBe(browser);
+  });
+}

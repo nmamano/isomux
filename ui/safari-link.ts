@@ -1,11 +1,10 @@
 // The links that leave the iPhone Home Screen office for the member's
-// browser. "Open in Safari" under the app page's "Install as app" goes to
-// Safari, because Add to Home Screen is in a browser's Share menu. The
-// elevator's rides go to Safari or Chrome, by the member's choice, because the
-// window the app opens for another office does not hold that office's sign-in
-// (task 67fa3634). Other links stay in the window, which holds the session
-// (task 79beacd9). The x-safari-https scheme (iOS 17 and later) makes the
-// system open the URL in Safari; googlechromes opens it in Chrome.
+// browser. The elevator's rides go to Safari or Chrome, by the member's
+// choice, because the window the app opens for another office does not hold
+// that office's sign-in (task 67fa3634). Other links stay in the window,
+// which holds the session (task 79beacd9). The x-safari-https scheme (iOS 17
+// and later) makes the system open the URL in Safari; googlechromes opens it
+// in Chrome.
 
 import { isIos, readPushEnv } from "./push-subscription.ts";
 

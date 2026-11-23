@@ -45,7 +45,6 @@ import {
   canOfferInstall,
   readInstallEnv,
 } from "../app-install.ts";
-import { readSafariEnv } from "../safari-link.ts";
 import { BrowserInstall } from "./BrowserInstall.tsx";
 import { Data } from "./Data.tsx";
 import {
@@ -1785,7 +1784,6 @@ export function AppsView({
                 appName: <Data>{installSheet.name}</Data>,
               })}
               href={installSheet.href}
-              safari={readSafariEnv()}
             />
             <div
               style={{

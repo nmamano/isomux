@@ -1,7 +1,8 @@
 // Install the office as an app (ui/app-install.ts): a notice on a phone or
 // tablet browser that can install it, until the member closes it or installs
 // from it, and the entry in Settings > Device label.
-// Neither shows in an installed window.
+// Neither shows in an installed window. In another app's browser both say to
+// open the office in a browser, with Copy link.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../i18n.tsx";
@@ -13,6 +14,7 @@ import {
   promptInstall,
   readInstallEnv,
   showOfficeInstallNotice,
+  stepsBrowser,
   subscribeInstallPrompt,
   subscribeOfficeInstallSteps,
   type InstallMode,
@@ -22,6 +24,7 @@ import {
   officeInstallNoticeSeen,
 } from "../device-settings.ts";
 import { sectionHeader } from "./access-shared.tsx";
+import { BrowserInstall } from "./BrowserInstall.tsx";
 import { dialogSaveBtn } from "./dialog-styles.ts";
 import { InstallStepsText } from "./install-icons.tsx";
 import { NoticeCloseButton } from "./NoticeCloseButton.tsx";
@@ -35,6 +38,21 @@ function useHeldInstallPrompt(): boolean {
     () => heldInstallPrompt() !== null,
     serverSnapshot,
   );
+}
+
+// The office page, for Copy link where it cannot install.
+function officeHref(): string {
+  return `${window.location.origin}/`;
+}
+
+// The marker of each form: the browser's prompt, the steps, or the link to
+// open in a browser.
+function installMarker(mode: InstallMode): string {
+  return mode === "prompt"
+    ? "prompt"
+    : mode === "browser"
+      ? "browser"
+      : "steps";
 }
 
 // What Install as app does in this browser now; null hides every entry.
@@ -53,8 +71,9 @@ export function OfficeInstallNotice(): React.ReactElement | null {
     serverSnapshot,
   );
   const [seen, setSeen] = useState(officeInstallNoticeSeen);
+  // The phone menu opens the steps or the in-app form, seen or not.
   const show =
-    (mode === "ios-steps" && stepsOpen) ||
+    (mode !== null && mode !== "prompt" && stepsOpen) ||
     showOfficeInstallNotice(env, held, seen);
   // Steps the phone menu opened do not outlive the office view.
   useEffect(() => closeOfficeInstallSteps, []);
@@ -72,7 +91,7 @@ export function OfficeInstallNotice(): React.ReactElement | null {
   return (
     <div
       role="status"
-      data-office-install-notice={mode === "prompt" ? "prompt" : "steps"}
+      data-office-install-notice={installMarker(mode)}
       style={{
         position: "absolute",
         top: 8,
@@ -118,9 +137,18 @@ export function OfficeInstallNotice(): React.ReactElement | null {
             {t("officeInstall.install")}
           </button>
         </>
+      ) : mode === "browser" ? (
+        <BrowserInstall
+          text={rich("officeInstall.noticeSteps", {
+            steps: t("appWidget.installInBrowser"),
+          })}
+          href={officeHref()}
+        />
       ) : (
         <span>
-          {rich("officeInstall.noticeSteps", { steps: <InstallStepsText /> })}
+          {rich("officeInstall.noticeSteps", {
+            steps: <InstallStepsText browser={stepsBrowser(env)} />,
+          })}
         </span>
       )}
       <NoticeCloseButton data-office-install-dismiss="" onClick={close} />
@@ -134,7 +162,7 @@ export function OfficeInstallEntry(): React.ReactElement | null {
   const mode = useInstallMode();
   if (!mode) return null;
   return (
-    <div data-office-install-entry={mode === "prompt" ? "prompt" : "steps"}>
+    <div data-office-install-entry={installMarker(mode)}>
       <h4 style={{ ...sectionHeader, marginTop: 32 }}>
         {t("appWidget.install")}
       </h4>
@@ -145,6 +173,19 @@ export function OfficeInstallEntry(): React.ReactElement | null {
         >
           {t("officeInstall.install")}
         </button>
+      ) : mode === "browser" ? (
+        <div
+          style={{
+            margin: "4px 0 0",
+            fontSize: 13,
+            color: "var(--text-secondary)",
+          }}
+        >
+          <BrowserInstall
+            text={t("appWidget.installInBrowser")}
+            href={officeHref()}
+          />
+        </div>
       ) : (
         <p
           style={{
@@ -153,7 +194,7 @@ export function OfficeInstallEntry(): React.ReactElement | null {
             color: "var(--text-secondary)",
           }}
         >
-          <InstallStepsText />
+          <InstallStepsText browser={stepsBrowser(readInstallEnv())} />
         </p>
       )}
     </div>

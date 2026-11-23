@@ -5110,9 +5110,12 @@ Cosas que puedes hacer por él:
   "appWidget.installInBrowser":
     "Para instalarla, abre esta página en un navegador donde tengas la sesión iniciada.",
   "appWidget.copyLink": "Copiar enlace",
-  "appWidget.openInSafari": "Abrir en Safari",
-  "appWidget.installSteps":
-    "Toca Compartir {share} en la barra de herramientas o en la barra de direcciones (en Safari, puede estar en {more}) y luego Añadir a pantalla de inicio {add}. Si no la ves, desplázate hacia abajo o toca Ver más.",
+  "appWidget.installSteps.safari":
+    "Toca Compartir {share} en la barra de herramientas o en la barra de direcciones (puede estar en {more}) y luego Añadir a pantalla de inicio {add}. Si no la ves, desplázate hacia abajo o toca Ver más.",
+  "appWidget.installSteps.chrome":
+    "Toca Compartir {share} a la derecha de la barra de direcciones y luego Añadir a pantalla de inicio {add}. Si no la ves, desplázate hacia abajo o toca Editar acciones.",
+  "appWidget.installSteps.menu":
+    "En el menú del navegador, toca Compartir {share} y luego Añadir a pantalla de inicio {add}. Si no la ves, desplázate hacia abajo o toca Editar acciones.",
   "appWidget.installConfirm": "Instalar {appName}",
   "officeInstall.notice": "Isomux funciona mejor como app.",
   "officeInstall.noticeSteps": "Isomux funciona mejor como app. {steps}",

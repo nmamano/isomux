@@ -180,11 +180,8 @@ it("shows the install steps in place in the iPhone Home Screen office, without o
     expect(sheet!.getAttribute("role")).toBe("dialog");
     // The app's name is a value in the sentence (task 419dcb70).
     expectValueAsData(sheet!, "short");
-    expect(
-      within(sheet!)
-        .getByRole("link", { name: en["appWidget.openInSafari"] })
-        .getAttribute("href"),
-    ).toBe("x-safari-" + SHORT + INSTALL_HASH);
+    // Nil, 2026-11-23: never send the member to Safari (task 5765f58e).
+    expect(sheet!.querySelector("a")).toBeNull();
     await act(async () =>
       within(sheet!)
         .getByRole("button", { name: en["appWidget.copyLink"] })
