@@ -760,25 +760,31 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       // replaces the whole line.
       const failure = humanizeBackendFailure(errMessage(err));
       const classified = failure.raw !== undefined;
-      // The SDK's "process exited with code 1" is opaque; diagnose common causes.
-      // The manager answers null for non-Claude agents (the diagnosis reads
-      // CLAUDE_CONFIG_DIR/projects).
-      const hints = this.deps.diagnoseProcessExitHints(host, this.sessionId);
-      this.deathLines(errMessage(err), () =>
-        this.deps.addLogEntry(
-          this.agentId,
-          "error",
-          classified ? failure.text : errorLine,
-          classified
-            ? backendFailureMeta({ ...failure, raw: rawLine })
-            : undefined,
-        ),
-      );
-      if (hints)
+      // After auth_needed the sign-in card is the fix: the provider's words
+      // and the hints that annotate them stay out of the chat, since they can
+      // name a CLI sign-in command (task 604d052b). A thrown error has no
+      // Isomux-written form to keep.
+      if (!authNeeded) {
+        // The SDK's "process exited with code 1" is opaque; diagnose common
+        // causes. The manager answers null for non-Claude agents (the
+        // diagnosis reads CLAUDE_CONFIG_DIR/projects).
+        const hints = this.deps.diagnoseProcessExitHints(host, this.sessionId);
         this.deathLines(errMessage(err), () =>
-          this.deps.addLogEntry(this.agentId, "system", hints),
+          this.deps.addLogEntry(
+            this.agentId,
+            "error",
+            classified ? failure.text : errorLine,
+            classified
+              ? backendFailureMeta({ ...failure, raw: rawLine })
+              : undefined,
+          ),
         );
-      this.lastBackendFailure = failure.id;
+        if (hints)
+          this.deathLines(errMessage(err), () =>
+            this.deps.addLogEntry(this.agentId, "system", hints),
+          );
+        this.lastBackendFailure = failure.id;
+      }
       // Same rationale as the "error"-event path in processNormalizedEvent:
       // a turn that needed sign-in is not an agent failure, so the desk waits
       // for the member instead of showing red.

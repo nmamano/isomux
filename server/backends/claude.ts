@@ -195,9 +195,11 @@ function loginCommand(env?: { [key: string]: string | undefined }): string {
 
 // A 403 is the provider refusing the request, not a sign-in failure
 // (task 2bd836d5; translateSDKMessage quotes it). A 401 stands alone, not
-// inside a longer number such as a timestamp (task 81a336ae).
+// inside a longer number such as a timestamp (task 81a336ae). Any CLI text
+// that tells the member to run `claude auth login` is a sign-in failure: the
+// sign-in card is the fix, never the command (task 604d052b).
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|\b401\b/i;
+  /unauthori[zs]ed|not authenticated|authentication|failed to authenticate(?!\. API Error: 403\b)|auth.*expired|login reached its time limit|claude auth login|invalid.*token|login.*required|not logged in|run \/login|\b401\b/i;
 
 // The one Claude sign-in predicate: the session's auth signals and the
 // backend's detectAuthError both use it.

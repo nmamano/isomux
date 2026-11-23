@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import type { NormalizedEvent } from "../backends/types.ts";
+import type { AgentBackendType } from "../../shared/types.ts";
+import { msg } from "../../shared/i18n/log-message.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -37,6 +39,11 @@ function room(): RoomWire[] {
 const AUTH_SHAPED_NOTE =
   "Allowing any command starting with `grep 401` for this session.";
 const AUTH_SHAPED_ERROR = "401 Unauthorized";
+// What diagnoseProcessExit can add under a Claude agent's error line.
+const EXIT_HINT_KEYS: string[] = [
+  "systemEntries.claudeExit.cwdMissing",
+  "systemEntries.claudeSession.missingAfterExit",
+];
 
 // A file skill, so `/<name>` runs as a skill turn.
 const SKILL = "authneededskill";
@@ -55,6 +62,7 @@ async function run(
   events: NormalizedEvent[],
   until: "card" | "text" | "error",
   via: "idle" | "queue" | "send" | "skill" = "idle",
+  agentType: AgentBackendType = "codex",
 ) {
   const fake = new FakeBackend({
     isAuthError: (t) => /401|not logged in|authentication/i.test(t),
@@ -71,17 +79,17 @@ async function run(
     initialRooms: [],
     listProviderAccounts: async () => [
       {
-        provider: "codex",
+        provider: agentType === "claude" ? "claude" : "codex",
         scope: "office",
         accountStatus: "not_connected",
         loginStatus: "idle",
         canBrowserLogin: true,
       },
     ],
-    effectiveProviderAccountTarget: () => ({
-      provider: "codex",
+    effectiveProviderAccountTarget: (_userId, provider) => ({
+      provider,
       scope: "office",
-      dir: "/accounts/office-codex",
+      dir: `/accounts/office-${provider}`,
     }),
     // An owner manager: a member's office card says to ask an owner.
     findUser: () => ({ id: "user-a", role: "owner" }),
@@ -98,7 +106,7 @@ async function run(
     undefined,
     undefined,
     "Owner",
-    "codex",
+    agentType,
     undefined,
     "user-a",
   );
@@ -130,7 +138,7 @@ async function run(
   const card = () =>
     mgr
       .getAgentLogs(info.id)
-      .filter((entry) => entry.metadata?.providerLogin === "codex");
+      .filter((entry) => entry.metadata?.providerLogin === agentType);
   await waitUntil(() => {
     const logs = mgr.getAgentLogs(info.id);
     if (until === "card") return card().length > 0;
@@ -146,6 +154,14 @@ async function run(
     errors: logs.filter((entry) => entry.kind === "error").length,
     noteLogged: logs.some((entry) => entry.content === AUTH_SHAPED_NOTE),
     state: mgr.getAgent(info.id)?.state,
+    // The provider's own words anywhere in the chat, metadata included.
+    providerText: JSON.stringify(logs).includes(AUTH_SHAPED_ERROR),
+    // The Claude process-exit hint that annotates an error line.
+    exitHints: logs.filter((entry) =>
+      entry.message?.some(
+        (part) => typeof part === "object" && EXIT_HINT_KEYS.includes(part.key),
+      ),
+    ).length,
   };
 }
 
@@ -156,10 +172,19 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
     ).toMatchObject({ cards: 0, noteLogged: true });
   });
 
+  // The controls: without auth_needed the provider's words are the error
+  // line, so the cases below that find none of them are not blind.
   it("leaves an auth-shaped error without auth_needed in error, with no card", async () => {
     expect(
       await run([{ kind: "error", message: AUTH_SHAPED_ERROR }], "error"),
-    ).toEqual({ cards: 0, errors: 1, noteLogged: false, state: "error" });
+    ).toEqual({
+      cards: 0,
+      errors: 1,
+      noteLogged: false,
+      state: "error",
+      providerText: true,
+      exitHints: 0,
+    });
   });
 
   it("leaves an auth-shaped failed turn without auth_needed in error, with no card", async () => {
@@ -174,10 +199,29 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
         ],
         "error",
       ),
-    ).toEqual({ cards: 0, errors: 1, noteLogged: false, state: "error" });
+    ).toEqual({
+      cards: 0,
+      errors: 1,
+      noteLogged: false,
+      state: "error",
+      providerText: true,
+      exitHints: 0,
+    });
   });
 
-  it("keeps the error line of an error after auth_needed, and the desk waits", async () => {
+  // Task 604d052b. After auth_needed the sign-in card is the fix: the
+  // provider's words (a CLI's "run <command> to sign in") never reach the
+  // chat, and the desk waits for the member.
+  const SIGN_IN_ONLY = {
+    cards: 1,
+    errors: 0,
+    noteLogged: false,
+    state: "waiting_for_response" as const,
+    providerText: false,
+    exitHints: 0,
+  };
+
+  it("writes no provider error line for an error after auth_needed", async () => {
     expect(
       await run(
         [
@@ -186,18 +230,13 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
         ],
         "card",
       ),
-    ).toEqual({
-      cards: 1,
-      errors: 1,
-      noteLogged: false,
-      state: "waiting_for_response",
-    });
+    ).toEqual(SIGN_IN_ONLY);
   });
 
-  // The turn's owner gets the rejection after the error handler wrote the
-  // line and the card: it adds no second line and leaves the desk waiting.
+  // The turn's owner gets the rejection after the event handler wrote the
+  // card: it adds no line of its own and leaves the desk waiting.
   for (const via of ["queue", "send", "skill"] as const) {
-    it(`keeps one error line and a waiting desk when auth_needed ends a ${via} turn`, async () => {
+    it(`writes only the card and a waiting desk when auth_needed ends a ${via} turn`, async () => {
       expect(
         await run(
           [
@@ -207,12 +246,7 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
           "card",
           via,
         ),
-      ).toEqual({
-        cards: 1,
-        errors: 1,
-        noteLogged: false,
-        state: "waiting_for_response",
-      });
+      ).toEqual(SIGN_IN_ONLY);
     });
 
     it(`leaves the desk in error when an auth-shaped error with no auth_needed ends a ${via} turn`, async () => {
@@ -222,25 +256,24 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
           "error",
           via,
         ),
-      ).toMatchObject({ cards: 0, state: "error" });
+      ).toMatchObject({ cards: 0, state: "error", providerText: true });
     });
   }
 
-  it("keeps the error line of a failed turn after auth_needed, and the desk waits", async () => {
+  it("writes no provider error line for a failed turn after auth_needed", async () => {
     expect(
       await run(
         [
           { kind: "auth_needed" },
-          { kind: "turn_completed", status: "failed", error: "Not logged in" },
+          {
+            kind: "turn_completed",
+            status: "failed",
+            error: AUTH_SHAPED_ERROR,
+          },
         ],
         "card",
       ),
-    ).toEqual({
-      cards: 1,
-      errors: 1,
-      noteLogged: false,
-      state: "waiting_for_response",
-    });
+    ).toEqual(SIGN_IN_ONLY);
   });
 
   it("writes no error line for a failed turn with no error after auth_needed", async () => {
@@ -249,11 +282,57 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
         [{ kind: "auth_needed" }, { kind: "turn_completed", status: "failed" }],
         "card",
       ),
-    ).toEqual({
-      cards: 1,
-      errors: 0,
-      noteLogged: false,
-      state: "waiting_for_response",
+    ).toEqual(SIGN_IN_ONLY);
+  });
+
+  // A line Isomux wrote itself (a message, not provider text) is not the
+  // provider's sign-in advice: it still shows under the card.
+  const ISOMUX_ERROR = msg("systemEntries.codexTokenRefresh");
+  for (const [name, ev] of [
+    ["an error", { kind: "error", message: ISOMUX_ERROR }],
+    [
+      "a failed turn",
+      { kind: "turn_completed", status: "failed", error: ISOMUX_ERROR },
+    ],
+  ] as const) {
+    it(`keeps Isomux's own error line for ${name} after auth_needed`, async () => {
+      expect(
+        await run([{ kind: "auth_needed" }, ev as NormalizedEvent], "card"),
+      ).toEqual({ ...SIGN_IN_ONLY, errors: 1 });
     });
+  }
+
+  // A Claude agent's error line gets a process-exit hint (here: no
+  // transcript for the session). With no line, the hint goes too.
+  it("writes a Claude exit hint under the error line without auth_needed", async () => {
+    expect(
+      await run(
+        [{ kind: "error", message: AUTH_SHAPED_ERROR }],
+        "error",
+        "idle",
+        "claude",
+      ),
+    ).toEqual({
+      cards: 0,
+      errors: 1,
+      noteLogged: false,
+      state: "error",
+      providerText: true,
+      exitHints: 1,
+    });
+  });
+
+  it("writes no Claude exit hint when auth_needed drops the error line", async () => {
+    expect(
+      await run(
+        [
+          { kind: "auth_needed" },
+          { kind: "error", message: AUTH_SHAPED_ERROR },
+        ],
+        "card",
+        "idle",
+        "claude",
+      ),
+    ).toEqual(SIGN_IN_ONLY);
   });
 });

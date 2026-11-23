@@ -706,9 +706,10 @@ export class BackendSignedOutError extends BackendNotConfiguredError {
 }
 
 /**
- * A turn failed after its backend sent auth_needed. The turn's error line and
- * the sign-in card are already in the chat, so the caller that owns the turn
- * keeps the desk waiting and writes nothing. Keeps the backend's message.
+ * A turn failed after its backend sent auth_needed. The sign-in card (and the
+ * error line, when Isomux wrote the error) is already in the chat, so the
+ * caller that owns the turn keeps the desk waiting and writes nothing. Keeps
+ * the backend's message.
  */
 export class AuthNeededError extends Error {
   constructor(message: string) {

@@ -676,14 +676,21 @@ describe("SessionManager consumer: an unclassified stream failure", () => {
 
 // The adapter says when a turn needs sign-in (auth_needed); a stream failure
 // only asks the manager whether this turn already did. The failure text is
-// auth-shaped in both cases, so a text sniff fails the second one.
+// auth-shaped in both cases, so a text sniff fails the second one. After
+// auth_needed the sign-in card is the fix: the provider's words and the exit
+// hint that annotates them stay out of the chat (task 604d052b).
 describe("SessionManager consumer: a stream failure and sign-in", () => {
   for (const needed of [true, false]) {
     // The turn's owner tells a sign-in failure from a crash by the error it
     // gets, so the answer has to be known before the turn is rejected.
     it(`${needed ? "a turn that needed sign-in leaves the desk waiting and rejects with AuthNeededError" : "otherwise the desk shows the error and the turn gets the original error"}`, async () => {
-      const { deps, stateUpdates, diagnostics, auth } = fakeDeps();
+      const { deps, stateUpdates, diagnostics, auth, logged } = fakeDeps();
       auth.needed = needed;
+      const hint = msg("systemEntries.claudeSession.missingAfterExit", {
+        session: "s1",
+        paths: "/p/s1.jsonl",
+      });
+      deps.diagnoseProcessExitHints = () => hint;
       const sm = new SessionManager<TestHost>("a1", deps);
       const h = host({ info: { state: "thinking", dormant: false } });
       const session = fakeSession();
@@ -701,6 +708,17 @@ describe("SessionManager consumer: a stream failure and sign-in", () => {
 
       expect(diagnostics.authAsked).toBe(1);
       expect(stateUpdates).toEqual([needed ? "waiting_for_response" : "error"]);
+      // Without auth_needed the error line and the hint are written, so the
+      // sign-in case that finds neither is not blind.
+      expect({
+        errors: logged.filter((e) => e.kind === "error").length,
+        hints: logged.filter((e) => e.content === hint).length,
+        providerText: JSON.stringify(logged).includes("401 Unauthorized"),
+      }).toEqual(
+        needed
+          ? { errors: 0, hints: 0, providerText: false }
+          : { errors: 1, hints: 1, providerText: true },
+      );
       const err = await rejected;
       if (needed) {
         expect(err).toBeInstanceOf(AuthNeededError);

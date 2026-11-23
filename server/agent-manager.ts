@@ -3006,9 +3006,10 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   // A caller's turn failed after its backend sent auth_needed: the event
-  // handler already wrote the error line and the sign-in card. Consume the
-  // echo stamp that handler armed for this catch, so it cannot hide a later
-  // failure, and keep the desk waiting for the member.
+  // handler already wrote the sign-in card (and the error line, when Isomux
+  // wrote the error). Consume any echo stamp that handler armed for this
+  // catch, so it cannot hide a later failure, and keep the desk waiting for
+  // the member.
   function keepWaitingForSignIn(agentId: string, managed: ManagedAgent) {
     managed.sessionManager.lastBackendFailure = null;
     updateState(agentId, "waiting_for_response");
@@ -4200,10 +4201,13 @@ export function createAgentManager(deps: ManagerDeps) {
                   ? humanizeBackendFailure(errorText)
                   : { text: errorText, id: "unclassified" };
             // The backend sent auth_needed earlier in this turn: the sign-in
-            // card is already in the chat. A turn it ended with no words of
-            // its own (Codex after its stderr 401) adds no error line.
+            // card is already in the chat and is the fix. The provider's own
+            // words (a plain string) add no error line: they can name a CLI
+            // sign-in command (task 604d052b). An error Isomux wrote stays.
             const isAuthError = managed?.turnFlags.authNeeded === true;
-            const silentAuthEnd = isAuthError && ev.error === undefined;
+            const silentAuthEnd =
+              isAuthError &&
+              (ev.error === undefined || typeof ev.error === "string");
             // A usage-limit stop's notice already says why the turn ended.
             const freeLimitNotice = managed?.turnFlags.freeLimitNotice === true;
             const silentEnd = silentAuthEnd || limitStopped || freeLimitNotice;
@@ -4428,7 +4432,13 @@ export function createAgentManager(deps: ManagerDeps) {
           typeof ev.message === "string"
             ? humanizeBackendFailure(ev.message)
             : { text: ev.message, id: "unclassified" };
-        if (managed) managed.sessionManager.lastBackendFailure = failure.id;
+        // After auth_needed the sign-in card is the fix: the provider's own
+        // words (a plain string) and the hints that annotate them stay out of
+        // the chat, since they can name a CLI sign-in command (task 604d052b).
+        // An error Isomux wrote is still shown.
+        const silentAuthError = isAuthError && typeof ev.message === "string";
+        if (managed && !silentAuthError)
+          managed.sessionManager.lastBackendFailure = failure.id;
         if (managed) checkMemberFolder(agentId, managed);
         // diagnoseProcessExit gives Claude-specific hints (CLAUDE_CONFIG_DIR/
         // projects/ path, "session .jsonl missing" wording). Don't run it for
@@ -4437,7 +4447,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // original backend error this hint is annotating. Resume preflights
         // still throw on broken env (deliberate); the hint generator does not.
         const hints =
-          managed && managed.info.agentType === "claude"
+          managed && managed.info.agentType === "claude" && !silentAuthError
             ? diagnoseProcessExit(
                 managed.info.cwd,
                 managed.sessionManager.sessionId,
@@ -4445,14 +4455,15 @@ export function createAgentManager(deps: ManagerDeps) {
               )
             : null;
         const raw = typeof ev.message === "string" ? ev.message : "";
-        writeUnlessServerStop(agentId, raw, () =>
-          addLogEntry(
-            agentId,
-            "error",
-            failure.text,
-            backendFailureMeta(failure),
-          ),
-        );
+        if (!silentAuthError)
+          writeUnlessServerStop(agentId, raw, () =>
+            addLogEntry(
+              agentId,
+              "error",
+              failure.text,
+              backendFailureMeta(failure),
+            ),
+          );
         if (hints)
           writeUnlessServerStop(agentId, raw, () =>
             addLogEntry(agentId, "system", hints),

@@ -489,24 +489,88 @@ describe("CronjobManager DI (temp-state isolated)", () => {
 
   // The adapter says when a run needs sign-in (auth_needed); the run's
   // terminal event only decides when the hint is written. The fake still calls
-  // "401" auth-shaped, so the last case fails if cron sniffs the text again.
+  // "401" auth-shaped, so the control case fails if cron sniffs the text again.
+  // Task 604d052b: after auth_needed the hint is the fix. The provider's words
+  // (a CLI's "run <command> to sign in") are neither a run line nor the run's
+  // reason; a line Isomux wrote itself still is both.
   const claudeRunHint = translatorFor("en").t(
     "systemEntries.scheduleRun.signIn",
     { provider: "Claude" },
   );
-  const authCases: Array<[string, NormalizedEvent[], boolean]> = [
-    [
-      "an error after auth_needed",
-      [{ kind: "auth_needed" }, { kind: "error", message: "401 unauthorized" }],
-      true,
-    ],
-    [
-      "an auth-shaped error with no auth_needed",
-      [{ kind: "error", message: "401 unauthorized" }],
-      false,
-    ],
+  const PROVIDER_TEXT = "401 unauthorized";
+  const ISOMUX_ERROR = msg("systemEntries.codexTokenRefresh");
+  const isomuxErrorText = translatorFor("en").t(
+    "systemEntries.codexTokenRefresh",
+  );
+  const authCases: Array<{
+    name: string;
+    events: NormalizedEvent[];
+    hinted: boolean;
+    // The run's error lines, in English.
+    errorLines: string[];
+    reason: string;
+  }> = [
+    {
+      name: "a provider error after auth_needed",
+      events: [
+        { kind: "auth_needed" },
+        { kind: "error", message: PROVIDER_TEXT },
+      ],
+      hinted: true,
+      errorLines: [],
+      reason: claudeRunHint,
+    },
+    {
+      name: "a provider failed turn after auth_needed",
+      events: [
+        { kind: "auth_needed" },
+        { kind: "turn_completed", status: "failed", error: PROVIDER_TEXT },
+      ],
+      hinted: true,
+      errorLines: [],
+      reason: claudeRunHint,
+    },
+    {
+      name: "a failed turn with no error after auth_needed",
+      events: [
+        { kind: "auth_needed" },
+        { kind: "turn_completed", status: "failed" },
+      ],
+      hinted: true,
+      errorLines: [],
+      reason: claudeRunHint,
+    },
+    {
+      name: "an Isomux error after auth_needed",
+      events: [
+        { kind: "auth_needed" },
+        { kind: "error", message: ISOMUX_ERROR },
+      ],
+      hinted: true,
+      errorLines: [isomuxErrorText],
+      reason: isomuxErrorText,
+    },
+    {
+      name: "an Isomux failed turn after auth_needed",
+      events: [
+        { kind: "auth_needed" },
+        { kind: "turn_completed", status: "failed", error: ISOMUX_ERROR },
+      ],
+      hinted: true,
+      errorLines: [isomuxErrorText],
+      reason: isomuxErrorText,
+    },
+    // The control: without auth_needed the provider's words are the line and
+    // the reason, so the cases above that find none are not blind.
+    {
+      name: "an auth-shaped error with no auth_needed",
+      events: [{ kind: "error", message: PROVIDER_TEXT }],
+      hinted: false,
+      errorLines: [PROVIDER_TEXT],
+      reason: PROVIDER_TEXT,
+    },
   ];
-  for (const [name, events, hinted] of authCases) {
+  for (const { name, events, hinted, errorLines, reason } of authCases) {
     it(`${hinted ? "writes" : "does not write"} the login hint for ${name}`, async () => {
       const fake = new FakeBackend({
         isAuthError: (text) => text.includes("401"),
@@ -515,7 +579,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
           onSend: (_text, _attachments, session) => session.pushAll(events),
         },
       });
-      expect(fake.detectAuthError("401 unauthorized")).toBe(true);
+      expect(fake.detectAuthError(PROVIDER_TEXT)).toBe(true);
       const emitted: CronEvent[] = [];
       const statusAtHint: Array<string | undefined> = [];
       const mgr = createCronjobManager(
@@ -541,7 +605,8 @@ describe("CronjobManager DI (temp-state isolated)", () => {
         ) {
           await new Promise((resolve) => setTimeout(resolve, 5));
         }
-        expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
+        const ended = mgr.findRun(job.id, run.id);
+        expect(ended?.status).toBe("failed");
         const entries = emitted.flatMap((event) =>
           event.type === "log_entry" ? [event.entry] : [],
         );
@@ -552,6 +617,14 @@ describe("CronjobManager DI (temp-state isolated)", () => {
             kind: "system",
             content: claudeRunHint,
           });
+        expect(
+          entries.filter((e) => e.kind === "error").map((e) => e.content),
+        ).toEqual(errorLines);
+        expect(ended?.errorReason).toBe(reason);
+        // The provider's words reach neither the run log nor the run record
+        // unless they are the error line and reason above.
+        const shown = JSON.stringify([entries, ended]).includes(PROVIDER_TEXT);
+        expect(shown).toBe(errorLines.includes(PROVIDER_TEXT));
       } finally {
         fake.sessions.forEach((session) => session.close());
       }

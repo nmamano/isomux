@@ -332,6 +332,55 @@ describe("translateSDKMessage - assistant", () => {
     });
   });
 
+  // Task 604d052b. The CLI's own sign-in failures tell the member to run a
+  // terminal command; Isomux shows the sign-in card instead, and the text
+  // never reaches the chat. Texts read from the bundled CLI binary
+  // (2026-11-23). The first is the one a resumed session showed.
+  describe("CLI sign-in failures", () => {
+    const TEXTS = [
+      "Failed to authenticate: this login reached its time limit and cannot be renewed. Run `claude auth login` to sign in again, or use `claude setup-token` and set CLAUDE_CODE_OAUTH_TOKEN for unattended jobs",
+      "Failed to authenticate: this login reached its time limit · Sign in again to continue",
+      "Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator.",
+      "Failed to authenticate through the broker: connection reset",
+      "Your Claude session has expired. Sign in again to continue (claude auth login).",
+    ];
+
+    it("gives a synthetic notice's sign-in failure as auth_needed alone", () => {
+      for (const text of TEXTS)
+        for (const error of [undefined, "authentication_failed"])
+          expect({
+            text,
+            error,
+            events: translate(
+              {
+                type: "assistant",
+                ...(error ? { error } : {}),
+                message: {
+                  model: "<synthetic>",
+                  content: [{ type: "text", text }],
+                },
+              },
+              noopSink,
+              { provider: "anthropic" },
+            ),
+          }).toEqual({ text, error, events: [{ kind: "auth_needed" }] });
+    });
+
+    it("gives a failed turn's sign-in failure as auth_needed ahead of the turn end", () => {
+      for (const text of TEXTS) {
+        const events = translate({
+          type: "result",
+          subtype: "error_during_execution",
+          errors: [text],
+        });
+        expect({ text, kinds: events.map((ev) => ev.kind) }).toEqual({
+          text,
+          kinds: ["auth_needed", "turn_completed"],
+        });
+      }
+    });
+  });
+
   it("thinking, text and tool_use blocks emit in order; a tool_use without input gets {}", () => {
     const events = translate({
       type: "assistant",

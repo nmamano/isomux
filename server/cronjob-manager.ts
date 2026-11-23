@@ -1030,7 +1030,11 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
             );
           }
         }
-        if (ev.status !== "completed" && !active.usageLimitReason) {
+        if (
+          ev.status !== "completed" &&
+          !active.usageLimitReason &&
+          !silentAuthFailure(active, ev.error)
+        ) {
           // consumeUntilTurnCompleted adds the login hint before it
           // finalizes the run.
           writeLog(active, "error", ev.error ?? turnStoppedText(ev.status));
@@ -1081,7 +1085,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       case "error": {
         // consumeUntilTurnCompleted adds the login hint before it finalizes
         // the run.
-        writeLog(active, "error", ev.message);
+        if (!silentAuthFailure(active, ev.message))
+          writeLog(active, "error", ev.message);
         break;
       }
       case "auth_needed": {
@@ -1300,13 +1305,26 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         }
         if (ev.kind === "turn_completed") {
           if (ev.status !== "completed") writeLoginHintIfAuthNeeded(active);
-          endRun(active, turnRunEnd(ev, active.usageLimitReason));
+          endRun(
+            active,
+            ev.status !== "completed" &&
+              !active.usageLimitReason &&
+              silentAuthFailure(active, ev.error)
+              ? { status: "failed", reason: loginHintText(active) }
+              : turnRunEnd(ev, active.usageLimitReason),
+          );
           return;
         }
         if (ev.kind === "error") {
-          // processNormalizedEvent already wrote the error LogEntry; terminate.
+          // processNormalizedEvent already wrote the error LogEntry, unless
+          // the sign-in hint replaces it; terminate.
           writeLoginHintIfAuthNeeded(active);
-          endRun(active, { status: "failed", reason: ev.message });
+          endRun(active, {
+            status: "failed",
+            reason: silentAuthFailure(active, ev.message)
+              ? loginHintText(active)
+              : ev.message,
+          });
           return;
         }
       }
@@ -1341,14 +1359,27 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
   // walkthrough. One wording covers a rejected sign-in and a rejected API key.
   function writeLoginHintIfAuthNeeded(active: SessionRun): void {
     if (!active.authNeeded) return;
-    writeLog(
-      active,
-      "system",
-      active.agentType === "opencode"
-        ? msg("systemEntries.scheduleRun.signInOpenCode")
-        : msg("systemEntries.scheduleRun.signIn", {
-            provider: active.agentType === "claude" ? "Claude" : "Codex",
-          }),
+    writeLog(active, "system", loginHintText(active));
+  }
+
+  function loginHintText(active: SessionRun): LogMessage {
+    return active.agentType === "opencode"
+      ? msg("systemEntries.scheduleRun.signInOpenCode")
+      : msg("systemEntries.scheduleRun.signIn", {
+          provider: active.agentType === "claude" ? "Claude" : "Codex",
+        });
+  }
+
+  // After auth_needed the hint is the run's line and reason: the provider's
+  // own words (a plain string, or none) stay out, since they can name a CLI
+  // sign-in command (task 604d052b). An error Isomux wrote stays.
+  function silentAuthFailure(
+    active: SessionRun,
+    error: LogText | undefined,
+  ): boolean {
+    return (
+      active.authNeeded === true &&
+      (error === undefined || typeof error === "string")
     );
   }
 
