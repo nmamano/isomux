@@ -92,7 +92,7 @@ export function SettingsItemPage<P extends string>({
 }: {
   // data-settings-item: "<kind>:<id>", or "newMember".
   item: string;
-  // The phone back row from a part to the part list: the item's name.
+  // The phone header's back from a part to the part list: the item's name.
   backLabel: string;
   view: SettingsItemView<P>;
   onPart: (part: P | null) => void;

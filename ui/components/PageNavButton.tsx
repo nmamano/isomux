@@ -1,5 +1,5 @@
 // The control that leaves a page: the Close at the left of a page's header,
-// and a phone's back-to-list row. One look on every page (AGENTS.md "UI
+// or, on a phone with an entry open, the back to the list in its place. One look on every page (AGENTS.md "UI
 // rules": every button has a background, one look per kind of control), so it
 // takes no style: a caller spaces it with a wrapper element.
 

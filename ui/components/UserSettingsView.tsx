@@ -13,7 +13,7 @@ import { ordinaryRooms } from "../../shared/types.ts";
 // user's editor,
 // organized into sections (Identity / Rooms / Agent context) with a sticky
 // save footer. On mobile exactly one of the two panes shows at a time - the
-// list first, then the detail with a back row.
+// list first, then the detail, whose header goes back to the list.
 //
 // The user rows double as a roster: a green dot on the
 // avatar for users with a live connection (store.onlineUserIds, an
@@ -437,7 +437,7 @@ export function UserSettingsView({
   // Filled by the currently-mounted detail panel - UserEditPanel, or the
   // External access card inside ExternalAccessPane - whichever holds unsaved
   // form state. Lets us route every navigation away from it (sidebar click,
-  // header back arrow, ESC, mobile back row) through the panel's
+  // header close, ESC, the phone header's back to the list) through the panel's
   // dirty-check, so we surface the "Discard unsaved changes?" prompt
   // instead of silently dropping in-progress edits.
   const detailCloseRef = useRef<((after?: () => void) => void) | null>(null);
@@ -2655,7 +2655,7 @@ function UserEditPanel({
         saved={savedHere}
         canSave={!!name.trim()}
         // Cancel throws the edits away and stays, as on the room and agent
-        // parts; the back row and the header's close leave.
+        // parts; the back controls and the header's close leave.
         onCancel={revert}
         onSave={() => void handleSave()}
         saveLabel={creating ? t("settings.members.create") : undefined}

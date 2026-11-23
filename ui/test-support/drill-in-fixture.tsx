@@ -10,8 +10,8 @@
 // a row whose part holds an unsaved edit carries data-settings-part-dirty.
 // Your own rows in the You group are the same buttons. The open part's body
 // is [data-settings-part-body="<part>"]. The back row to the Settings list
-// is button[data-settings-back]; on a phone, the back row from a part to the
-// parts list is [data-page-back-to-list]. Save is [data-settings-save].
+// is button[data-settings-back]; on a phone with a part open, the header's
+// back to the parts list is [data-page-back-to-list]. Save is [data-settings-save].
 import { act, fireEvent, render } from "@testing-library/react";
 import { expect } from "bun:test";
 import { createElement } from "react";

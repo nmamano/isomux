@@ -1,7 +1,8 @@
 // The two-column page of Settings, Integrations and Agent settings (task
 // 59538509): a header bar with the close control and the title, a list
 // column on the left and the open entry on the right. On a phone exactly one
-// column shows: the list first, then the entry with a back row to the list.
+// column shows: the list first, then the entry, whose header control goes
+// back to the list instead of closing the page (task ed4c14c4).
 // What the list holds and what an entry shows is the page's business.
 
 import type { ReactNode } from "react";
@@ -32,7 +33,7 @@ export function SidebarPage({
   // Phone only: true shows the list, false the open entry.
   listShown: boolean;
   onBackToList: () => void;
-  // The phone back row's text, after its arrow: the page's name.
+  // The phone entry's header control text, after its arrow: the list's name.
   backLabel: ReactNode;
   list: ReactNode;
   // The list column's accessible name.
@@ -78,11 +79,21 @@ export function SidebarPage({
           zIndex: 500,
         }}
       >
-        {/* Closes the page, back to what it was opened over, and names that
-            screen (task 930a1385). Not a bare arrow or "Back" (task
-            d10f0dbd): on a phone the entry has its own back row to the list,
-            and those would read as one more "back to the list". */}
-        <PageCloseButton onClick={onClose} data-page-close="" />
+        {/* On a phone with an entry open, the one back control goes to the
+            list (task ed4c14c4: a Close beside a back row named the same
+            screen twice). Otherwise it closes the page, back to what it was
+            opened over, and names that screen (task 930a1385), not a bare
+            arrow or "Back" (task d10f0dbd). */}
+        {isMobile && !listShown ? (
+          <PageNavButton
+            label={backLabel}
+            onClick={onBackToList}
+            data-page-back-to-list=""
+            {...backAttrs}
+          />
+        ) : (
+          <PageCloseButton onClick={onClose} data-page-close="" />
+        )}
         <h1
           style={{
             fontSize: 15,
@@ -145,16 +156,6 @@ export function SidebarPage({
               flexDirection: "column",
             }}
           >
-            {isMobile && (
-              <div style={{ padding: "10px 16px 4px" }}>
-                <PageNavButton
-                  label={backLabel}
-                  onClick={onBackToList}
-                  data-page-back-to-list=""
-                  {...backAttrs}
-                />
-              </div>
-            )}
             {children}
           </div>
         )}
