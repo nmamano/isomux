@@ -378,6 +378,82 @@ describe("provider auth affordances", () => {
     ).toBeNull();
   });
 
+  // Claude's own walkthrough names no terminal command (task f92efc92): the
+  // card still shows without one, and when the card cannot sign in, the
+  // walkthrough follows it with no command.
+  for (const canBrowserLogin of [true, false])
+    it(`gives a signed-out Claude the card and no terminal command when the card ${canBrowserLogin ? "can" : "cannot"} sign in`, async () => {
+      setTestManagedOfficeEnv({
+        CLAUDE_CONFIG_DIR: join(
+          STATE_ROOT,
+          `signed-out-claude-${crypto.randomUUID()}`,
+        ),
+        ANTHROPIC_API_KEY: "",
+      });
+      const fake = new FakeBackend({
+        isAuthError: (text) => claudeBackend.detectAuthError(text),
+        session: {
+          onSend: (_text, _attachments, session) => {
+            session.push({ kind: "auth_needed" });
+            session.push({
+              kind: "turn_completed",
+              status: "failed",
+              error: "401 Unauthorized",
+            });
+          },
+        },
+      });
+      // The real Claude answer for whatever the manager passes.
+      fake.getLoginInstructions = (opts) =>
+        claudeBackend.getLoginInstructions(opts);
+      let checksDone = 0;
+      // A personal account, so no office-owner gate stands in front of the
+      // walkthrough.
+      const { mgr, agentId } = await harness({
+        backendType: "claude",
+        fake,
+        accounts: async () => {
+          checksDone++;
+          return [claudeWire("personal", { canBrowserLogin })];
+        },
+        target: () => ({
+          provider: "claude",
+          scope: "personal",
+          dir: "/accounts/personal-claude",
+        }),
+      });
+      const env = mgr.buildEnvForUserId("user-a");
+      expect(isClaudeCodeAuthenticated(env)).toBe(false);
+      const walkthrough = await claudeBackend.getLoginInstructions({ env });
+      expect(walkthrough.kind).toBe("login");
+      const walkthroughText = renderLogText(english, walkthrough.text);
+      mgr.enqueueMessage(agentId, {
+        sender: { kind: "user", username: "tester" },
+        text: "hello",
+      });
+      const logs = () => mgr.getAgentLogs(agentId);
+      const cards = () =>
+        logs()
+          .filter((entry) => entry.metadata?.providerLogin === "claude")
+          .map((entry) => entry.content);
+      // Until the account check has answered and what follows its answer
+      // has run; bounded, and asserts nothing.
+      await settle(() => checksDone > 0 && cards().length > 0);
+      await Bun.sleep(0);
+      expect(checksDone).toBe(1);
+      expect(cards()).toEqual([
+        english.t("systemEntries.signInRequired", { provider: "Claude" }),
+      ]);
+      expect(
+        logs()
+          .filter((entry) => entry.kind === "terminal-command")
+          .map((entry) => entry.terminal?.command),
+      ).toEqual([]);
+      expect(
+        logs().filter((entry) => entry.content === walkthroughText),
+      ).toHaveLength(canBrowserLogin ? 0 : 1);
+    });
+
   it("keeps an auth-flavored topic when Claude is signed in", async () => {
     const claudeDir = join(STATE_ROOT, "signed-in-claude");
     mkdirSync(claudeDir, { recursive: true });

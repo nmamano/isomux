@@ -180,35 +180,28 @@ describe("codexBackend after the engine rejected its credentials", () => {
   });
 });
 
-describe("claudeBackend terminal sign-in", () => {
+// Claude signs in on the sign-in card or in Integrations, never with a
+// terminal command (task f92efc92). The /logout terminal fallback still
+// names the binary.
+describe("claudeBackend terminal sign-out", () => {
   function tempDir(): string {
     const dir = mkdtempSync(join(tmpdir(), "isomux-claude-login-"));
     tempDirs.push(dir);
     return dir;
   }
 
-  it("runs the bundled binary when claude is not on PATH", async () => {
-    const r = await claudeBackend.getLoginInstructions({
-      env: { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() },
-    });
-    expect(r.kind).toBe("login");
-    expect(r.commands).toHaveLength(1);
-    expect(r.commands![0].replaceAll("'", "")).toBe(CLAUDE_NATIVE_BIN);
-    // The /logout terminal fallback resolves the binary as sign-in does.
+  it("runs the bundled binary when claude is not on PATH", () => {
     const logout = claudeBackend.logoutCommand!({
       env: { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() },
     });
     expect(logout.replaceAll("'", "")).toBe(`${CLAUDE_NATIVE_BIN} auth logout`);
   });
 
-  it("runs claude when it is on PATH", async () => {
+  it("runs claude when it is on PATH", () => {
     const bin = tempDir();
     writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
     chmodSync(join(bin, "claude"), 0o755);
     const env = { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() };
-    const r = await claudeBackend.getLoginInstructions({ env });
-    expect(r.kind).toBe("login");
-    expect(r.commands).toEqual(["claude"]);
     expect(claudeBackend.logoutCommand!({ env })).toBe("claude auth logout");
   });
 });
@@ -248,12 +241,33 @@ describe("getLoginInstructions as a message", () => {
     return parts[0] as LogMessage;
   }
 
-  it("claudeBackend, signed out: the walkthrough, with the command as a value", async () => {
-    const env = { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() };
-    const r = await claudeBackend.getLoginInstructions({ env });
-    expect(r.kind).toBe("login");
-    expect(Object.values(messageOf(r).params ?? {})).toContain(r.commands![0]);
-  });
+  // Both binaries the old walkthrough named (claude on PATH, the bundled
+  // one) give no command: no card and no value in the sentence.
+  for (const onPath of [false, true])
+    it(`claudeBackend, signed out (claude ${onPath ? "on" : "not on"} PATH): the card's walkthrough, with no terminal command`, async () => {
+      const bin = tempDir();
+      if (onPath) {
+        writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
+        chmodSync(join(bin, "claude"), 0o755);
+      }
+      const env = { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() };
+      const r = await claudeBackend.getLoginInstructions({ env });
+      expect(r.kind).toBe("login");
+      expect(r.cardEligible).toBe(true);
+      expect(r.commands ?? []).toEqual([]);
+      const command = claudeBackend.logoutCommand!({ env }).replace(
+        / auth logout$/,
+        "",
+      );
+      expect(
+        Object.values(messageOf(r).params ?? {}).filter(
+          (value) => typeof value === "string" && value.includes(command),
+        ),
+      ).toEqual([]);
+      expect(renderLogText(translatorFor("en"), r.text)).not.toContain(
+        `\`${command}\``,
+      );
+    });
 
   it("claudeBackend, signed in: the /clear hint, with no command cards", async () => {
     const env = { ANTHROPIC_API_KEY: "sk-ant-test" };

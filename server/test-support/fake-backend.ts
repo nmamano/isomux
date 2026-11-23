@@ -559,10 +559,13 @@ export class FakeBackend implements Backend {
     _opts?: Parameters<Backend["getLoginInstructions"]>[0],
   ): Promise<LoginInstructions> {
     const configured = this.cfg.loginInstructions;
+    // As the real backends answer: a signed-in answer never shows the card.
+    // A login answer shows it when it names a command, unless the test says
+    // otherwise (Claude's names none and sets cardEligible itself).
     if (!configured)
       return {
         kind: "already_authed",
-        cardEligible: true,
+        cardEligible: false,
         text: "fake login instructions",
       };
     return {
@@ -570,7 +573,7 @@ export class FakeBackend implements Backend {
       kind:
         configured.kind ??
         (configured.commands?.length ? "login" : "already_authed"),
-      cardEligible: configured.cardEligible ?? true,
+      cardEligible: configured.cardEligible ?? !!configured.commands?.length,
     };
   }
 }

@@ -4590,9 +4590,9 @@ Coses que pots fer per ell:
   "systemEntries.claudeSession.missing":
     "No es pot reprendre la sessió de Claude {session}…: no s’ha trobat el seu fitxer. Camins comprovats: {paths}.",
   "systemEntries.loginInstructions.generic":
-    "Per autenticar-te:\n1. Obre la terminal integrada\n2. Executa `claude`\n3. Escriu `/login`\n4. Segueix el procés d'autenticació\n\nQuan acabis, s'aplica de seguida a tots els agents d'Isomux.",
+    "Obre Integracions → Proveïdors de models per iniciar sessió i després fes servir `/clear`.",
   "systemEntries.loginInstructions.claude":
-    "Per autenticar Claude Code:\n1. Obre la terminal integrada\n2. Executa `{command}`\n3. Escriu `/login`\n4. Segueix el procés d'autenticació\n\nQuan acabis, s'aplica de seguida a tots els agents d'Isomux.\n\nAlternativa: afegeix `ANTHROPIC_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
+    "Inicia sessió a Claude a Integracions → Proveïdors de models i després fes servir `/clear`.\n\nAlternativa: afegeix `ANTHROPIC_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code té la sessió iniciada. Escriu `/clear` per renovar la sessió d'aquest agent i aplicar la nova autenticació.",
   "systemEntries.loginInstructions.codex":

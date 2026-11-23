@@ -181,9 +181,9 @@ import { sanitizeTaskLabel } from "./task-label.ts";
 import { OneShotUsageLimitError } from "./one-shot-errors.ts";
 import { isUsageLimitNotice } from "../stored-session-text.ts";
 
-// The terminal sign-in and sign-out run `claude` when the member has it on
-// PATH, and otherwise the binary bundled with the Agent SDK, so they never
-// need an install.
+// The terminal sign-out runs `claude` when the member has it on PATH, and
+// otherwise the binary bundled with the Agent SDK, so it never needs an
+// install.
 // An isolated member's env runs the CLI of the member's runtime.
 function loginCommand(env?: { [key: string]: string | undefined }): string {
   if (!isMemberEnv(env) && isClaudeCodeInstalled(env)) return "claude";
@@ -2667,12 +2667,12 @@ export function createClaudeBackend(
           text: logMsg("systemEntries.loginInstructions.claudeSignedIn"),
         };
       }
-      const command = loginCommand(opts?.env);
+      // The walkthrough points to Integrations, never to a terminal sign-in
+      // (task f92efc92).
       return {
         kind: "login",
         cardEligible: true,
-        text: logMsg("systemEntries.loginInstructions.claude", { command }),
-        commands: [command],
+        text: logMsg("systemEntries.loginInstructions.claude"),
       };
     },
 

@@ -4588,9 +4588,9 @@ Cosas que puedes hacer por él:
   "systemEntries.claudeSession.missing":
     "No se puede reanudar la sesión de Claude {session}…: no se encontró su archivo. Rutas comprobadas: {paths}.",
   "systemEntries.loginInstructions.generic":
-    "Para autenticarte:\n1. Abre la terminal integrada\n2. Ejecuta `claude`\n3. Escribe `/login`\n4. Sigue el proceso de autenticación\n\nAl terminar, se aplica de inmediato a todos los agentes de Isomux.",
+    "Abre Integraciones → Proveedores de modelos para iniciar sesión y luego usa `/clear`.",
   "systemEntries.loginInstructions.claude":
-    "Para autenticar Claude Code:\n1. Abre la terminal integrada\n2. Ejecuta `{command}`\n3. Escribe `/login`\n4. Sigue el proceso de autenticación\n\nAl terminar, se aplica de inmediato a todos los agentes de Isomux.\n\nAlternativa: añade `ANTHROPIC_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`.",
+    "Inicia sesión en Claude en Integraciones → Proveedores de modelos y luego usa `/clear`.\n\nAlternativa: añade `ANTHROPIC_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`.",
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code tiene la sesión iniciada. Escribe `/clear` para renovar la sesión de este agente y aplicar la nueva autenticación.",
   "systemEntries.loginInstructions.codex":

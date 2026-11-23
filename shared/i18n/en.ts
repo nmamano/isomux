@@ -4485,9 +4485,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.claudeSession.missing":
     "Cannot resume Claude session {session}…: its file was not found. Paths checked: {paths}.",
   "systemEntries.loginInstructions.generic":
-    "To authenticate:\n1. Open the built-in terminal\n2. Run `claude`\n3. Type `/login`\n4. Follow the auth flow\n\nOnce complete, it takes effect immediately for all Isomux agents.",
+    "Open Integrations → Model providers to sign in, then `/clear`.",
   "systemEntries.loginInstructions.claude":
-    "To authenticate Claude Code:\n1. Open the built-in terminal\n2. Run `{command}`\n3. Type `/login`\n4. Follow the auth flow\n\nOnce complete, it takes effect immediately for all Isomux agents.\n\nAlternative: add `ANTHROPIC_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
+    "Sign in to Claude in Integrations → Model providers, then `/clear`.\n\nAlternative: add `ANTHROPIC_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code is signed in. Type `/clear` to refresh this agent's session and pick up the new auth.",
   "systemEntries.loginInstructions.codex":

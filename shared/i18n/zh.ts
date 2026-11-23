@@ -4076,9 +4076,9 @@ export const zh: Catalog = {
   "systemEntries.claudeSession.missing":
     "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。",
   "systemEntries.loginInstructions.generic":
-    "身份验证步骤：\n1. 打开内置终端\n2. 运行 `claude`\n3. 输入 `/login`\n4. 按照验证流程操作\n\n完成后立即对所有 Isomux 智能体生效。",
+    "请在「集成 → 模型提供商」中登录，然后输入 `/clear`。",
   "systemEntries.loginInstructions.claude":
-    "验证 Claude Code 身份：\n1. 打开内置终端\n2. 运行 `{command}`\n3. 输入 `/login`\n4. 按照验证流程操作\n\n完成后立即对所有 Isomux 智能体生效。\n\n也可以在「集成」页面（「变量」标签页）添加 `ANTHROPIC_API_KEY`，然后输入 `/clear`。",
+    "请在「集成 → 模型提供商」中登录 Claude，然后输入 `/clear`。\n\n也可以在「集成」页面（「变量」标签页）添加 `ANTHROPIC_API_KEY`，然后输入 `/clear`。",
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code 已登录。输入 `/clear` 刷新此智能体的会话，以使用新的身份验证。",
   "systemEntries.loginInstructions.codex":

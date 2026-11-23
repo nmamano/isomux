@@ -225,7 +225,6 @@ export function createAgentAuth(deps: AgentAuthDeps) {
         managed?.info.agentType === "claude") &&
       managed.info.userId &&
       instructions.cardEligible &&
-      instructions.commands?.length &&
       deps.listProviderAccounts
     ) {
       try {

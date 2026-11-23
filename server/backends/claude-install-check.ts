@@ -2,9 +2,9 @@
 //
 // The Claude Agent SDK ships its own native binary (see CLAUDE_NATIVE_BIN in
 // server/cwd-utils.ts), so agent runtime does NOT require the user-facing
-// `claude` CLI to be installed. The terminal sign-in prefers that CLI when it
-// is on PATH and otherwise runs the bundled binary, so
-// `isClaudeCodeInstalled()` only picks which command the login card shows.
+// `claude` CLI to be installed. The terminal sign-out prefers that CLI when
+// it is on PATH and otherwise runs the bundled binary, so
+// `isClaudeCodeInstalled()` only picks which command the logout card shows.
 //
 // Codex doesn't have an equivalent presence check: codex now ships bundled as
 // an isomux runtime dep (see server/backends/codex/native-bin.ts), so its
