@@ -545,3 +545,90 @@ describe("the editor panel", () => {
     titled(view, ANCHOR.editorClose.en);
   });
 });
+
+// Task 8753b055: a Catalan member saw "44s" turn into "44 anys" or "44
+// seconds". A bare number plus "s" is no catalog text, and a page translator
+// reads it as a decade or a unit and rewrites it on each tick. Each duration
+// stays out of page translation; the state label next to it is catalog text
+// in the reader's language and stays translatable.
+const DURATION = /^(\d+(\.\d)?s|\d+:\d\d)$/;
+// Leaf elements whose whole text is a duration.
+const durations = (root: Element) =>
+  [...root.querySelectorAll("*")]
+    .filter(
+      (el) => el.children.length === 0 && DURATION.test(el.textContent ?? ""),
+    )
+    .map((el) => ({ text: el.textContent, translated: translated(el) }));
+// The translate state of each text node that holds `label`.
+const labelsTranslated = (root: Element, label: string) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const out: boolean[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode())
+    if ((n.textContent ?? "").includes(label))
+      out.push(translated(n.parentElement!));
+  return out;
+};
+
+describe("durations", () => {
+  it("keep the working timers in the header and the chat out of page translation, but not the state label", () => {
+    const busyAgent = { ...AGENT, state: "thinking", queue: [] } as AgentInfo;
+    const view = render(
+      logView("ca", [], busyAgent, {
+        stateChangedAt: new Map([[busyAgent.id, Date.now() - 44_000]]),
+      }),
+    );
+    const found = durations(view.container);
+    // Two timers, the header status and the chat's working indicator, in the
+    // seconds form of the report.
+    expect(found.filter((d) => /^\d+s$/.test(d.text ?? "")).length).toBe(2);
+    expect(found.map((d) => d.translated)).toEqual([false, false]);
+    const label = translationsFor("logView.state.thinking").ca;
+    expect(labelsTranslated(view.container, label)).toEqual([true, true]);
+    view.unmount();
+  });
+
+  it("keep a thinking card's and a tool call's duration out of page translation, but not the card label", () => {
+    const thinking = entry({
+      id: "th1",
+      kind: "thinking",
+      content: "Hmm.",
+      metadata: { duration_ms: 1_234 },
+    });
+    const call = entry({
+      id: "tc1",
+      kind: "tool_call",
+      content: "Grep",
+      metadata: { toolId: "dur-1", input: { pattern: "x" } },
+    });
+    const result = entry({
+      id: "tr1",
+      kind: "tool_result",
+      content: "ok",
+      metadata: { toolUseId: "dur-1", duration_ms: 75_000 },
+    });
+    const card = (e: LogEntry, turn: LogEntry[]) =>
+      render(
+        onLanguage(
+          "ca",
+          createElement(LogEntryCard, { entry: e, turnEntries: turn }),
+          { hasReceivedInitialState: true },
+        ),
+      );
+
+    const thinkingView = card(thinking, [thinking]);
+    expect(durations(thinkingView.container)).toEqual([
+      { text: "1.2s", translated: false },
+    ]);
+    const thinkingLabel = translationsFor("cards.thinking.label").ca;
+    expect(labelsTranslated(thinkingView.container, thinkingLabel)).toEqual([
+      true,
+    ]);
+    thinkingView.unmount();
+
+    const callView = card(call, [call, result]);
+    expect(durations(callView.container)).toEqual([
+      { text: "1:15", translated: false },
+    ]);
+    callView.unmount();
+  });
+});

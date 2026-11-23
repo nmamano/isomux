@@ -620,6 +620,7 @@ function HeaderTimer({
       >
         {labelKey && t(labelKey)}
         <span
+          {...noTranslate()}
           style={{
             width: "5ch",
             marginLeft: "0.35em",

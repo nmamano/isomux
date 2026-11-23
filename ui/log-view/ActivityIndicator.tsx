@@ -3,6 +3,7 @@ import type { AgentState } from "../../shared/types.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { useI18n } from "../i18n.tsx";
 import { tintedFill } from "../components/dialog-styles.ts";
+import { noTranslate } from "../no-translate.ts";
 
 // Catalog keys, read at render: the header shows them in the reader's language
 // (internal-docs/i18n-loop.md, ruling 7).
@@ -117,7 +118,9 @@ export function ActivityIndicator({
         />
       </span>
       <span>{labelKey && t(labelKey)}...</span>
+      {/* A page translator reads "44s" as a decade ("anys") or spells it out. */}
       <span
+        {...noTranslate()}
         style={{
           fontFamily: "'JetBrains Mono',monospace",
           fontSize: 11,

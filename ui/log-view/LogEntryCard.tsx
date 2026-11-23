@@ -569,6 +569,7 @@ function AttachmentDisplay({
 function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
   return (
     <span
+      {...noTranslate()}
       style={{
         marginLeft: "auto",
         fontSize: isMobile ? 12 : 10,
