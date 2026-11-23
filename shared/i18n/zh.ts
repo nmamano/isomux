@@ -4353,7 +4353,7 @@ export const zh: Catalog = {
   "preAuth.inviteError.seatRefused":
     "此办公室目前无法添加成员。请联系办公室所有者。",
   "preAuth.inviteError.generic": "此邀请已失效。",
-  "preAuth.inviteError.askOwner": "请求所有者",
+  "preAuth.inviteError.askOwner": "请所有者重新启用",
   "preAuth.inviteRenewal.heading": "请求已发送",
   "preAuth.inviteRenewal.sent":
     "所有者已收到你的请求。所有者重新启用邀请后，请再次打开同一链接。",

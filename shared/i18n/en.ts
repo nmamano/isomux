@@ -4793,7 +4793,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preAuth.inviteError.seatRefused":
     "This office cannot add members right now. Ask an office owner.",
   "preAuth.inviteError.generic": "This invite is no longer valid.",
-  "preAuth.inviteError.askOwner": "Ask the owner",
+  "preAuth.inviteError.askOwner": "Ask the owner to re-activate it",
   "preAuth.inviteRenewal.heading": "Request sent",
   "preAuth.inviteRenewal.sent":
     "The owner got your request. When they re-enable the invite, open the same link again.",

@@ -4898,7 +4898,7 @@ Coses que pots fer per ell:
   "preAuth.inviteError.seatRefused":
     "Aquesta oficina ara no pot afegir membres. Demana-ho a un propietari de l'oficina.",
   "preAuth.inviteError.generic": "Aquesta invitació ja no és vàlida.",
-  "preAuth.inviteError.askOwner": "Demana-ho al propietari",
+  "preAuth.inviteError.askOwner": "Demana al propietari que la torni a activar",
   "preAuth.inviteRenewal.heading": "Sol·licitud enviada",
   "preAuth.inviteRenewal.sent":
     "El propietari ha rebut la teva sol·licitud. Quan torni a activar la invitació, obre el mateix enllaç un altre cop.",
