@@ -1466,6 +1466,9 @@ export function App({ routing = true }: { routing?: boolean }) {
         onOpenUpdate={() =>
           openSettings({ kind: "section", section: "updates" })
         }
+        onOpenNewDevice={() =>
+          openSettings({ kind: "section", section: "newDevice" })
+        }
         onSwipeLeft={swipeRoomNext}
         onSwipeRight={swipeRoomPrev}
         viewportControlsRef={viewportControlsRef}

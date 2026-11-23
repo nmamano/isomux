@@ -5109,8 +5109,9 @@ Coses que pots fer per ell:
   "appWidget.unavailable": "El xat no està disponible.",
   "appWidget.install": "Instal·la com a app",
   "appWidget.installInBrowser":
-    "Per instal·lar-la, obre aquesta pàgina en un navegador on tinguis la sessió iniciada.",
+    "Per instal·lar-la, obre aquesta pàgina al teu navegador.",
   "appWidget.copyLink": "Copia l'enllaç",
+  "appWidget.getSignInLink": "Obtén un enllaç d'inici de sessió",
   "appWidget.installSteps.safari":
     "Toca Comparteix {share} a la barra d'eines o a la barra d'adreces (pot ser a {more}) i després Afegeix a la pantalla d'inici {add}. Si no la veus, desplaça't cap avall o toca Mostra'n més.",
   "appWidget.installSteps.chrome":

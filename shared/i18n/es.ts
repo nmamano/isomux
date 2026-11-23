@@ -5108,8 +5108,9 @@ Cosas que puedes hacer por él:
   "appWidget.unavailable": "El chat no está disponible.",
   "appWidget.install": "Instalar como app",
   "appWidget.installInBrowser":
-    "Para instalarla, abre esta página en un navegador donde tengas la sesión iniciada.",
+    "Para instalarla, abre esta página en tu navegador.",
   "appWidget.copyLink": "Copiar enlace",
+  "appWidget.getSignInLink": "Obtener un enlace de inicio de sesión",
   "appWidget.installSteps.safari":
     "Toca Compartir {share} en la barra de herramientas o en la barra de direcciones (puede estar en {more}) y luego Añadir a pantalla de inicio {add}. Si no la ves, desplázate hacia abajo o toca Ver más.",
   "appWidget.installSteps.chrome":

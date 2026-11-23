@@ -74,6 +74,16 @@ const installHandler = Object.getOwnPropertyDescriptor(
   "onbeforeinstallprompt",
 )!;
 let view: ReturnType<typeof render> | undefined;
+// Every "<METHOD> <path>" the page sent since its mount.
+const apiCalls: string[] = [];
+const SESSION = {
+  userId: "u1",
+  username: "tester",
+  role: "member",
+  currentSessionPrefix: "abcd1234",
+} as unknown as import("../shared/types.ts").SessionContext;
+const mintCount = () =>
+  apiCalls.filter((c) => c === "POST /api/invites/self").length;
 beforeEach(() => {
   Reflect.deleteProperty(window, "onbeforeinstallprompt");
 });
@@ -112,6 +122,7 @@ async function mount({
   officeWindow = false,
   signedIn = true,
   keepStorage = false,
+  session = false,
 }: {
   chat?: boolean;
   isMobile?: boolean;
@@ -124,22 +135,37 @@ async function mount({
   signedIn?: boolean;
   // The page comes back in the same tab: its sessionStorage stays.
   keepStorage?: boolean;
+  // The office has sign-in on and the member is signed in (session_context
+  // came over the socket). Off: an office without sign-in.
+  session?: boolean;
 } = {}) {
   if (!keepStorage) sessionStorage.clear();
   localStorage.removeItem(OFFICE_WINDOW_KEY);
   if (officeWindow === "page")
     sessionStorage.setItem(OFFICE_RETURN_KEY, "/apps");
   if (officeWindow === "mark") localStorage.setItem(OFFICE_WINDOW_KEY, "1");
-  setApiShim(async () => ({
-    ...boot,
-    appUrl: "https://hello.office.example",
-    sessionExpiresAt: signedIn ? Date.now() + 1000000 : null,
-    chat: chat ? { agentId: agent.id, agentName: agent.name } : null,
-  }));
+  apiCalls.length = 0;
+  setApiShim(async (method, path) => {
+    apiCalls.push(`${method} ${path}`);
+    if (path === "/api/invites/self")
+      return { url: "https://office.example/i/one-time", invite: {} };
+    return {
+      ...boot,
+      appUrl: "https://hello.office.example",
+      sessionExpiresAt: signedIn ? Date.now() + 1000000 : null,
+      chat: chat ? { agentId: agent.id, agentName: agent.name } : null,
+    };
+  });
   await act(async () => {
     view = render(
       <StateCtx.Provider
-        value={{ ...initialState, agents: [agent], connected: true, isMobile }}
+        value={{
+          ...initialState,
+          agents: [agent],
+          connected: true,
+          isMobile,
+          sessionContext: session ? SESSION : null,
+        }}
       >
         <AppWidgetPage boot={boot} />
       </StateCtx.Provider>,
@@ -383,8 +409,9 @@ it("shows Chrome's Add to Home Screen steps in iPhone Chrome", async () => {
 });
 
 // A mail or social app's view has no Add to Home Screen: the entry sends the
-// member to their own browser with the page's link.
-it("sends the member to a browser to install, in an iPhone in-app view", async () => {
+// member to their own browser with the page's link. In an office without
+// sign-in, that link opens there as is.
+it("sends the member to a browser with the page's link, in an iPhone in-app view of an office without sign-in", async () => {
   undoDevice = asDevice(iphoneWith(IOS_UA.linkedin));
   const written: string[] = [];
   const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
@@ -401,6 +428,9 @@ it("sends the member to a browser to install, in an iPhone in-app view", async (
     expect(popover).not.toBeNull();
     expect(page.steps()).toHaveLength(0);
     expect(popover!.querySelector("a")).toBeNull();
+    expect(
+      popover!.querySelector('[data-browser-install="sign-in"]'),
+    ).toBeNull();
     await act(async () => {
       fireEvent.click(
         within(popover!).getByRole("button", {
@@ -411,6 +441,62 @@ it("sends the member to a browser to install, in an iPhone in-app view", async (
     expect(written).toEqual([
       `${window.location.origin}/${boot.name}${INSTALL_HASH}`,
     ]);
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+// Nil, 2026-11-23 (task 260686c9): the invite link that opened the in-app
+// view is used up, so the page's link lands on sign-in in the member's
+// browser. A signed-in member gets a one-time sign-in link for their browser
+// instead (Settings > New device, inline), made only when they ask for it.
+it("gives a signed-in member a sign-in link for their browser, in an iPhone in-app view", async () => {
+  undoDevice = asDevice(iphoneWith(IOS_UA.linkedin));
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void written.push(text) },
+  });
+  try {
+    const page = await mount({ session: true });
+    const button = page.install();
+    expect(button).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(button!);
+    });
+    const popover = page.popover();
+    expect(popover).not.toBeNull();
+    expect(page.steps()).toHaveLength(0);
+    const signIn = popover!.querySelectorAll<HTMLButtonElement>(
+      "[data-browser-install]",
+    );
+    expect([...signIn].map((b) => b.dataset.browserInstall)).toEqual([
+      "sign-in",
+    ]);
+    // Opening the steps makes no link: a link replaces the member's last one.
+    expect(mintCount()).toBe(0);
+    expect(popover!.querySelector("[data-device-qr]")).toBeNull();
+    await act(async () => {
+      fireEvent.click(signIn[0]!);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mintCount()).toBe(1);
+    // The link shows in place, with its QR code; nothing went to the
+    // clipboard on its own.
+    expect(popover!.isConnected).toBe(true);
+    expect(popover!.querySelector("[data-device-qr]")).not.toBeNull();
+    const shown = [
+      popover!.textContent ?? "",
+      ...[...popover!.querySelectorAll("input, textarea")].map(
+        (el) => (el as HTMLInputElement).value,
+      ),
+    ].join(" ");
+    expect(shown).toContain("https://office.example/i/one-time");
+    expect(written).toEqual([]);
   } finally {
     if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
     else Reflect.deleteProperty(navigator, "clipboard");
@@ -532,7 +618,14 @@ for (const [label, chat, officeWindow] of [
       },
     });
     try {
-      const page = await mount({ chat, isMobile: true, officeWindow });
+      // Signed in: the installed window's browser is signed in too, so the
+      // page's own link works there and no sign-in link is offered.
+      const page = await mount({
+        chat,
+        isMobile: true,
+        officeWindow,
+        session: true,
+      });
       if (chat) await page.toggleChat();
       const button = page.install();
       expect(button).not.toBeNull();
@@ -562,6 +655,10 @@ for (const [label, chat, officeWindow] of [
       expect(
         within(steps).queryByRole("button", { name: en["common.copied"] }),
       ).not.toBeNull();
+      expect(
+        steps.querySelector('[data-browser-install="sign-in"]'),
+      ).toBeNull();
+      expect(mintCount()).toBe(0);
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");

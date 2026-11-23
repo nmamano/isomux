@@ -15,7 +15,7 @@ const { asDevice, IPHONE_HOME_SCREEN } =
 const { expectInlineInstallSteps } =
   await import("../test-support/install-steps.ts");
 const { IOS_UA, iphoneWith } = await import("../test-support/ios-browsers.ts");
-const { en } = await import("../../shared/i18n/en.ts");
+const { onLanguage } = await import("../test-support/language-fixture.tsx");
 
 // ui/index.tsx does this at boot.
 beforeAll(() => captureInstallPrompt(window));
@@ -84,8 +84,16 @@ function installEvent() {
   return { event, prompt };
 }
 
-function mount() {
-  view = render(<DevicePane />);
+// session: the office has sign-in on and the member is signed in.
+function mount({
+  session = false,
+  onOpenNewDevice,
+}: { session?: boolean; onOpenNewDevice?: () => void } = {}) {
+  view = render(
+    onLanguage("en", <DevicePane onOpenNewDevice={onOpenNewDevice} />, {
+      ...(session ? {} : { sessionContext: null }),
+    }),
+  );
   const v = view;
   return () =>
     v.container.querySelector<HTMLElement>("[data-office-install-entry]");
@@ -136,9 +144,10 @@ for (const [label, ua, browser] of [
   });
 }
 
-// A mail or social app's view has no Add to Home Screen: the entry sends the
-// member to their own browser with the office's link, never to Safari.
-it("sends the member to a browser from an iPhone in-app view", async () => {
+// A mail or social app's view has no Add to Home Screen, and the member's own
+// browser is not signed in yet (task 260686c9): the entry sends a signed-in
+// member to New device for a sign-in link, never to Safari.
+it("sends a signed-in member to New device from an iPhone in-app view", async () => {
   undoDevice = asDevice(iphoneWith(IOS_UA.instagram));
   const written: string[] = [];
   const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
@@ -146,19 +155,49 @@ it("sends the member to a browser from an iPhone in-app view", async () => {
     configurable: true,
     value: { writeText: async (text: string) => void written.push(text) },
   });
+  const onOpenNewDevice = mock(() => {});
   try {
-    const entry = mount();
+    const entry = mount({ session: true, onOpenNewDevice });
     expect(entry()?.dataset.officeInstallEntry).toBe("browser");
     expect(entry()!.querySelector("[data-install-icon]")).toBeNull();
     expect(entry()!.querySelector("a")).toBeNull();
-    const copy = [...entry()!.querySelectorAll("button")].find(
-      (b) => b.textContent === en["appWidget.copyLink"],
-    );
-    expect(copy).toBeDefined();
+    const buttons = [
+      ...entry()!.querySelectorAll<HTMLButtonElement>("[data-browser-install]"),
+    ];
+    expect(buttons.map((b) => b.dataset.browserInstall)).toEqual(["sign-in"]);
     await act(async () => {
-      fireEvent.click(copy!);
+      fireEvent.click(buttons[0]!);
+    });
+    expect(onOpenNewDevice).toHaveBeenCalledTimes(1);
+    expect(written).toEqual([]);
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+// Without sign-in the office's link opens in any browser: the entry copies it.
+it("copies the office's link from an iPhone in-app view of an office without sign-in", async () => {
+  undoDevice = asDevice(iphoneWith(IOS_UA.instagram));
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void written.push(text) },
+  });
+  const onOpenNewDevice = mock(() => {});
+  try {
+    const entry = mount({ onOpenNewDevice });
+    expect(entry()?.dataset.officeInstallEntry).toBe("browser");
+    const buttons = [
+      ...entry()!.querySelectorAll<HTMLButtonElement>("[data-browser-install]"),
+    ];
+    expect(buttons.map((b) => b.dataset.browserInstall)).toEqual(["copy"]);
+    await act(async () => {
+      fireEvent.click(buttons[0]!);
     });
     expect(written).toEqual([`${window.location.origin}/`]);
+    expect(onOpenNewDevice).not.toHaveBeenCalled();
   } finally {
     if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
     else Reflect.deleteProperty(navigator, "clipboard");

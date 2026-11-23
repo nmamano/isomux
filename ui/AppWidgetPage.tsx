@@ -40,7 +40,11 @@ import { isSendNowKey, sendQueueNow } from "./log-view/send-now.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
 import { LinkedImageLightbox } from "./log-view/attachment-download.tsx";
 import { readSafariEnv } from "./safari-link.ts";
-import { BrowserInstall } from "./components/BrowserInstall.tsx";
+import {
+  BrowserInstall,
+  useSignInLinkInstall,
+} from "./components/BrowserInstall.tsx";
+import { NewDevicePane } from "./components/MyDevicesPane.tsx";
 import {
   homeScreenOfficeReturn,
   officeReturnHref,
@@ -358,6 +362,10 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     ),
   );
   const [stepsOpen, setStepsOpen] = useState(installAsked);
+  // The install popover shows New device (a sign-in link for the member's
+  // browser), opened from its button; it mints on mount, so only on the tap.
+  const [newDevice, setNewDevice] = useState(false);
+  const signInLink = useSignInLinkInstall();
   const keepInstall = useRef(installAsked);
   useEffect(() => {
     keepInstall.current = installAsked || stepsOpen;
@@ -733,6 +741,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
 
   const closeInstall = () => {
     setStepsOpen(false);
+    setNewDevice(false);
     setInstallAsked(false);
   };
   const toggleChat = (next: boolean) => {
@@ -770,14 +779,22 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   };
   const toggleInstall = () => {
     if (install === "prompt") runInstall();
-    else setStepsOpen(!stepsOpen);
+    else {
+      setStepsOpen(!stepsOpen);
+      setNewDevice(false);
+    }
   };
   const installSteps =
     install === "browser" ? (
-      <BrowserInstall
-        text={t("appWidget.installInBrowser")}
-        href={`${window.location.origin}/${boot.name}${INSTALL_HASH}`}
-      />
+      newDevice ? (
+        <NewDevicePane />
+      ) : (
+        <BrowserInstall
+          text={t("appWidget.installInBrowser")}
+          href={`${window.location.origin}/${boot.name}${INSTALL_HASH}`}
+          onSignInLink={signInLink ? () => setNewDevice(true) : undefined}
+        />
+      )
     ) : (
       <p>
         <InstallStepsText browser={stepsBrowser(readInstallEnv())} />

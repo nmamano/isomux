@@ -6,7 +6,7 @@
 // item after the notice is gone. Where it shows:
 // office-install-devices.dom.test.tsx.
 
-import { expect, it } from "bun:test";
+import { expect, it, mock } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { fireEvent, act } = await import("@testing-library/react");
@@ -119,10 +119,13 @@ it("does not show the notice again after its Install button, and the menu instal
   expect(page.menuItem()).toBeNull();
 });
 
-// A mail or social app's view (task 5765f58e) has no Add to Home Screen. The
-// notice sends the member to their own browser with the office's link, never
-// to Safari, and the phone menu opens it again after a close.
-it("sends the member to a browser from an iPhone in-app view, and the menu reopens it", async () => {
+// A mail or social app's view (task 5765f58e) has no Add to Home Screen, and
+// the invite link that opened it is used up (Nil, 2026-11-23, task
+// 260686c9): the member's own browser is not signed in yet. A signed-in
+// member goes to Settings > New device for a sign-in link to open there. The
+// member acted on the notice, so it does not come back on its own; the phone
+// menu opens it again.
+it("sends a signed-in member from an iPhone in-app view to New device, and the menu reopens it", async () => {
   onDevice(iphoneWith(IOS_UA.facebook));
   const written: string[] = [];
   const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
@@ -130,20 +133,62 @@ it("sends the member to a browser from an iPhone in-app view, and the menu reope
     configurable: true,
     value: { writeText: async (text: string) => void written.push(text) },
   });
+  const onOpenNewDevice = mock(() => {});
+  const props = { onOpenNewDevice };
   try {
-    const page = mount();
+    let page = mount(true, { props });
     const notice = page.notice();
     expect(notice?.dataset.officeInstallNotice).toBe("browser");
     expect(notice!.querySelector("[data-install-icon]")).toBeNull();
     expect(notice!.querySelector("a")).toBeNull();
-    const copy = [...notice!.querySelectorAll("button")].find(
-      (b) => b.textContent === en["appWidget.copyLink"],
-    );
-    expect(copy).toBeDefined();
+    const buttons = [
+      ...notice!.querySelectorAll<HTMLButtonElement>("[data-browser-install]"),
+    ];
+    expect(buttons.map((b) => b.dataset.browserInstall)).toEqual(["sign-in"]);
     await act(async () => {
-      fireEvent.click(copy!);
+      fireEvent.click(buttons[0]!);
+    });
+    expect(onOpenNewDevice).toHaveBeenCalledTimes(1);
+    expect(written).toEqual([]);
+    page = mount(true, { props });
+    expect(page.notice()).toBeNull();
+    const item = page.menuItem();
+    expect(item).not.toBeNull();
+    fireEvent.click(item!);
+    expect(page.notice()?.dataset.officeInstallNotice).toBe("browser");
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+// Without sign-in the office's link opens in any browser: the notice copies it.
+it("copies the office's link from an iPhone in-app view of an office without sign-in, and the menu reopens it", async () => {
+  onDevice(iphoneWith(IOS_UA.facebook));
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void written.push(text) },
+  });
+  const onOpenNewDevice = mock(() => {});
+  try {
+    const page = mount(true, {
+      props: { onOpenNewDevice },
+      state: { sessionContext: null },
+    });
+    const notice = page.notice();
+    expect(notice?.dataset.officeInstallNotice).toBe("browser");
+    expect(notice!.querySelector("a")).toBeNull();
+    const buttons = [
+      ...notice!.querySelectorAll<HTMLButtonElement>("[data-browser-install]"),
+    ];
+    expect(buttons.map((b) => b.dataset.browserInstall)).toEqual(["copy"]);
+    await act(async () => {
+      fireEvent.click(buttons[0]!);
     });
     expect(written).toEqual([`${window.location.origin}/`]);
+    expect(onOpenNewDevice).not.toHaveBeenCalled();
     fireEvent.click(page.dismiss()!);
     expect(page.notice()).toBeNull();
     const item = page.menuItem();

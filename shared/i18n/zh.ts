@@ -4544,8 +4544,9 @@ export const zh: Catalog = {
   "appWidget.backToOffice": "返回办公室",
   "appWidget.unavailable": "聊天不可用。",
   "appWidget.install": "安装为应用",
-  "appWidget.installInBrowser": "要安装，请在已登录的浏览器中打开此页面。",
+  "appWidget.installInBrowser": "要安装，请在你的浏览器中打开此页面。",
   "appWidget.copyLink": "复制链接",
+  "appWidget.getSignInLink": "获取登录链接",
   "appWidget.installSteps.safari":
     "点按工具栏或地址栏中的“共享”{share}（它可能在{more}中），然后点按“添加到主屏幕”{add}。如果没有看到，请向下滚动或点按“查看更多”。",
   "appWidget.installSteps.chrome":

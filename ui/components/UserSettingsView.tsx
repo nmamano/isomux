@@ -1258,7 +1258,12 @@ export function UserSettingsView({
     ) : selection.section === "office" ? (
       <OfficePane closeRef={detailCloseRef} />
     ) : selection.section === "deviceLabel" ? (
-      <DevicePane closeRef={detailCloseRef} />
+      <DevicePane
+        closeRef={detailCloseRef}
+        onOpenNewDevice={() =>
+          select({ kind: "section", section: "newDevice" })
+        }
+      />
     ) : selection.section === "recording" ? (
       <RecordingPane closeRef={detailCloseRef} />
     ) : selection.section === "storage" && isOwner ? (

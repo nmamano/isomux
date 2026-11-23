@@ -241,6 +241,8 @@ interface OfficeViewProps {
   // Absent in fixtures that render the office without the Integrations page.
   onOpenIntegrations?: () => void;
   onOpenUpdate: () => void;
+  // Settings > New device, from Install as app in another app's browser.
+  onOpenNewDevice?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
   viewportControlsRef?: React.RefObject<ViewportControls | null>;
@@ -275,6 +277,7 @@ export function OfficeView({
   onOpenInbox,
   onOpenIntegrations,
   onOpenUpdate,
+  onOpenNewDevice,
   onSwipeLeft,
   onSwipeRight,
   viewportControlsRef,
@@ -810,7 +813,7 @@ export function OfficeView({
         style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}
       >
         {/* Over the top of the scene, under the room tabs: no control there. */}
-        {!embed && <OfficeInstallNotice />}
+        {!embed && <OfficeInstallNotice onOpenNewDevice={onOpenNewDevice} />}
         {showBackRoom ? (
           <BackRoomScreen
             roomName={rooms.find((r) => r.id === currentRoomId)?.name ?? ""}

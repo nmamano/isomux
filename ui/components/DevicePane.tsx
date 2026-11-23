@@ -18,8 +18,11 @@ import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
 // with no discard prompt.
 export function DevicePane({
   closeRef,
+  onOpenNewDevice,
 }: {
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+  // Opens Settings > New device, from Install as app (OfficeInstallEntry).
+  onOpenNewDevice?: () => void;
 }) {
   const { t } = useI18n();
   const [storedLabel, setStoredLabel] = useState(() => getDevice() ?? "");
@@ -76,7 +79,7 @@ export function DevicePane({
             if (e.key === "Enter") handleSave();
           }}
         />
-        <OfficeInstallEntry />
+        <OfficeInstallEntry onOpenNewDevice={onOpenNewDevice} />
       </div>
     </SettingsFormLayout>
   );

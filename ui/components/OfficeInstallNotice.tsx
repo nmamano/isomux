@@ -2,7 +2,8 @@
 // tablet browser that can install it, until the member closes it or installs
 // from it, and the entry in Settings > Device label.
 // Neither shows in an installed window. In another app's browser both say to
-// open the office in a browser, with Copy link.
+// open the office in a browser, with Copy link; with sign-in on, the button
+// opens Settings > New device for a sign-in link (onOpenNewDevice).
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../i18n.tsx";
@@ -24,7 +25,7 @@ import {
   officeInstallNoticeSeen,
 } from "../device-settings.ts";
 import { sectionHeader } from "./access-shared.tsx";
-import { BrowserInstall } from "./BrowserInstall.tsx";
+import { BrowserInstall, useSignInLinkInstall } from "./BrowserInstall.tsx";
 import { dialogSaveBtn } from "./dialog-styles.ts";
 import { InstallStepsText } from "./install-icons.tsx";
 import { NoticeCloseButton } from "./NoticeCloseButton.tsx";
@@ -60,8 +61,14 @@ export function useInstallMode(): InstallMode {
   return installMode(readInstallEnv(), useHeldInstallPrompt());
 }
 
-export function OfficeInstallNotice(): React.ReactElement | null {
+export function OfficeInstallNotice({
+  onOpenNewDevice,
+}: {
+  // Opens Settings > New device (useSignInLinkInstall).
+  onOpenNewDevice?: () => void;
+}): React.ReactElement | null {
   const { t, rich } = useI18n();
+  const signInLink = useSignInLinkInstall() && onOpenNewDevice !== undefined;
   const held = useHeldInstallPrompt();
   const env = readInstallEnv();
   const mode = installMode(env, held);
@@ -143,6 +150,14 @@ export function OfficeInstallNotice(): React.ReactElement | null {
             steps: t("appWidget.installInBrowser"),
           })}
           href={officeHref()}
+          onSignInLink={
+            signInLink
+              ? () => {
+                  close();
+                  onOpenNewDevice();
+                }
+              : undefined
+          }
         />
       ) : (
         <span>
@@ -157,9 +172,15 @@ export function OfficeInstallNotice(): React.ReactElement | null {
 }
 
 // The Settings > Device label section, on every viewport.
-export function OfficeInstallEntry(): React.ReactElement | null {
+export function OfficeInstallEntry({
+  onOpenNewDevice,
+}: {
+  // Opens Settings > New device (useSignInLinkInstall).
+  onOpenNewDevice?: () => void;
+}): React.ReactElement | null {
   const { t } = useI18n();
   const mode = useInstallMode();
+  const signInLink = useSignInLinkInstall() && onOpenNewDevice !== undefined;
   if (!mode) return null;
   return (
     <div data-office-install-entry={installMarker(mode)}>
@@ -184,6 +205,7 @@ export function OfficeInstallEntry(): React.ReactElement | null {
           <BrowserInstall
             text={t("appWidget.installInBrowser")}
             href={officeHref()}
+            onSignInLink={signInLink ? onOpenNewDevice : undefined}
           />
         </div>
       ) : (

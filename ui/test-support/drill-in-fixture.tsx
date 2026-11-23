@@ -69,6 +69,8 @@ export function resetDrillIn(): void {
     return {};
   });
 }
+/** Every call the page sent since the last resetDrillIn. */
+export const apiCalls = (): readonly Call[] => calls;
 /** The next matching write answers with `error`. */
 export function setRefuse(next: { route: string; error: Error }): void {
   refuse = next;

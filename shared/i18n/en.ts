@@ -5002,9 +5002,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.backToOffice": "Back to office",
   "appWidget.unavailable": "Chat is unavailable.",
   "appWidget.install": "Install as app",
-  "appWidget.installInBrowser":
-    "To install, open this page in a browser where you are signed in.",
+  "appWidget.installInBrowser": "To install, open this page in your browser.",
   "appWidget.copyLink": "Copy link",
+  "appWidget.getSignInLink": "Get a sign-in link",
   "appWidget.installSteps.safari":
     "Tap Share {share} in the toolbar or the address bar (it can be under {more}), then Add to Home Screen {add}. If you do not see it, scroll down or tap View More.",
   "appWidget.installSteps.chrome":

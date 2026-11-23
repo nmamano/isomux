@@ -101,7 +101,18 @@ export function installEvent(outcome: "accepted" | "dismissed" = "accepted") {
 const noop = () => {};
 // Neither the notice nor the menu item reads the lobby: it stays closed, which
 // makes a mount cheaper.
-export function mount(isMobile = true) {
+// props: more OfficeView props (onOpenNewDevice); state: store overrides
+// (sessionContext: null is an office without sign-in).
+export function mount(
+  isMobile = true,
+  {
+    props = {},
+    state = {},
+  }: {
+    props?: Record<string, unknown>;
+    state?: Record<string, unknown>;
+  } = {},
+) {
   view?.unmount();
   view = render(
     onLanguage(
@@ -116,8 +127,9 @@ export function mount(isMobile = true) {
         onOpenCronjobs: noop,
         onOpenApps: noop,
         onOpenUpdate: noop,
-      }),
-      { lobbyOpen: false, isMobile },
+        ...props,
+      } as Parameters<typeof OfficeView>[0]),
+      { lobbyOpen: false, isMobile, ...state },
     ),
   );
   const v = view;
