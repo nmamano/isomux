@@ -253,7 +253,7 @@ behaviour that needs the browser's own machinery - history and popstate, focus,
 portals. Anything that can be stated as a pure function stays a plain unit
 test.
 
-`ui/App.lobby-landing.dom.test.tsx` covers first-visit Lobby landing, and the one-room member who always lands in their room. `ui/App.lobby-saved-room.dom.test.tsx` covers saved-room restoration through the real store. `ui/App.lobby-tasks.dom.test.tsx` and `ui/App.room-tasks.dom.test.tsx` cover the task shortcut scope from Lobby and a room tab, respectively.
+`ui/App.lobby-landing.dom.test.tsx` covers first-visit landing: the Lobby, or the one room of a member who reaches one, and the saved Lobby that later loads restore. `ui/App.lobby-saved-room.dom.test.tsx` covers saved-room restoration through the real store. `ui/App.lobby-tasks.dom.test.tsx` and `ui/App.room-tasks.dom.test.tsx` cover the task shortcut scope from Lobby and a room tab, respectively.
 The scope tests retain the real `t` keydown, URL change, and rendered select.
 The room case also keeps `t → a → t` to prove the keyboard binding switches
 between mounted pages. `ui/routes.test.ts` covers the full `t/a/t/a/s`

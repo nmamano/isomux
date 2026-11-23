@@ -33,39 +33,49 @@ for (const visibleRooms of [[], rooms]) {
   });
 }
 
-// A member who reaches one room lands in it, after sign-in (no saved view)
-// and on later loads. A saved lobby flag from the old default landing cannot
-// be told from a chosen one, so it opens the room too, also when the saved
-// room is one the member no longer reaches.
-for (const savedRoom of [null, ONE_ROOM[0]!.id, rooms[1]!.id]) {
-  it(`opens the one room of a member with ${savedRoom === null ? "no saved view" : `a saved Lobby over ${savedRoom === ONE_ROOM[0]!.id ? "that room" : "a lost room"}`}`, async () => {
-    if (savedRoom !== null)
-      saveView("member", {
-        roomId: savedRoom,
-        agentId: null,
-        panel: null,
-        lobby: true,
-      });
-    const view = await boot(ONE_ROOM);
-    expect(scene(view)).toEqual(IN_ONE_ROOM);
-    expect(loadSavedView("member")).toMatchObject({
-      roomId: ONE_ROOM[0]!.id,
-      lobby: false,
+// A member who reaches one room lands in it on a first visit (no saved view
+// in this browser), and the saved flag then records the room.
+it("opens the one room of a member with no saved view", async () => {
+  expect(loadSavedView("member")).toBeNull();
+  const view = await boot(ONE_ROOM);
+  expect(scene(view)).toEqual(IN_ONE_ROOM);
+  expect(loadSavedView("member")).toMatchObject({
+    roomId: ONE_ROOM[0]!.id,
+    lobby: false,
+  });
+});
+
+// After the first visit the saved spot wins for a one-room member too: a
+// saved Lobby opens the Lobby, also when the saved room is lost.
+for (const savedRoom of [ONE_ROOM[0]!.id, rooms[1]!.id]) {
+  it(`keeps a saved Lobby for a member with one room, saved over ${savedRoom === ONE_ROOM[0]!.id ? "that room" : "a lost room"}`, async () => {
+    saveView("member", {
+      roomId: savedRoom,
+      agentId: null,
+      panel: null,
+      lobby: true,
     });
+    const view = await boot(ONE_ROOM);
+    expect(scene(view)).toEqual(LOBBY);
+    expect(loadSavedView("member")?.lobby).toBe(true);
   });
 }
-
-// The saved flag says what the next load opens, so StoreProvider's first
-// frame draws the room: for a one-room member it stays false in the Lobby.
-it("saves no Lobby landing when a member with one room opens the Lobby", async () => {
-  const view = await boot(ONE_ROOM);
-  const tab = view.container.querySelector("[data-lobby-tab] button");
+// A one-room member who leaves in the Lobby comes back to it: the click saves
+// the Lobby, and the next load opens it.
+it("brings a member with one room back to the Lobby they left", async () => {
+  const first = await boot(ONE_ROOM);
+  expect(scene(first)).toEqual(IN_ONE_ROOM);
+  const tab = first.container.querySelector("[data-lobby-tab] button");
   expect(tab).not.toBeNull();
   await act(async () => {
     tab!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
-  expect(scene(view)).toEqual(LOBBY);
-  expect(loadSavedView("member")?.lobby).toBe(false);
+  expect(scene(first)).toEqual(LOBBY);
+  expect(loadSavedView("member")?.lobby).toBe(true);
+  first.unmount();
+  const second = await boot(ONE_ROOM);
+  expect(scene(second)).toEqual(LOBBY);
+  expect(loadSavedView("member")?.lobby).toBe(true);
 });
 
 // The rule counts rooms: with two, a saved Lobby still opens the Lobby.

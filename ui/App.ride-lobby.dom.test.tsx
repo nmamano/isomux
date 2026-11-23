@@ -212,7 +212,7 @@ it("keeps a normal load over a saved room in that room from the first frame", as
   expect(document.title).toBe("Saved room | Isomux");
 });
 
-// A member who reaches one room lands in it on a normal load
+// A member who reaches one room lands in it on a first visit
 // (ui/App.lobby-landing.dom.test.tsx), but a ride still steps out into the
 // lobby.
 for (const saved of [false, true]) {
