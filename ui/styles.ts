@@ -290,18 +290,36 @@ ${emitThemesCss()}
     opacity: 0;
     pointer-events: none;
   }
-  .chat-sidebar-room-row:hover .chat-sidebar-row-actions,
-  .chat-sidebar-agent:hover .chat-sidebar-row-actions,
-  .chat-sidebar-member:hover .chat-sidebar-row-actions,
-  .chat-sidebar-office:hover .chat-sidebar-row-actions,
   .chat-sidebar-row-actions:has(:focus-visible) {
     opacity: 1;
     pointer-events: auto;
+  }
+  /* Task 814f0136: only where a pointer hovers. A touch screen that reveals
+     the actions on a tap (iOS) holds back that tap's click, so a row took
+     two taps to open. */
+  @media (hover: hover) {
+    .chat-sidebar-room-row:hover .chat-sidebar-row-actions,
+    .chat-sidebar-agent:hover .chat-sidebar-row-actions,
+    .chat-sidebar-member:hover .chat-sidebar-row-actions,
+    .chat-sidebar-office:hover .chat-sidebar-row-actions {
+      opacity: 1;
+      pointer-events: auto;
+    }
   }
   @media (hover: none) {
     .chat-sidebar-row-actions[data-in-view] {
       opacity: 1;
       pointer-events: auto;
+    }
+    /* Task 814f0136: the open agent or member row keeps its actions in
+       view, so its name, topic and badges end before them. */
+    .chat-sidebar-agent:has(> .chat-sidebar-row-actions[data-in-view]) > .chat-sidebar-row,
+    .chat-sidebar-member:has(> .chat-sidebar-row-actions[data-in-view]) > .chat-sidebar-row {
+      padding-right: calc(var(--row-action-size) + 10px) !important;
+    }
+    .chat-sidebar-agent:has(> .chat-sidebar-row-actions[data-in-view] > :nth-child(2)) > .chat-sidebar-row,
+    .chat-sidebar-member:has(> .chat-sidebar-row-actions[data-in-view] > :nth-child(2)) > .chat-sidebar-row {
+      padding-right: calc(2 * var(--row-action-size) + 12px) !important;
     }
   }
   .chat-sidebar-agent,
@@ -326,6 +344,11 @@ ${emitThemesCss()}
   [data-drop="before"]::before { top: -1px; }
   [data-drop="after"]::after { bottom: -1px; }
   [data-drop="into"] { box-shadow: 0 0 0 2px var(--accent); }
+  /* --row-action-size: a row action's width and height (44 px in the
+     phone drawer). The one source of it, also for the room a row keeps for
+     its actions (task 814f0136). */
+  :root { --row-action-size: 26px; }
+  .phone-sidebar { --row-action-size: 44px; }
   /* --settings-knob: the sliders icon's knobs (NavIcons SettingsIcon) take
      the button's own background, so they hide the line behind them and show
      no disc. The solid surface keeps the button opaque: an unread badge
@@ -334,6 +357,9 @@ ${emitThemesCss()}
     --settings-knob: color-mix(in srgb, var(--text-primary) 7%, var(--bg-surface-solid));
     display: flex;
     align-items: center;
+    justify-content: center;
+    min-width: var(--row-action-size);
+    min-height: var(--row-action-size);
     padding: 5px;
     border: none;
     border-radius: 6px;
@@ -427,8 +453,7 @@ ${emitThemesCss()}
     .os-user-status-dot[data-pulse] { animation: none; }
   }
   .phone-sidebar .chat-sidebar-row { min-height: 44px; }
-  .phone-sidebar [data-sidebar-collapse],
-  .phone-sidebar .chat-sidebar-row-action {
+  .phone-sidebar [data-sidebar-collapse] {
     min-width: 44px;
     min-height: 44px;
     justify-content: center;

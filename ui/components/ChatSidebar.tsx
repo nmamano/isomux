@@ -544,8 +544,12 @@ function AgentRow({
         )}
       </button>
       {/* Siblings of the row, not inside it: no button in a button. They
-          show on hover over the row's right end. */}
-      <span className="chat-sidebar-row-actions">
+          show on hover over the row's right end, and with no hover (touch
+          screens) on the row whose chat is open. */}
+      <span
+        className="chat-sidebar-row-actions"
+        data-in-view={current ? "" : undefined}
+      >
         <button
           type="button"
           tabIndex={-1}
@@ -721,7 +725,10 @@ function MemberRow({
         <Badge n={row.unread} tone="red" />
       </button>
       {(onTogglePin || onSettings) && (
-        <span className="chat-sidebar-row-actions">
+        <span
+          className="chat-sidebar-row-actions"
+          data-in-view={current ? "" : undefined}
+        >
           {onSettings && (
             <button
               type="button"

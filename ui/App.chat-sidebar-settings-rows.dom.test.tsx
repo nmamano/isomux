@@ -17,6 +17,7 @@ const {
   currentRows,
   faraway,
   memberWire,
+  openFirstDesk,
   ranger,
   roomHeader,
   scout,
@@ -187,4 +188,69 @@ it("a member row's settings button comes before its pin, in Members and in Pinne
     "u2:data-sidebar-pin=member:u2",
     "u3:data-sidebar-pin=member:u3",
   ]);
+});
+
+it("with no hover (touch screens), only the open chat's agent and member rows keep their buttons in view, in every section they show in", async () => {
+  // Task 814f0136 (Nil, 2026-11-23: "One tap opens; the open chat's row keeps
+  // its icons"). The (hover: none) rule shows a row's buttons only when their
+  // span has data-in-view; a tap no longer reveals them.
+  setRole("owner");
+  setSelfUser({ role: "owner", pinnedAgents: [scout.id, "member:u2"] });
+  setMembers([memberWire("u2", "Ann"), memberWire("u3", "Bea")]);
+  const view = await boot();
+  await openRoom(view, "r1");
+  /** "agent:<id>" or "member:<id>" for each agent or member row whose
+   *  buttons are in view (room headers and the Office row left out). */
+  const inView = () =>
+    [
+      ...view.container.querySelectorAll(
+        "nav[data-chat-sidebar] .chat-sidebar-row-actions[data-in-view]",
+      ),
+    ]
+      .flatMap((span) => {
+        const agent = span.querySelector("[data-sidebar-agent-settings]");
+        if (agent)
+          return [`agent:${agent.getAttribute("data-sidebar-agent-settings")}`];
+        const member = span.querySelector("[data-sidebar-member-settings]");
+        if (member)
+          return [
+            `member:${member.getAttribute("data-sidebar-member-settings")}`,
+          ];
+        return [];
+      })
+      .sort();
+  /** The same keys for the rows marked as the open chat's. */
+  const openRows = () =>
+    [
+      ...view.container.querySelectorAll(
+        'nav[data-chat-sidebar] button[aria-current="page"]',
+      ),
+    ]
+      .flatMap((row) => {
+        const agent = row.getAttribute("data-sidebar-agent");
+        if (agent) return [`agent:${agent}`];
+        const member = row.getAttribute("data-sidebar-member");
+        return member ? [`member:${member}`] : [];
+      })
+      .sort();
+  const seen: Record<string, unknown> = {};
+  // The office in view: no agent or member row is open.
+  seen.office = { inView: inView(), open: openRows() };
+  // Scout's chat: its row in r1 and in Pinned, nothing else.
+  await openFirstDesk(view);
+  seen.agent = { inView: inView(), open: openRows() };
+  // Ann's chat replaces it: Ann's rows in Members and in Pinned.
+  await click(inSidebar(view, 'button[data-sidebar-member="u2"]'));
+  seen.member = { inView: inView(), open: openRows() };
+  expect(seen).toEqual({
+    office: { inView: [], open: [] },
+    agent: {
+      inView: [`agent:${scout.id}`, `agent:${scout.id}`],
+      open: [`agent:${scout.id}`, `agent:${scout.id}`],
+    },
+    member: {
+      inView: ["member:u2", "member:u2"],
+      open: ["member:u2", "member:u2"],
+    },
+  });
 });
