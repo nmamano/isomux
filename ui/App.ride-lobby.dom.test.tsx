@@ -121,7 +121,11 @@ type Frame = ReturnType<typeof frame>;
 // The frames of one load: the first render, then session_context, then
 // full_state, each on its own. `before` runs on the first frame, before any
 // server message.
-async function load(ride: boolean, before?: (view: View) => Promise<void>) {
+async function load(
+  ride: boolean,
+  before?: (view: View) => Promise<void>,
+  rooms = ROOMS,
+) {
   setShim(
     () => {},
     () => {},
@@ -142,7 +146,7 @@ async function load(ride: boolean, before?: (view: View) => Promise<void>) {
     shimEmit({
       type: "full_state",
       agents: [AGENT],
-      rooms: ROOMS,
+      rooms,
       office: { name: "Test Office" },
       recentCwds: [],
       killedAgents: [],
@@ -207,3 +211,22 @@ it("keeps a normal load over a saved room in that room from the first frame", as
   }
   expect(document.title).toBe("Saved room | Isomux");
 });
+
+// A member who reaches one room lands in it on a normal load
+// (ui/App.lobby-landing.dom.test.tsx), but a ride still steps out into the
+// lobby.
+for (const saved of [false, true]) {
+  it(`lands a ride of a member with one room in the lobby, ${saved ? "over a saved room" : "with no saved view"}`, async () => {
+    if (saved)
+      saveView("member", {
+        roomId: "r2",
+        agentId: null,
+        panel: null,
+        lobby: false,
+      });
+    const { frames } = await load(true, undefined, [ROOMS[1]!]);
+    for (const f of frames) {
+      expect(f).toMatchObject({ lobby: true, room: false });
+    }
+  });
+}

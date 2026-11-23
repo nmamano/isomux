@@ -164,8 +164,11 @@ export async function hydrate(
   await deliver(socket, {
     type: "full_state",
     agents,
+    // Two rooms: a member with one room lands in it (App.tsx), and these
+    // tests start on the Lobby.
     rooms: [
       { id: "r1", name: "First room", prompt: null, canCloseWhenEmpty: true },
+      { id: "r2", name: "Second room", prompt: null, canCloseWhenEmpty: true },
     ],
     office: { name: "Test Office" },
     recentCwds: [],

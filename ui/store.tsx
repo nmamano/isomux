@@ -2514,7 +2514,9 @@ export function StoreProvider({
   const [state, dispatch] = useReducer(reducer, initialState, (s) => {
     // The first frame draws the view the restore will open (App.tsx), so
     // nothing switches when the state arrives. The member is not known yet:
-    // the guess reads whoever saved last in this browser.
+    // the guess reads whoever saved last in this browser. A member with one
+    // room never saves the Lobby, so only their first visit, or a Lobby saved
+    // by an older build, switches from the Lobby to their room.
     const last = llmConnected ? loadLastSavedView() : null;
     return {
       ...s,

@@ -183,6 +183,9 @@ export function App({ routing = true }: { routing?: boolean }) {
   const features = useFeatures();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const roomCount = rooms.length;
+  // The one room of a member who reaches exactly one: every load opens it,
+  // never the Lobby (task b8be0bfb). Null for no room or several.
+  const soleRoom = rooms.length === 1 ? rooms[0] : null;
   const dispatch = useDispatch();
   // Clicking an empty slot opens the complete spawn form. Engine is one of its
   // fields, so the user can configure the agent in either order.
@@ -354,8 +357,9 @@ export function App({ routing = true }: { routing?: boolean }) {
   // room, or lost access silently falls back to the normal default view (the
   // first visible room, which full_state already selected; the restore only
   // overrides it when the saved room is still valid). Without a saved view,
-  // every member starts on the lobby, and an elevator ride always does;
-  // StoreProvider draws that view from the first frame. Gated off in the demo
+  // a member with one room starts in it and every other member on the lobby;
+  // an elevator ride always starts on the lobby. StoreProvider draws that
+  // view from the first frame. Gated off in the demo
   // (llmConnected=false),
   // where restoring a previous visitor's spot would break the scripted
   // landing-page experience. `restored` is state (not a ref) on purpose: the
@@ -405,19 +409,26 @@ export function App({ routing = true }: { routing?: boolean }) {
     restoreOutbox(persistUser, liveAgentIds);
     const saved = loadSavedView(persistUser);
     if (!saved) {
-      dispatch({ type: "set_lobby_open", open: true });
+      if (soleRoom && !rideArrival)
+        dispatch({ type: "set_current_room", roomId: soleRoom.id });
+      else dispatch({ type: "set_lobby_open", open: true });
       return;
     }
     // Room and agent restore independently on purpose: agents can be moved
     // across rooms, and the view selection deliberately doesn't follow the
     // focused agent (matches live behavior in the presence effect below).
-    if (saved.roomId && rooms.some((r) => r.id === saved.roomId)) {
+    // A member with one room opens it whatever the saved spot says: a saved
+    // lobby flag from before task b8be0bfb is the old default landing, not a
+    // choice.
+    if (soleRoom) {
+      dispatch({ type: "set_current_room", roomId: soleRoom.id });
+    } else if (saved.roomId && rooms.some((r) => r.id === saved.roomId)) {
       dispatch({ type: "set_current_room", roomId: saved.roomId });
     }
     // After the room: selecting a room closes the lobby, so the lobby flag
     // has to land last to win. An elevator ride steps out into the lobby,
     // with no saved chat or page over it.
-    if (saved.lobby || rideArrival)
+    if ((saved.lobby && !soleRoom) || rideArrival)
       dispatch({ type: "set_lobby_open", open: true });
     if (rideArrival) return;
     if (saved.agentId && agents.some((a) => a.id === saved.agentId)) {
@@ -442,6 +453,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     persistUser,
     agents,
     rooms,
+    soleRoom,
     rideArrival,
     dispatch,
     changePages,
@@ -453,7 +465,10 @@ export function App({ routing = true }: { routing?: boolean }) {
     saveView(persistUser, {
       roomId: currentRoomId,
       agentId: focusedAgentId,
-      lobby: lobbyOpen,
+      // The flag means "the next load opens the Lobby", which it never does
+      // for a member with one room, so StoreProvider's first frame does not
+      // draw a Lobby the restore then leaves.
+      lobby: lobbyOpen && soleRoom === null,
       panel: page,
     });
   }, [
@@ -464,6 +479,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     focusedAgentId,
     page,
     lobbyOpen,
+    soleRoom,
   ]);
 
   // Write drafts through to their per-composer keys (post-restore only) by
