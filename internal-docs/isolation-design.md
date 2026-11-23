@@ -325,7 +325,7 @@ Direct SSH as the host user is an alternative path for users with their pubkey a
 
 Isomux's own session-file preflights (`server/cwd-utils.ts:claudeProjectDir`, `claudeSessionFileExists`, `moveClaudeSessionFiles`, `diagnoseProcessExit`, plus Codex's `codexSessionsDir`) honor the same env vars, so resume preflights resolve against the same directories the spawned subprocesses use.
 
-When no personal variable sets `CODEX_HOME`, isomux defaults to its own isolated `~/.isomux/codex-home/` (see `server/backends/codex/native-bin.ts`), separate from the host user's interactive `~/.codex/`. This keeps the bundled `@openai/codex` runtime dep from sharing auth/sessions/plugins with whatever version the user has installed globally. Single-user deployments thus need a one-time isomux-scoped `codex login` (emitted as a [Copy to terminal] card on the first Codex agent spawn). Personal variable setups override this default per-user as documented above.
+When no personal variable sets `CODEX_HOME`, isomux defaults to its own isolated `~/.isomux/codex-home/` (see `server/backends/codex/native-bin.ts`), separate from the host user's interactive `~/.codex/`. This keeps the bundled `@openai/codex` runtime dep from sharing auth/sessions/plugins with whatever version the user has installed globally. Single-user deployments thus need a one-time isomux-scoped sign-in: the sign-in card in the chat or on Integrations → Model providers, or `~/.isomux/bin/codex login` in a terminal (the first Codex agent start writes that wrapper). Personal variable setups override this default per-user as documented above.
 
 #### What this enables and what it does not
 

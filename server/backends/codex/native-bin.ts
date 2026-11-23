@@ -196,8 +196,8 @@ export async function codexEnvApiKeyWins(env?: {
 }
 
 // Idempotently materialize the `~/.isomux/bin/codex` wrapper script that
-// fronts the bundled launcher with a friendlier path for the [Copy to
-// terminal] card. Regenerates when content drifts (e.g. bun path or
+// fronts the bundled launcher with a short path for a terminal sign-in or
+// sign-out. Each Codex agent start calls it. Regenerates when content drifts (e.g. bun path or
 // node_modules layout changed across a reinstall) so a stale wrapper from
 // a previous install can't outlive the right paths. The flag skips the
 // work only while the file exists, so a deleted wrapper is written again.
@@ -241,10 +241,6 @@ exec ${shellSingleQuote(stableBunPath())} ${shellSingleQuote(launcher)} "$@"
 `;
 }
 
-// Shell-pasteable `codex login` one-liners targeting the isolated CODEX_HOME.
-// Routes through the `~/.isomux/bin/codex` wrapper so the cards stay short
-// and readable rather than a wall of absolute paths.
-//
 // Members with a custom CODEX_HOME (e.g.
 // `~/.isomux-users/marc/.codex`) need to prefix the wrapper call with their
 // own `CODEX_HOME=<path>`; the wrapper's default only kicks in when
@@ -258,12 +254,6 @@ export function codexWrapperCommandForShell(): string {
   return AGENT_ROOT_IS_DEFAULT
     ? "~/.isomux/bin/codex"
     : shellSingleQuote(ISOMUX_CODEX_WRAPPER_PATH);
-}
-
-export function getCodexLoginCommands(): string[] {
-  ensureCodexWrapperScript();
-  const cmd = codexWrapperCommandForShell();
-  return [`${cmd} login --device-auth`];
 }
 
 function shellSingleQuote(s: string): string {

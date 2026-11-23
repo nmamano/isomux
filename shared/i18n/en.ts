@@ -4491,7 +4491,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code is signed in. Type `/clear` to refresh this agent's session and pick up the new auth.",
   "systemEntries.loginInstructions.codex":
-    "To sign in to Codex, click [Copy to terminal] on the card below:\n\n- `{command} login --device-auth`\n\nPress Enter to run, follow the prompts, then `/clear` this conversation to apply the new auth. Other codex agents apply on their next `/clear`.\n\nAlternative: add `OPENAI_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
+    "Sign in to Codex in Integrations → Model providers, then `/clear`.\n\nAlternative: add `OPENAI_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex is signed in. Type `/clear` to refresh this agent's session and pick up the new auth.",
   "systemEntries.loginInstructions.codexKeyRejected":

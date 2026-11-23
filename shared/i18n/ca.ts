@@ -4596,7 +4596,7 @@ Coses que pots fer per ell:
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code té la sessió iniciada. Escriu `/clear` per renovar la sessió d'aquest agent i aplicar la nova autenticació.",
   "systemEntries.loginInstructions.codex":
-    "Per iniciar la sessió a Codex, fes clic a [Copia a la terminal] a la targeta de sota:\n\n- `{command} login --device-auth`\n\nPrem Retorn per executar-lo, segueix les indicacions i després fes servir `/clear` en aquesta conversa per aplicar la nova autenticació. Els altres agents de Codex l'apliquen al seu proper `/clear`.\n\nAlternativa: afegeix `OPENAI_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
+    "Inicia sessió a Codex a Integracions → Proveïdors de models i després fes servir `/clear`.\n\nAlternativa: afegeix `OPENAI_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex té la sessió iniciada. Escriu `/clear` per renovar la sessió d'aquest agent i aplicar la nova autenticació.",
   "systemEntries.loginInstructions.codexKeyRejected":

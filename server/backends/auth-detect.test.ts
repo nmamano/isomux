@@ -7,7 +7,7 @@
 // the result: detectAuthError is pure regex, and the already-authed cases
 // inject the key to exercise the short-circuit before any filesystem /
 // process.env lookup. The auth.json path uses a temp CODEX_HOME. The codex
-// login-command generation (wrapper script + paths) is already covered by
+// wrapper script and its paths are covered by
 // server/backends/codex/native-bin.test.ts and not repeated.
 import { afterAll, describe, expect, it } from "bun:test";
 import {
@@ -126,7 +126,7 @@ describe("codexBackend after the engine rejected its credentials", () => {
     });
     const expected = await signedOut();
     expect(expected.kind).toBe("login");
-    expect(expected.commands?.length).toBeGreaterThan(0);
+    expect(expected.cardEligible).toBe(true);
     expect(r).toEqual(expected);
   });
 
@@ -209,7 +209,7 @@ describe("claudeBackend terminal sign-out", () => {
 // The test preload sets ISOMUX_HOME, so the wrapper is not at
 // ~/.isomux/bin/codex here: a hard-coded path fails this case.
 describe("codexBackend terminal sign-out", () => {
-  it("runs the wrapper that sign-in writes", () => {
+  it("runs the wrapper it writes", () => {
     const command = codexBackend.logoutCommand!();
     const wrapper = codexWrapperCommandForShell();
     expect(wrapper.startsWith("~")).toBe(false);
@@ -277,19 +277,20 @@ describe("getLoginInstructions as a message", () => {
     messageOf(r);
   });
 
-  it("codexBackend, signed out: the walkthrough, with the command as a value", async () => {
-    const env = { CODEX_HOME: tempCodexHome(false) };
+  // Codex signs in on the card or in Integrations, as Claude does (task
+  // 741023b9): no terminal card, and the wrapper is no value in the sentence.
+  it("codexBackend, signed out: the card's walkthrough, with no terminal command", async () => {
+    const env = { CODEX_HOME: tempCodexHome(false), OPENAI_API_KEY: "" };
     const r = await codexBackend.getLoginInstructions({ env });
     expect(r.kind).toBe("login");
-    const command = r.commands![0];
+    expect(r.cardEligible).toBe(true);
+    expect(r.commands ?? []).toEqual([]);
+    const wrapper = codexWrapperCommandForShell();
     expect(
-      Object.values(messageOf(r).params ?? {}).some(
-        (value) =>
-          typeof value === "string" &&
-          value.length > 0 &&
-          command.includes(value),
+      Object.values(messageOf(r).params ?? {}).filter(
+        (value) => typeof value === "string" && value.includes(wrapper),
       ),
-    ).toBe(true);
+    ).toEqual([]);
   });
 
   it("codexBackend, signed in: the /clear hint, with no command cards", async () => {

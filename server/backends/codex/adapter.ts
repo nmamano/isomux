@@ -145,7 +145,6 @@ import {
   codexWrapperCommandForShell,
   ensureCodexWrapperScript,
   codexEnvApiKeyWins,
-  getCodexLoginCommands,
   isCodexAuthenticated,
   isCodexAuthenticatedOnHost,
 } from "./native-bin.ts";
@@ -175,26 +174,24 @@ import { codexEmptyCwdRoot } from "../empty-folder.ts";
 const CODEX_HOST_IMAGE_MS = 30_000;
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
-// by default), separate from the user's interactive `~/.codex/`. That means
-// the user needs a one-time `codex login` against isomux's CODEX_HOME - the
-// [Copy to terminal] card alongside this message has the exact command.
-//
-// The terminal card targets the default `~/.isomux/codex-home/`. Users with a
-// managed personal variable `CODEX_HOME`
-// (e.g. `~/.isomux-users/<name>/.codex` for billing isolation, see
-// internal-docs/isolation-design.md) need to prefix the pasted command
-// with their own `CODEX_HOME=<path>` before pressing Enter - the wrapper's
-// default only kicks in when CODEX_HOME is unset.
-// Same wrapper command the [Copy to terminal] card uses, so the prose and the
-// card never disagree - `~/.isomux/bin/codex` at the default root (byte-for-
-// byte prod), the active wrapper path under an ISOMUX_HOME override.
-const codexLoginCmd = codexWrapperCommandForShell();
+// by default), separate from the user's interactive `~/.codex/`. The member
+// signs in on the sign-in card or in Integrations, never with a terminal
+// command (task 741023b9).
 // The sign-in walkthrough. The JSON-RPC reply to a token refresh request is
 // for the engine, so it carries the English render.
 function loginInstructions(): LogMessage {
-  return msg("systemEntries.loginInstructions.codex", {
-    command: codexLoginCmd,
-  });
+  return msg("systemEntries.loginInstructions.codex");
+}
+
+// Each Codex agent start writes the `~/.isomux/bin/codex` wrapper, so a
+// terminal sign-in or sign-out with it works on a box that never showed a
+// sign-out card. A failed write does not stop the agent.
+function writeCodexWrapper(): void {
+  try {
+    ensureCodexWrapperScript();
+  } catch (err) {
+    console.error(`[codex] cannot write the codex wrapper: ${errMessage(err)}`);
+  }
 }
 
 // A provider refusal as the member line (task 2bd836d5), or null when the
@@ -4511,6 +4508,7 @@ export const codexBackend: Backend = {
   },
 
   createSession(opts: CreateSessionOptions): BackendSession {
+    writeCodexWrapper();
     return new CodexSession({
       agentId: opts.agentId,
       cwd: opts.cwd,
@@ -4531,6 +4529,7 @@ export const codexBackend: Backend = {
   },
 
   resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
+    writeCodexWrapper();
     return new CodexSession({
       agentId: opts.agentId,
       cwd: opts.cwd,
@@ -4884,7 +4883,6 @@ export const codexBackend: Backend = {
       kind: "login",
       cardEligible: true,
       text: loginInstructions(),
-      commands: getCodexLoginCommands(),
     };
   },
 

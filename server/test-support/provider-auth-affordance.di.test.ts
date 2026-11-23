@@ -812,7 +812,7 @@ describe("provider auth affordances", () => {
         env: { CODEX_HOME: join(codexHome, "absent"), OPENAI_API_KEY: "" },
       });
       expect(signedOut.kind).toBe("login");
-      expect(signedOut.commands?.length).toBeGreaterThan(0);
+      expect(signedOut.cardEligible).toBe(true);
       // The walkthrough is a message; the log stores its English as content.
       const signedOutText = renderLogText(english, signedOut.text);
       const signedInText = english.t(
@@ -942,7 +942,8 @@ describe("provider auth affordances", () => {
     });
 
     // The card shows at once; when the check then finds that the card cannot
-    // sign in, the walkthrough follows it.
+    // sign in, the walkthrough follows it, with no terminal command (task
+    // 741023b9).
     const fallbackCases: [string, ManagerDeps["listProviderAccounts"]][] = [
       [
         "the account cannot sign in on the card",
@@ -973,7 +974,7 @@ describe("provider auth affordances", () => {
           english.t("systemEntries.signInRejected", { provider: "Codex" }),
         ]);
         expect(h.notices()).toEqual([h.signedOutText]);
-        expect(h.commands()).toEqual(h.signedOut.commands!);
+        expect(h.commands()).toEqual([]);
         const logs = h.mgr.getAgentLogs(h.agentId);
         expect(
           logs.findIndex((e) => e.metadata?.providerLogin === "codex"),

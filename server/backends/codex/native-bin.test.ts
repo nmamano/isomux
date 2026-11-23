@@ -5,27 +5,24 @@ import { STATE_ROOT } from "../../config.ts";
 import { officeAgentHost } from "../../agent-host.ts";
 import {
   ISOMUX_CODEX_HOME,
+  codexWrapperCommandForShell,
   ensureCodexWrapperScript,
-  getCodexLoginCommands,
   withIsomuxCodexHome,
 } from "./native-bin.ts";
 
 // Regression net for the config-root codex split: once the backend's default
 // CODEX_HOME moved to STATE_ROOT, the generated wrapper's command path and its
 // embedded CODEX_HOME default must follow the active root too, or login writes
-// auth to the wrong place / cards point at an absent wrapper. The test preload
+// auth to the wrong place / the sign-out card points at an absent wrapper. The test preload
 // makes STATE_ROOT an override root; the default root keeps the friendly
 // ~/.isomux/bin/codex command (server/split/roots.test.ts).
 describe("codex wrapper follows the active state root", () => {
-  it("targets the override root under ISOMUX_HOME (cards + wrapper CODEX_HOME)", () => {
-    const commands = getCodexLoginCommands();
+  it("targets the override root under ISOMUX_HOME (command + wrapper CODEX_HOME)", () => {
+    ensureCodexWrapperScript();
     const wantBin = join(STATE_ROOT, "bin", "codex");
-    // Login cards point at the wrapper actually written, under the override
-    // root - not a stale/absent ~/.isomux/bin/codex.
-    expect(commands).toHaveLength(1);
-    expect(commands[0]).toContain(wantBin);
-    expect(commands[0]).toContain("login");
-    expect(commands[0]).toContain("--device-auth");
+    // The shell command points at the wrapper actually written, under the
+    // override root - not a stale/absent ~/.isomux/bin/codex.
+    expect(codexWrapperCommandForShell().replaceAll("'", "")).toBe(wantBin);
 
     // The generated wrapper's CODEX_HOME default is the override codex-home,
     // not $HOME/.isomux/codex-home, and an explicit CODEX_HOME still wins.

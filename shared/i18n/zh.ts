@@ -4082,7 +4082,7 @@ export const zh: Catalog = {
   "systemEntries.loginInstructions.claudeSignedIn":
     "Claude Code 已登录。输入 `/clear` 刷新此智能体的会话，以使用新的身份验证。",
   "systemEntries.loginInstructions.codex":
-    "要登录 Codex，请点击下方卡片上的 [复制到终端]：\n\n- `{command} login --device-auth`\n\n按 Enter 运行并按提示操作，然后在此对话中输入 `/clear` 以使用新的身份验证。其他 Codex 智能体会在下次 `/clear` 时生效。\n\n也可以在「集成」页面（「变量」标签页）添加 `OPENAI_API_KEY`，然后输入 `/clear`。",
+    "请在「集成 → 模型提供商」中登录 Codex，然后输入 `/clear`。\n\n也可以在「集成」页面（「变量」标签页）添加 `OPENAI_API_KEY`，然后输入 `/clear`。",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex 已登录。输入 `/clear` 刷新此智能体的会话，以使用新的身份验证。",
   "systemEntries.loginInstructions.codexKeyRejected":
