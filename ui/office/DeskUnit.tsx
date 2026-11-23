@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import type { AgentInfo } from "../../shared/types.ts";
 import { DeskSprite } from "./DeskSprite.tsx";
 import type { SeasonalItem } from "./Seasonal.tsx";
@@ -42,8 +42,6 @@ export function DeskUnit({
   const [hov, setHov] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTriggered = useRef(false);
   // The desk this unit put in drag-state, while its drag runs. A desk that
   // unmounts mid-drag (its agent moved to another room) never gets dragend,
   // so the unmount clears it instead.
@@ -64,61 +62,21 @@ export function DeskUnit({
     return () => clearInterval(id);
   }, [isWorking]);
 
-  // Stable refs for callbacks so the touch listener effect doesn't re-register on every render
+  // Stable refs for callbacks so the touch listeners don't re-register on every render
   const onClickRef = useRef(onClick);
   const onContextMenuRef = useRef(onContextMenu);
   /* eslint-disable react-hooks/refs */
   onClickRef.current = onClick;
   onContextMenuRef.current = onContextMenu;
   /* eslint-enable react-hooks/refs */
-
-  // Non-passive touch listeners - React registers touch listeners as passive,
-  // which silently ignores preventDefault(). We need preventDefault() to suppress
-  // native long-press context menu, text selection, and synthetic mouse events.
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    function handleTouchStart(e: TouchEvent) {
-      e.preventDefault();
-      longPressTriggered.current = false;
-      const touch = e.touches[0];
-      longPressTimer.current = setTimeout(() => {
-        longPressTriggered.current = true;
-        onContextMenuRef.current({
-          clientX: touch.clientX,
-          clientY: touch.clientY,
-          preventDefault() {},
-        } as unknown as React.MouseEvent);
-      }, 500);
-    }
-    function handleTouchEnd(e: TouchEvent) {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-      }
-      if (longPressTriggered.current) {
-        e.preventDefault();
-      } else {
-        onClickRef.current();
-      }
-    }
-    function handleTouchMove() {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-      }
-    }
-
-    el.addEventListener("touchstart", handleTouchStart, { passive: false });
-    el.addEventListener("touchend", handleTouchEnd, { passive: false });
-    el.addEventListener("touchmove", handleTouchMove, { passive: true });
-    return () => {
-      el.removeEventListener("touchstart", handleTouchStart);
-      el.removeEventListener("touchend", handleTouchEnd);
-      el.removeEventListener("touchmove", handleTouchMove);
-    };
-  }, []);
+  // The desk and its floating name tag are two hit boxes for the same agent.
+  const deskLongPress = useTapAndLongPress(
+    containerRef,
+    onClickRef,
+    onContextMenuRef,
+  );
+  const tagRef = useRef<HTMLDivElement>(null);
+  const tagLongPress = useTapAndLongPress(tagRef, onClickRef, onContextMenuRef);
 
   const elapsedMs =
     isWorking && stateChangedAt ? now - stateChangedAt : undefined;
@@ -173,7 +131,7 @@ export function DeskUnit({
           setDragOver(false);
         }}
         onClick={() => {
-          if (!longPressTriggered.current) onClick();
+          if (!deskLongPress.current) onClick();
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -288,10 +246,23 @@ export function DeskUnit({
           floating ghost avatars (live-avatars feature). Position is
           computed from the desk's pixel coords; the per-desk z bump
           (z + 10000) preserves the front-vs-back isometric ordering
-          between nametags themselves when two desks' chips overlap. */}
+          between nametags themselves when two desks' chips overlap.
+          Outside the desk's hit box, so it carries the desk's own click,
+          touch and hover handlers. */}
       <div
+        ref={tagRef}
         data-turn-anchor={`${pxLeft + 90},${pxTop + 116}`}
         data-desk-tag={agent.desk}
+        data-no-pan
+        onClick={() => {
+          if (!tagLongPress.current) onClick();
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu(e);
+        }}
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
         style={{
           position: "absolute",
           top: pxTop + (agent.topic ? -58 : -48),
@@ -301,7 +272,9 @@ export function DeskUnit({
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          pointerEvents: "none",
+          cursor: "pointer",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
         <div
@@ -421,4 +394,65 @@ export function DeskUnit({
       </div>
     </>
   );
+}
+
+/**
+ * Tap and long press on a touch screen. React registers touch listeners as
+ * passive, which silently ignores preventDefault(), so these are attached by
+ * hand: preventDefault() suppresses the native long-press menu, text
+ * selection and the synthetic mouse events (and so a second click). A tap
+ * calls onTap; a press held 500 ms calls onLongPress, and the returned ref
+ * stays true until the next touch so the element's onClick can skip it.
+ */
+function useTapAndLongPress(
+  ref: RefObject<HTMLElement | null>,
+  onTap: RefObject<() => void>,
+  onLongPress: RefObject<(e: React.MouseEvent) => void>,
+) {
+  const triggered = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    function handleTouchStart(e: TouchEvent) {
+      e.preventDefault();
+      triggered.current = false;
+      const touch = e.touches[0];
+      timer = setTimeout(() => {
+        timer = null;
+        triggered.current = true;
+        onLongPress.current({
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          preventDefault() {},
+        } as unknown as React.MouseEvent);
+      }, 500);
+    }
+    function handleTouchEnd(e: TouchEvent) {
+      cancel();
+      if (triggered.current) {
+        e.preventDefault();
+      } else {
+        onTap.current();
+      }
+    }
+
+    el.addEventListener("touchstart", handleTouchStart, { passive: false });
+    el.addEventListener("touchend", handleTouchEnd, { passive: false });
+    el.addEventListener("touchmove", cancel, { passive: true });
+    return () => {
+      cancel();
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchend", handleTouchEnd);
+      el.removeEventListener("touchmove", cancel);
+    };
+  }, [ref, onTap, onLongPress]);
+  return triggered;
 }
