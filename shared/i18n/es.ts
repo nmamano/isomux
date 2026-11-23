@@ -4884,6 +4884,12 @@ Cosas que puedes hacer por él:
     "Abre este enlace para reclamar la propiedad de una oficina Isomux.",
   "preAuth.invite.ogDescriptionAccept":
     "Abre este enlace para iniciar sesión en una oficina Isomux en este dispositivo.",
+  "preAuth.inApp.title": "Este enlace se abrió dentro de otra app.",
+  "preAuth.inApp.once": "Iniciar sesión aquí solo funciona una vez.",
+  "preAuth.inApp.steps":
+    "Ábrelo en tu navegador: toca {menu} y luego Abrir en el navegador. O copia el enlace.",
+  "preAuth.inApp.copy": "Copiar enlace",
+  "preAuth.inApp.anyway": "Iniciar sesión aquí de todos modos",
   "preAuth.inviteError.heading": "Invitación no disponible",
   "preAuth.inviteError.consumed": "Esta invitación ya se ha usado.",
   "preAuth.inviteError.expired": "Esta invitación ha caducado.",

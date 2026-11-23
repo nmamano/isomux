@@ -11,15 +11,14 @@ import {
   captureInstallPrompt,
   heldInstallPrompt,
   installMode,
-  iosBrowser,
   isHandheld,
   promptInstall,
   showOfficeInstallNotice,
   stepsBrowser,
   subscribeInstallPrompt,
   type InstallEnv,
-  type IosBrowser,
 } from "./app-install.ts";
+import { iosBrowser, type IosBrowser } from "../shared/in-app-view.ts";
 import type { PushEnv } from "./push-subscription.ts";
 import { IOS_UA } from "./test-support/ios-browsers.ts";
 

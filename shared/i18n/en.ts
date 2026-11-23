@@ -4780,6 +4780,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Open this link to claim ownership of an Isomux office.",
   "preAuth.invite.ogDescriptionAccept":
     "Open this link to sign in to an Isomux office on this device.",
+  "preAuth.inApp.title": "This link opened inside another app.",
+  "preAuth.inApp.once": "A sign-in here works only once.",
+  "preAuth.inApp.steps":
+    "Open it in your browser: tap {menu}, then Open in browser. Or copy the link.",
+  "preAuth.inApp.copy": "Copy link",
+  "preAuth.inApp.anyway": "Sign in here anyway",
   "preAuth.inviteError.heading": "Invite unavailable",
   "preAuth.inviteError.consumed": "This invite has already been used.",
   "preAuth.inviteError.expired": "This invite has expired.",
