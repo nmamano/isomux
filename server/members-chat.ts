@@ -212,6 +212,9 @@ export function createMembersChatStore(
     // False: a reader's own messages never count in their unread (a 1:1
     // chat). Members chat counts every message after the pointer.
     ownMessagesUnread?: boolean;
+    // When the reader joined the office; null when unknown. A reader with no
+    // usable read pointer has read every post written before it.
+    joinedAt?: (userId: string) => number | null;
   } = {},
 ): MembersChatStore {
   const now = opts.now ?? (() => Date.now());
@@ -519,21 +522,28 @@ export function createMembersChatStore(
   }
 
   // Live messages after the pointer, up to the cap, skipping the reader's own
-  // when ownMessagesUnread is off. `months` ascending.
+  // when ownMessagesUnread is off. With no pointer, or one that names no
+  // post, only messages from the reader's join time on count, so a new
+  // member does not start with the chat's whole history unread. `months`
+  // ascending.
   function countAfter(
     userId: string,
     pointer: string | null,
     months: string[],
   ): number {
     const pos = pointer ? positionOf(pointer) : null;
+    const floor = pos ? null : (opts.joinedAt?.(userId) ?? null);
+    const floorMonth = floor === null ? null : monthKey(floor);
     let count = 0;
     for (const month of months) {
       if (pos && month < pos.month) continue;
+      if (floorMonth && month < floorMonth) continue;
       const folded = fold(month);
       const start = pos && month === pos.month ? pos.index + 1 : 0;
       for (let i = start; i < folded.order.length; i++) {
         const m = folded.byId.get(folded.order[i]);
         if (!m) continue;
+        if (floor !== null && m.timestamp < floor) continue;
         if (!ownMessagesUnread && m.userId === userId) continue;
         count++;
         if (count >= MEMBERS_CHAT_UNREAD_CAP) return MEMBERS_CHAT_UNREAD_CAP;

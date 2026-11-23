@@ -669,11 +669,16 @@ export function createManagers(
   // is a credential and lives in its own file, never in the env injected
   // into agents), and delivery. The store and delivery call each other
   // through these closures.
-  membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
+  // A member's unread count in a room chat starts at their join time.
+  const joinedAt = (userId: string) => getUserById(userId)?.createdAt ?? null;
+  membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"), {
+    joinedAt,
+  });
   roomChats = createRoomChats({
     dir: join(STATE_ROOT, "room-chats"),
     lobbyStore: membersChat,
     isLobby: isLobbyRoomId,
+    joinedAt,
   });
   memberDms = createMemberDms(join(STATE_ROOT, "member-dms"));
   floors = createFloorsStore();

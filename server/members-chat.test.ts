@@ -283,6 +283,56 @@ describe("read pointer and unread count", () => {
   });
 });
 
+// No usable pointer (none, or one that names no post) means "read up to the
+// moment the reader joined": a new member does not open a chat with every old
+// post unread (task 8b8b6001). A resolved pointer wins over the join time.
+describe("unread floor at the join time", () => {
+  const floored = (joined: Record<string, number>) =>
+    createMembersChatStore(dir, {
+      now: () => clock,
+      joinedAt: (id) => joined[id] ?? null,
+    });
+
+  it("with no pointer counts only posts at or after the join time", () => {
+    postN(2); // an older month
+    clock = SEP;
+    postN(2); // the join month, before the join
+    const joined = clock;
+    postN(3); // the first lands at the join time itself
+    const s = floored({ "u-pau": joined });
+    expect(s.getReadPointer("u-pau")).toBeNull();
+    expect(s.unreadCount("u-pau")).toBe(3);
+    expect(s.summary("u-pau")).toEqual({ readPointer: null, unread: 3 });
+    // A reader with no join time keeps the full count.
+    expect(s.unreadCount("u-zed")).toBe(7);
+  });
+
+  it("a resolved pointer ignores the join time", () => {
+    const ids = postN(4);
+    const s = floored({ "u-pau": clock + 60_000 });
+    s.setReadPointer("u-pau", ids[0]);
+    expect(s.unreadCount("u-pau")).toBe(3);
+    expect(s.summary("u-pau")).toEqual({ readPointer: ids[0], unread: 3 });
+  });
+
+  it("a stored pointer that names no post falls back to the join time", () => {
+    postN(3);
+    const joined = clock;
+    postN(2);
+    const ghost = "202608-ffffffff";
+    fs.writeFileSync(
+      join(dir, "reads.json"),
+      JSON.stringify({ "u-pau": ghost }) + "\n",
+    );
+    const s = floored({ "u-pau": joined });
+    expect(s.getReadPointer("u-pau")).toBe(ghost);
+    expect(s.unreadCount("u-pau")).toBe(2);
+    expect(s.summary("u-pau")).toEqual({ readPointer: ghost, unread: 2 });
+    // Without the option, the same pointer counts every post, as before.
+    expect(createMembersChatStore(dir).unreadCount("u-pau")).toBe(5);
+  });
+});
+
 describe("attachments", () => {
   it("saves under files/, dedupes identical uploads, suffixes different ones", () => {
     const a = store.saveAttachment(Buffer.from("one"), "text/plain", "n.txt");

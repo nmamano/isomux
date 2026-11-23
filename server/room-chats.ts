@@ -22,6 +22,8 @@ export function createRoomChats(opts: {
   dir: string;
   lobbyStore: MembersChatStore;
   isLobby(roomId: string): boolean;
+  // Passed to each room's store (createMembersChatStore).
+  joinedAt?: (userId: string) => number | null;
 }): RoomChats {
   const stores = new Map<string, MembersChatStore>();
   return {
@@ -29,7 +31,9 @@ export function createRoomChats(opts: {
       if (opts.isLobby(roomId)) return opts.lobbyStore;
       let store = stores.get(roomId);
       if (!store) {
-        store = createMembersChatStore(join(opts.dir, roomId));
+        store = createMembersChatStore(join(opts.dir, roomId), {
+          joinedAt: opts.joinedAt,
+        });
         stores.set(roomId, store);
       }
       return store;

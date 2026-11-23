@@ -20,6 +20,8 @@ import {
 } from "./harness.ts";
 import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
+import { acceptInvite } from "../auth.ts";
+import { mintMemberLink } from "./member-link.ts";
 import { createMembersChatStore } from "../members-chat.ts";
 import { LOBBY_ROOM_ID } from "../../shared/types.ts";
 import type {
@@ -948,6 +950,60 @@ describe("room chat read pointer at a pack change", () => {
       lobby: [lobby.readPointer, lobby.unread],
       a: [a.readPointer, a.unread],
     }).toEqual({ lobby: [old[1].id, 0], a: [old[2].id, 0] });
+  });
+});
+
+// Dan Test's case (task 8b8b6001): an owner creates a member with a room
+// already granted, so no access change ever seeds a read pointer. The posts
+// written before the member existed are not unread for them.
+describe("room chat unread for a member created after the posts", () => {
+  it("opens the lobby and a room granted at creation with no unread; a later post is unread", async () => {
+    const o = await office();
+    for (const text of ["lobby one", "lobby two"])
+      await posted(o.srv, o.owner.who, LOBBY_ROOM_ID, text);
+    await posted(o.srv, o.owner.who, o.roomA, "A one");
+    // Post timestamps and createdAt are both Date.now(): keep them apart.
+    await Bun.sleep(5);
+    const created = await api(o.srv, o.owner.who, "POST", "/api/users", {
+      name: "Dana",
+      role: "member",
+      allowedRooms: [o.roomA],
+    });
+    expect(created.status).toBe(201);
+    const link = await mintMemberLink("Dana");
+    const accepted = await acceptInvite(link.rawToken, { userAgent: "test" });
+    if (!accepted.ok) throw new Error(`accept failed: ${accepted.error}`);
+    const dana: Who = { session: accepted.rawSessionId };
+
+    const ws = await o.srv.connectWs(accepted.rawSessionId);
+    const state = await ws.waitFor("full_state");
+    ws.close();
+    const summaries = (state.roomChats ?? {}) as Record<
+      string,
+      MembersChatSummary
+    >;
+    const lobby = await pageOf(o.srv, dana, LOBBY_ROOM_ID);
+    const a = await pageOf(o.srv, dana, o.roomA);
+    // The condition: the old posts are in Dana's view, and no pointer is set.
+    expect({
+      lobby: [contents(lobby).length, lobby.readPointer, lobby.unread],
+      a: [contents(a).length, a.readPointer, a.unread],
+      fullState: {
+        lobby: summaries[LOBBY_ROOM_ID]?.unread,
+        a: summaries[o.roomA]?.unread,
+      },
+    }).toEqual({
+      lobby: [2, null, 0],
+      a: [1, null, 0],
+      fullState: { lobby: 0, a: 0 },
+    });
+
+    await posted(o.srv, o.owner.who, LOBBY_ROOM_ID, "lobby three");
+    await posted(o.srv, o.owner.who, o.roomA, "A two");
+    expect({
+      lobby: (await pageOf(o.srv, dana, LOBBY_ROOM_ID)).unread,
+      a: (await pageOf(o.srv, dana, o.roomA)).unread,
+    }).toEqual({ lobby: 1, a: 1 });
   });
 });
 
