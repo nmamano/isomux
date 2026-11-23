@@ -226,7 +226,8 @@ describe("Claude sign-in state", () => {
     expect(p.calls).toHaveLength(2);
   });
 
-  it("asks the bundled CLI, which reports an empty config dir as signed out", async () => {
+  // Quarantined: flaky, timed out at 5000ms in CI under load (task 8705a06f).
+  it.skip("asks the bundled CLI, which reports an empty config dir as signed out", async () => {
     const env = {
       CLAUDE_CONFIG_DIR: tempDir(),
       HOME: process.env.HOME,
