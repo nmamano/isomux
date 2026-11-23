@@ -1,12 +1,12 @@
 // Another app's browser, from the user agent (task 5765f58e, part 3): the
 // invite page stops before Accept there, because a sign-in there signs in
-// only that view and uses up the one-time link. iOS and Android; the result
-// names the platform, whose menu icon the page draws. Views that send the
-// browser's own user agent (SFSafariViewController in Gmail, Slack and X;
-// Android Custom Tabs) read as the browser: no page can tell them apart.
+// only that view and uses up the one-time link. iOS and Android. Views that
+// send the browser's own user agent (SFSafariViewController in Gmail, Slack
+// and X; Android Custom Tabs) read as the browser: no page can tell them
+// apart.
 
 import { expect, it } from "bun:test";
-import { inAppView } from "./in-app-view.ts";
+import { isInAppView } from "./in-app-view.ts";
 import { IOS_UA } from "../ui/test-support/ios-browsers.ts";
 
 const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8";
@@ -15,67 +15,67 @@ const IPAD_LINKEDIN =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) [LinkedInApp]/9.29.1234";
 const WV = `${ANDROID} Build/AP1A.240305.019; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/122.0.6261.119 Mobile Safari/537.36`;
 
-for (const [label, ua, view] of [
+for (const [label, ua, inApp] of [
   // iOS browsers.
-  ["iPhone Safari", IOS_UA.safari, null],
-  ["iPhone Chrome", IOS_UA.chrome, null],
-  ["iPhone Firefox", IOS_UA.firefox, null],
-  ["iPhone Edge", IOS_UA.edge, null],
-  ["iPhone Opera", IOS_UA.opera, null],
-  ["iPhone DuckDuckGo", IOS_UA.duckduckgo, null],
-  ["iPad Safari (a desktop user agent)", IOS_UA.ipadSafari, null],
+  ["iPhone Safari", IOS_UA.safari, false],
+  ["iPhone Chrome", IOS_UA.chrome, false],
+  ["iPhone Firefox", IOS_UA.firefox, false],
+  ["iPhone Edge", IOS_UA.edge, false],
+  ["iPhone Opera", IOS_UA.opera, false],
+  ["iPhone DuckDuckGo", IOS_UA.duckduckgo, false],
+  ["iPad Safari (a desktop user agent)", IOS_UA.ipadSafari, false],
   // iOS in-app views.
-  ["iPhone Instagram", IOS_UA.instagram, "ios"],
-  ["iPhone Threads", IOS_UA.threads, "ios"],
-  ["iPhone Facebook", IOS_UA.facebook, "ios"],
-  ["iPhone LinkedIn", IOS_UA.linkedin, "ios"],
-  ["iPhone TikTok", IOS_UA.tiktok, "ios"],
+  ["iPhone Instagram", IOS_UA.instagram, true],
+  ["iPhone Threads", IOS_UA.threads, true],
+  ["iPhone Facebook", IOS_UA.facebook, true],
+  ["iPhone LinkedIn", IOS_UA.linkedin, true],
+  ["iPhone TikTok", IOS_UA.tiktok, true],
   // Its own token alone catches it: it sends Safari's token.
-  ["the iPhone Google app", IOS_UA.google, "ios"],
+  ["the iPhone Google app", IOS_UA.google, true],
   // The missing Safari token alone catches it.
-  ["a plain iPhone WKWebView", IOS_UA.webview, "ios"],
-  ["an iPad LinkedIn view with a desktop user agent", IPAD_LINKEDIN, "ios"],
+  ["a plain iPhone WKWebView", IOS_UA.webview, true],
+  ["an iPad LinkedIn view with a desktop user agent", IPAD_LINKEDIN, true],
   // Android browsers.
   [
     "Android Chrome",
     `${ANDROID}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36`,
-    null,
+    false,
   ],
   [
     "Samsung Internet",
     "Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36",
-    null,
+    false,
   ],
   [
     "Android Firefox",
     "Mozilla/5.0 (Android 14; Mobile; rv:124.0) Gecko/124.0 Firefox/124.0",
-    null,
+    false,
   ],
   // Android in-app views.
   [
     "Android Instagram",
     `${WV} Instagram 321.0.0.39.106 Android (34/14; 420dpi; 1080x2400; Google/google; Pixel 8; shiba; shiba; en_US; 577210397)`,
-    "android",
+    true,
   ],
-  ["Android Facebook", `${WV} [FB_IAB/FB4A;FBAV/456.0.0.38.109;]`, "android"],
-  ["a plain Android WebView", WV, "android"],
+  ["Android Facebook", `${WV} [FB_IAB/FB4A;FBAV/456.0.0.38.109;]`, true],
+  ["a plain Android WebView", WV, true],
   // Computers and clients with no browser token: never an in-app view.
   [
     "desktop Chrome",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-    null,
+    false,
   ],
   [
     "Mac Safari",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    null,
+    false,
   ],
-  ["curl", "curl/8.5.0", null],
-  ["an empty user agent", "", null],
-  ["no user agent", null, null],
+  ["curl", "curl/8.5.0", false],
+  ["an empty user agent", "", false],
+  ["no user agent", null, false],
 ] as const) {
-  it(`reads ${label} as ${String(view)}`, () => {
-    expect(inAppView(ua)).toBe(view);
+  it(`reads ${label} as ${inApp ? "an in-app view" : "a browser"}`, () => {
+    expect(isInAppView(ua)).toBe(inApp);
   });
 }
 

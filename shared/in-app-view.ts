@@ -34,21 +34,17 @@ export function iosBrowser(userAgent: string): IosBrowser {
   return /\bSafari\//.test(userAgent) ? "safari" : "in-app";
 }
 
-// The platform of the in-app view a user agent names, or null for a browser.
-// The invite page draws that platform's menu icon (••• on iOS, ⋮ on Android).
-// An app's own token counts on any user agent: an iPad in-app view sends the
-// Mac desktop one, which names no iPad. The no-Safari/ rule (iosBrowser)
-// applies only to a user agent that names an iPhone, iPad or iPod: curl and
-// desktop bots send no Safari/ token either. On Android, "; wv)" marks a
-// plain WebView.
-export function inAppView(userAgent: string | null): "ios" | "android" | null {
-  if (!userAgent) return null;
-  const android = /\bAndroid\b/.test(userAgent);
-  if (android)
-    return IN_APP_TOKENS.test(userAgent) || /; wv\)/.test(userAgent)
-      ? "android"
-      : null;
+// Whether a user agent is another app's in-app view (the invite page stops
+// before Accept there). An app's own token counts on any user agent: an iPad
+// in-app view sends the Mac desktop one, which names no iPad. The no-Safari/
+// rule (iosBrowser) applies only to a user agent that names an iPhone, iPad
+// or iPod: curl and desktop bots send no Safari/ token either. On Android,
+// "; wv)" marks a plain WebView.
+export function isInAppView(userAgent: string | null): boolean {
+  if (!userAgent) return false;
+  if (/\bAndroid\b/.test(userAgent))
+    return IN_APP_TOKENS.test(userAgent) || /; wv\)/.test(userAgent);
   if (/iPhone|iPad|iPod/.test(userAgent))
-    return iosBrowser(userAgent) === "in-app" ? "ios" : null;
-  return IN_APP_TOKENS.test(userAgent) ? "ios" : null;
+    return iosBrowser(userAgent) === "in-app";
+  return IN_APP_TOKENS.test(userAgent);
 }

@@ -74,17 +74,29 @@ function acceptForm(html: string): string {
   return form![0];
 }
 
+// The in-app notice, from its opening tag to its end.
+function notice(html: string): string {
+  const div = /<div class="in-app" data-in-app-notice="">[\s\S]*?<\/div>/.exec(
+    html,
+  );
+  expect(div).not.toBeNull();
+  return div![0];
+}
+
 // The in-app form of the page, for the link `token`: the notice, then Copy
 // link with the page's own /i/ path (never the address it was served from),
 // then the accept form, whose submit is "Sign in here anyway". No Accept and
-// continue.
-function expectInAppPage(html: string, token: string, menu: "ios" | "android") {
-  expect(html).toContain("data-in-app-notice");
+// continue. The notice's last line is the catalog's steps line as it stands:
+// it names only Copy link, so it has no placeholder to fill and the notice
+// draws no menu icon (Nil at sign-off, task 40743a4d).
+function expectInAppPage(html: string, token: string) {
+  const box = notice(html);
+  const steps = label("preAuth.inApp.steps");
+  expect(steps).not.toMatch(/\{\w+\}/);
+  expect(box).toContain(`<p>${steps}</p>`);
+  expect(box).not.toContain("<svg");
   const links = [...html.matchAll(/data-link="([^"]*)"/g)].map((m) => m[1]);
   expect(links).toEqual([`/i/${token}`]);
-  expect([...html.matchAll(/data-menu="([^"]*)"/g)].map((m) => m[1])).toEqual([
-    menu,
-  ]);
   expect(html).not.toContain(en["preAuth.invite.accept"]);
   expect(html).not.toContain(en["preAuth.invite.clickHint"]);
   const form = acceptForm(html);
@@ -107,7 +119,7 @@ describe("the invite page in another app's browser", () => {
     const page = await getPage(rawToken, IOS_UA.instagram);
     expect(page.status).toBe(200);
     expect(varies(page)).toBe(true);
-    expectInAppPage(await page.text(), rawToken, "ios");
+    expectInAppPage(await page.text(), rawToken);
     // The GET uses nothing: the link still opens in the member's browser.
     expect(peekInvite(rawToken)).not.toHaveProperty("error");
 
@@ -120,11 +132,11 @@ describe("the invite page in another app's browser", () => {
     expect(validateSession(raw ?? null)?.username).toBe("Ines");
   });
 
-  it("draws Android's menu icon in an Android Facebook view", async () => {
+  it("stops before Accept in an Android Facebook view", async () => {
     const { rawToken } = await mintMemberLink("Ana");
     const page = await getPage(rawToken, ANDROID_FACEBOOK);
     expect(varies(page)).toBe(true);
-    expectInAppPage(await page.text(), rawToken, "android");
+    expectInAppPage(await page.text(), rawToken);
   });
 
   for (const [browser, ua] of [
@@ -152,7 +164,7 @@ describe("the invite page in another app's browser", () => {
     });
     const page = await getPage(rawToken, IOS_UA.linkedin);
     const html = await page.text();
-    expectInAppPage(html, rawToken, "ios");
+    expectInAppPage(html, rawToken);
     // The condition: the form asks for a name, so an empty one is refused.
     expect(acceptForm(html)).toContain('name="name"');
 
@@ -164,7 +176,7 @@ describe("the invite page in another app's browser", () => {
     expect(varies(refused)).toBe(true);
     const again = await refused.text();
     expect(again).toContain(en["preAuth.invite.errorName"]);
-    expectInAppPage(again, rawToken, "ios");
+    expectInAppPage(again, rawToken);
     expect(peekInvite(rawToken)).not.toHaveProperty("error");
   });
 
@@ -179,7 +191,7 @@ describe("the invite page in another app's browser", () => {
     expect(varies(page)).toBe(true);
     const html = await page.text();
     expect(peekInvite(rawToken)).toMatchObject({ bootstrap: true });
-    expectInAppPage(html, rawToken, "ios");
+    expectInAppPage(html, rawToken);
     expect(acceptForm(html)).toContain('name="name"');
   });
 });

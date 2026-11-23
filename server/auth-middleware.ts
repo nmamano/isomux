@@ -56,7 +56,7 @@ import { API_CAPABILITIES } from "./identity/index.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
 import { deriveAppHostDomain } from "./app-domain.ts";
 import { ownerLoginCommand } from "./admin-cli.ts";
-import { inAppView } from "../shared/in-app-view.ts";
+import { isInAppView } from "../shared/in-app-view.ts";
 import { ADMIN_SOCKET_PATH } from "./config.ts";
 import type { EnterpriseOutcome } from "./enterprise-seats.ts";
 
@@ -520,7 +520,7 @@ export function handleInvitePeek(
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        // Another app's browser gets the in-app form (inAppView).
+        // Another app's browser gets the in-app form (isInAppView).
         Vary: "User-Agent",
         ...securityHeaders(),
       },
@@ -1354,7 +1354,6 @@ const PREAUTH_EXTRA_CSS = `
     border: 1px solid rgba(217, 164, 65, 0.6);
   }
   .in-app p { margin: 0.25em 0; }
-  .in-app-menu { vertical-align: -0.15em; }
   .in-app-copy {
     width: 100%;
     margin-top: 16px;
@@ -1383,16 +1382,6 @@ const PREAUTH_EXTRA_CSS = `
   }
 `;
 
-// The app's menu button, drawn where the notice names it: ••• on iOS, ⋮ on
-// Android. SVG, not glyphs: iOS draws shape glyphs as emoji.
-function menuIconHtml(view: "ios" | "android"): string {
-  const dots =
-    view === "ios"
-      ? [3, 8, 13].map((x) => `<circle cx="${x}" cy="8" r="1.4"/>`)
-      : [3, 8, 13].map((y) => `<circle cx="8" cy="${y}" r="1.4"/>`);
-  return `<svg data-menu="${view}" class="in-app-menu" viewBox="0 0 16 16" width="1em" height="1em" fill="currentColor" role="img" aria-label="${view === "ios" ? "\u22EF" : "\u22EE"}">${dots.join("")}</svg>`;
-}
-
 // Copies the invite link for the button in the in-app notice. The link is
 // the page's own /i/ path from the server (a POST error re-render is served
 // from /auth/accept), with no app query. The labels come from the button's
@@ -1402,16 +1391,12 @@ const IN_APP_COPY_SCRIPT = `(function(){var b=document.querySelector(".in-app-co
 
 // The in-app notice: why to leave, how to leave, and Copy link. The form
 // that follows keeps "Sign in here anyway".
-function inAppNoticeHtml(
-  t: Translator["t"],
-  view: "ios" | "android",
-  token: string,
-): string {
+function inAppNoticeHtml(t: Translator["t"], token: string): string {
   const copy = t("preAuth.inApp.copy");
   return `
       <div class="in-app" data-in-app-notice="">
         <p><strong>${t("preAuth.inApp.title")}</strong> ${t("preAuth.inApp.once")}</p>
-        <p>${t("preAuth.inApp.steps", { menu: menuIconHtml(view) })}</p>
+        <p>${t("preAuth.inApp.steps")}</p>
       </div>
       <button type="button" class="in-app-copy" data-link="/i/${escapeAttr(token)}" data-copy="${escapeAttr(copy)}" data-copied="${escapeAttr(t("common.copied"))}">${copy}</button>
       <input class="in-app-link" type="text" readonly hidden aria-label="${escapeAttr(copy)}" />
@@ -1436,10 +1421,10 @@ function renderAcceptPage(
   // Another app's browser: accepting there signs in only that app and uses
   // up the link. The notice and Copy link come first; the form's submit
   // becomes a small "Sign in here anyway" (Nil, 2026-11-23).
-  const view = inAppView(userAgent);
-  const notice = view ? inAppNoticeHtml(t, view, token) : "";
+  const inApp = isInAppView(userAgent);
+  const notice = inApp ? inAppNoticeHtml(t, token) : "";
   // In-app, a focused field would open the keyboard over the notice.
-  const focus = view ? "" : " autofocus";
+  const focus = inApp ? "" : " autofocus";
   const anyway = `<button type="submit" class="in-app-anyway">${t("preAuth.inApp.anyway")}</button>`;
   // Open-graph metadata so chat-app link unfurlers show a readable preview
   // instead of just the opaque token URL. No image (intentional: any image
@@ -1472,7 +1457,7 @@ function renderAcceptPage(
           <input type="hidden" name="token" value="${safeToken}" />
           <label>${t("common.displayName")} <input name="name" type="text"${focus} maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
           ${err}
-          ${view ? anyway : `<button type="submit">${t("common.continue")}</button>`}
+          ${inApp ? anyway : `<button type="submit">${t("common.continue")}</button>`}
         </form>
       </main>
       `,
@@ -1497,14 +1482,14 @@ function renderAcceptPage(
     <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
       <h1>${heading}</h1>
-      ${view ? notice : `<p>${t("preAuth.invite.clickHint")}</p>`}
+      ${inApp ? notice : `<p>${t("preAuth.invite.clickHint")}</p>`}
       <form method="POST" action="/auth/accept">
         <input type="hidden" name="token" value="${safeToken}" />
         ${needsName ? `<label>${t("common.displayName")} <input name="name" type="text"${focus} maxlength="64" required value="${escapeAttr(chosenName ?? invite?.label ?? "")}" /></label>` : ""}
       ${asksLanguage ? `<label>${t("preferences.language")} <select name="language">${SUPPORTED_LANGUAGES.map((l) => `<option value="${l.code}"${l.code === i18n.language ? " selected" : ""}>${l.label}</option>`).join("")}</select></label>` : ""}
       ${asksLanguage ? `<p class="muted">${t("preAuth.invite.changeLater")}</p>` : ""}
       ${err}
-        ${view ? anyway : `<button type="submit"${needsName ? "" : " autofocus"}>${t("preAuth.invite.accept")}</button>`}
+        ${inApp ? anyway : `<button type="submit"${needsName ? "" : " autofocus"}>${t("preAuth.invite.accept")}</button>`}
       </form>
     </main>
     `,

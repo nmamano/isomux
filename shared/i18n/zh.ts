@@ -4344,8 +4344,7 @@ export const zh: Catalog = {
     "打开此链接，在此设备上登录 Isomux 办公室。",
   "preAuth.inApp.title": "此链接是在其他应用内打开的。",
   "preAuth.inApp.once": "在这里登录只能使用一次。",
-  "preAuth.inApp.steps":
-    "请在你的浏览器中打开：点按{menu}，然后点按“在浏览器中打开”。或者复制链接。",
+  "preAuth.inApp.steps": "复制链接，然后在你常用的浏览器中打开。",
   "preAuth.inApp.copy": "复制链接",
   "preAuth.inApp.anyway": "仍在此处登录",
   "preAuth.inviteError.heading": "邀请不可用",

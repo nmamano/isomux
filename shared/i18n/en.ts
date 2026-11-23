@@ -4784,8 +4784,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Open this link to sign in to an Isomux office on this device.",
   "preAuth.inApp.title": "This link opened inside another app.",
   "preAuth.inApp.once": "A sign-in here works only once.",
-  "preAuth.inApp.steps":
-    "Open it in your browser: tap {menu}, then Open in browser. Or copy the link.",
+  "preAuth.inApp.steps": "Copy the link and open it in your normal browser.",
   "preAuth.inApp.copy": "Copy link",
   "preAuth.inApp.anyway": "Sign in here anyway",
   "preAuth.inviteError.heading": "Invite unavailable",
