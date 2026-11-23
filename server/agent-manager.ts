@@ -6486,8 +6486,7 @@ export function createAgentManager(deps: ManagerDeps) {
       });
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
-    newConversation: (agentId, opts) =>
-      newConversation(agentId, undefined, undefined, opts),
+    newConversation: (agentId) => newConversation(agentId),
     requestHandoff,
     persistAll,
     requeueSwappedSend,
@@ -9248,14 +9247,14 @@ export function createAgentManager(deps: ManagerDeps) {
     // reset the server's brief turn ran: an automatic one gives the fresh
     // conversation its notice, its member line and the loop guard; a member's
     // /handoff (`manual`) gets the handoff line only.
-    // `typed` marks the typed /clear: no "New conversation started." line.
-    // `notice` replaces that line (a manager transfer says who changed what).
+    // The fresh chat stays empty, as the empty-chat line with the resume
+    // link needs, unless a line carries information: a handoff's line, or
+    // `notice` (a manager transfer says who changed what).
     // `setting` arms a setting handoff (auto-handoff-design.md section 8):
     // the change's brief turn runs in the conversation this reset opens.
     opts?: {
       handoff?: boolean;
       autoHandoff?: AutoHandoffPhase;
-      typed?: boolean;
       notice?: LogText;
       setting?: Omit<SettingHandoffRequest, "previousSessionId" | "cutTurn">;
     },
@@ -9408,16 +9407,13 @@ export function createAgentManager(deps: ManagerDeps) {
       // onChange (capturing the null sessionId set above).
       for (const event of officeState.resetTopic(agentId)) emit(event);
       updateState(agentId, "idle");
-      if (!opts?.typed)
-        addLogEntry(
-          agentId,
-          "system",
-          opts?.autoHandoff?.kind === "auto"
-            ? autoHandoffLine(opts.autoHandoff, "done")
-            : opts?.handoff
-              ? msg("systemEntries.handedOff")
-              : (opts?.notice ?? msg("systemEntries.newConversation")),
-        );
+      const freshLine =
+        opts?.autoHandoff?.kind === "auto"
+          ? autoHandoffLine(opts.autoHandoff, "done")
+          : opts?.handoff
+            ? msg("systemEntries.handedOff")
+            : opts?.notice;
+      if (freshLine) addLogEntry(agentId, "system", freshLine);
       if (!opts?.handoff) addQueueCarriedLine(agentId, managed, carried);
       // The menu leaves the old process's plugin list now; the next process
       // reports its own at init.

@@ -513,12 +513,15 @@ describe("conversation changes carry the queue to the next session (df2c820b)", 
     await startTurn(mgr, fake, info.id);
     const from = logs.length;
     await mgr.newConversation(info.id);
+    // The conversation ended, and the reset wrote no line at all (task
+    // 1054a5a3: the empty chat offers to resume a past one).
+    expect(mgr.getCurrentSessionId(info.id)).toBeNull();
     expect(
       logs
         .slice(from)
         .filter((e) => e.kind === "system")
         .map((e) => e.content),
-    ).toEqual([en.t("systemEntries.newConversation")]);
+    ).toStrictEqual([]);
   });
 
   // A first conversation that ended, and a second one busy with two queued

@@ -259,12 +259,29 @@ describe("conversation REST", () => {
       );
     });
 
-    it("newConversation -> 204", async () => {
+    // Task 1054a5a3: the route ends like a typed /clear. The chat holds no
+    // entry, so the empty chat offers to resume a past conversation.
+    it("newConversation -> 204, and the chat is empty", async () => {
       const srv = await startTestServer();
       server = srv;
       const owner = await srv.seedOwner("Morgan");
       const r1 = srv.agentManager.getRooms()[0].id;
       const x = await spawnAt(srv, "X", r1);
+      // A finished conversation first, so the reset has a chat to wipe.
+      const sent = await req(srv, "POST", `/api/agents/${x.id}/messages`, {
+        rawSessionId: owner.rawSessionId,
+        body: { text: "hello" },
+      });
+      expect(sent.status).toBe(200);
+      const deadline = Date.now() + 2000;
+      while (!(
+        srv.agentManager.getCurrentSessionId(x.id) &&
+        srv.agentManager.getAgent(x.id)?.state === "waiting_for_response"
+      )) {
+        if (Date.now() > deadline) throw new Error("first turn not finished");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(srv.agentManager.getAgentLogs(x.id).length).toBeGreaterThan(0);
       const res = await req(
         srv,
         "POST",
@@ -274,6 +291,9 @@ describe("conversation REST", () => {
         },
       );
       expect(res.status).toBe(204);
+      // The reset ran (the conversation ended) and wrote no line.
+      expect(srv.agentManager.getCurrentSessionId(x.id)).toBeNull();
+      expect(srv.agentManager.getAgentLogs(x.id)).toEqual([]);
     });
   });
 

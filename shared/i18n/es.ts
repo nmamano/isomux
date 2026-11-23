@@ -4237,7 +4237,6 @@ Cosas que puedes hacer por él:
     "Responde `{replySpec}` para elegir cuánto permites, por ejemplo `{index} {example}`.",
   "choices.permission.denyByMessage":
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
-  "systemEntries.newConversation": "Conversación nueva iniciada.",
   "systemEntries.handedOff": "Traspasado a una sesión nueva.",
   "systemEntries.handoff.failed":
     "El traspaso no se completó. Esta conversación continúa.",

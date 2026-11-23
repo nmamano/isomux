@@ -4150,7 +4150,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // Lifecycle entries the server writes into an agent's log. Most have no
   // actor - a backend event or a route call produced them - so they are worded
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
-  "systemEntries.newConversation": "New conversation started.",
   "systemEntries.handedOff": "Handed off to a fresh session.",
   "systemEntries.handoff.failed":
     "Handoff did not complete. This conversation continues.",

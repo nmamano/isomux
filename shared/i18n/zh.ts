@@ -3781,7 +3781,6 @@ export const zh: Catalog = {
     "回复 `{replySpec}` 以选择允许的范围，例如 `{index} {example}`。",
   "choices.permission.denyByMessage":
     "也可以输入其他消息，以该消息作为拒绝理由。",
-  "systemEntries.newConversation": "新对话已开始。",
   "systemEntries.handedOff": "已交接到新会话。",
   "systemEntries.handoff.failed": "交接未完成。此对话继续。",
   "systemEntries.handoff.canceled": "交接已取消。",

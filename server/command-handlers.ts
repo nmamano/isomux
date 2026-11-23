@@ -260,9 +260,8 @@ interface HandlerDeps {
   ) => Promise<void>;
 
   // POST new-conversation's reset, which the typed /clear (also /reset, /new)
-  // runs too. `typed` leaves out the "New conversation started." line: the
-  // empty chat is the confirmation (Nil, 2026-09-13).
-  newConversation: (agentId: string, opts: { typed: true }) => Promise<void>;
+  // runs too. The empty chat is the confirmation (Nil, 2026-09-13).
+  newConversation: (agentId: string) => Promise<void>;
   // The typed /handoff: echoes `rawText`, then arms the server's handoff (one
   // brief turn, then a fresh session with the brief), or writes the line that
   // says why not. agent-manager requestHandoff.
@@ -382,7 +381,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // The same reset as POST new-conversation: the agent goes dormant until
       // the next message, and the queue goes to the fresh session.
       try {
-        await deps.newConversation(agentId, { typed: true });
+        await deps.newConversation(agentId);
       } catch (err) {
         deps.emitEphemeralLog(
           agentId,

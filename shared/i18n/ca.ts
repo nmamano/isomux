@@ -4236,7 +4236,6 @@ Coses que pots fer per ell:
     "Respon `{replySpec}` per triar fins on ho permets, per exemple `{index} {example}`.",
   "choices.permission.denyByMessage":
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
-  "systemEntries.newConversation": "Conversa nova iniciada.",
   "systemEntries.handedOff": "Traspassat a una sessió nova.",
   "systemEntries.handoff.failed":
     "El traspàs no s'ha completat. Aquesta conversa continua.",

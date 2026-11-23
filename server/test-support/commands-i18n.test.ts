@@ -390,43 +390,6 @@ describe("a line nobody typed reads in each reader's language", () => {
       inLanguage("ca", "choices.permission.reply"),
     );
   });
-
-  it("words the API new-conversation entry for each reader", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    setLanguage(owner.username, "ca");
-    const room = server.agentManager.getRooms()[0];
-    const agent = await spawnAgent(server, "A", room.id, owner.username);
-
-    // The ENABLING CONDITION: newConversation is reached from a route whose
-    // handler contract passes no identity, so the old writer fell back to the
-    // Catalan owner.
-    expect(server.agentManager.getAgent(agent.id)?.userId).toBe(
-      getUserByName(owner.username)?.id,
-    );
-    expect(getUserByName(owner.username)?.language).toBe("ca");
-
-    // The real HTTP route, not the manager call.
-    const res = await server.http(`/api/agents/${agent.id}/new-conversation`, {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(204);
-    // Found by either language, so a Catalan entry fails on its words, not
-    // on a timeout.
-    const texts = [
-      translatorFor("en").t("systemEntries.newConversation"),
-      inLanguage("ca", "systemEntries.newConversation"),
-    ];
-    const entry = () =>
-      server!.agentManager
-        .getAgentLogs(agent.id)
-        .find((e) => e.kind === "system" && texts.includes(e.content));
-    await waitUntil(() => !!entry(), 2000, "new-conversation entry");
-    expectWorded(entry(), "systemEntries.newConversation");
-  });
 });
 
 describe("the dormant-wake message is split by reader", () => {

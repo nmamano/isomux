@@ -679,14 +679,8 @@ describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () =
     expect(mgr.getCurrentSessionId(id)).toBeNull(); // thread blanked
     expect(fake.createSessionCount).toBe(1); // NO new subprocess on clear
     expect(fake.resumeSessionCount).toBe(0);
-    // Action-feedback line stays (added pre-drain, after the log wipe).
-    expect(
-      mgr
-        .getAgentLogs(id)
-        .some((e) =>
-          String(e.content ?? "").includes("New conversation started."),
-        ),
-    ).toBe(true);
+    // The chat is wiped and gets no line (task 1054a5a3).
+    expect(mgr.getAgentLogs(id)).toEqual([]);
 
     // Next message wakes a FRESH session (created, not resuming the cleared
     // thread), silently.

@@ -267,11 +267,8 @@ describe("/handoff on an idle agent", () => {
       expectInOrder(first, ["[Handoff from your previous session]", BRIEF]);
       expect(first).not.toContain(AUTO_HANDOFF_FRESH_NOTICE);
       expect(texts(fresh).some(isManualBrief)).toBe(false);
-      // The manual line, not the automatic one nor a new conversation's.
+      // The manual line, not the automatic one.
       expect(systemLines(h)).toContain(handedOff);
-      expect(systemLines(h)).not.toContain(
-        en.t("systemEntries.newConversation"),
-      );
       expect(
         lineKeys(h).some((k) => k.startsWith("systemEntries.autoHandoff.")),
       ).toBe(false);

@@ -298,6 +298,13 @@ function failureLines(h: Harness): string[] {
 }
 const systemLines = (h: Harness) =>
   h.logs.filter((e) => e.kind === "system").map((e) => e.content);
+// The system lines the chat holds now (a reset wipes the chat; h.logs
+// keeps every entry ever written).
+const chatSystemLines = (h: Harness, id: string) =>
+  h.mgr
+    .getAgentLogs(id)
+    .filter((e) => e.kind === "system")
+    .map((e) => e.content);
 
 // One finished member turn on the agent's current engine. Returns the
 // session that ran it (its id is the conversation a change hands off).
@@ -450,7 +457,19 @@ describe("a setting change hands off, on the new settings", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const c0 = await finishedTurn(h, info.id);
+    // Park the brief turn, to read the chat the change opened.
+    let parked: FakeSession | null = null;
+    h.brief.answer = (s) => {
+      parked = s;
+    };
     await h.mgr.editAgent(info.id, { agentType: "codex" });
+    await waitUntil(() => parked !== null, "brief turn running");
+    // Task 1054a5a3: the brief turn's line is the chat's only line; the
+    // reset itself writes none.
+    expect(chatSystemLines(h, info.id)).toEqual([
+      en.t("systemEntries.settingHandoff.writing"),
+    ]);
+    parked!.completeTurn({ text: BRIEF });
     const { brief, fresh } = await expectHandedOff(h, info.id, c0, "codex");
     expect(brief.agentType).toBe("codex");
     expect(h.codex.sessions).toContain(fresh);
@@ -555,6 +574,10 @@ describe("no handoff", () => {
     await h.mgr.editAgent(info.id, { agentType: "codex" });
     await settle();
     expect(h.briefs).toHaveLength(0);
+    // Task 1054a5a3: a reset with no handoff leaves an empty chat, as a
+    // typed /clear does.
+    expect(h.mgr.getAgent(info.id)?.agentType).toBe("codex");
+    expect(h.mgr.getAgentLogs(info.id)).toEqual([]);
     void h.mgr.sendMessage(info.id, `HELLO${MSG}`);
     await waitUntil(
       () => sent(h.codex.lastSession, `HELLO${MSG}`),
@@ -568,9 +591,13 @@ describe("no handoff", () => {
     const h = makeHarness({ codexAutoHandoff: false });
     const info = await spawn(h);
     await finishedTurn(h, info.id);
+    expect(h.mgr.getAgentLogs(info.id).length).toBeGreaterThan(0);
     await h.mgr.editAgent(info.id, { agentType: "codex" });
     await settle();
     expect(h.briefs).toHaveLength(0);
+    expect(h.mgr.getAgent(info.id)?.agentType).toBe("codex");
+    expect(h.mgr.getCurrentSessionId(info.id)).toBeNull();
+    expect(h.mgr.getAgentLogs(info.id)).toEqual([]);
     void h.mgr.sendMessage(info.id, `HELLO${MSG}`);
     await waitUntil(
       () => sent(h.codex.lastSession, `HELLO${MSG}`),
@@ -584,8 +611,11 @@ describe("no handoff", () => {
     const h = makeHarness();
     const info = await spawn(h);
     await finishedTurn(h, info.id);
+    expect(h.mgr.getAgentLogs(info.id).length).toBeGreaterThan(0);
     await h.mgr.newConversation(info.id, "codex");
     expect(h.mgr.getAgent(info.id)?.agentType).toBe("codex");
+    expect(h.mgr.getCurrentSessionId(info.id)).toBeNull();
+    expect(h.mgr.getAgentLogs(info.id)).toEqual([]);
     await settle();
     expect(h.briefs).toHaveLength(0);
     void h.mgr.sendMessage(info.id, `HELLO${MSG}`);
