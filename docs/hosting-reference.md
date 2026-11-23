@@ -64,7 +64,7 @@ Each app an agent registers can get its own address, like `hello.office.example.
 
 The Apps page shows a short link such as `office.example.com/hello`, which opens the app with a chat widget.
 
-Certificates are obtained per app the first time it is opened. Two things follow:
+Certificates are obtained per app when the app is registered. Two things follow:
 
 - The office answers 404 for every name under its domain that is not a live app, so a subdomain you pointed at this server for something else stops working after updating.
 - Deleting an app stops new certificates immediately, but TLS may keep terminating from Caddy's warm cache until its next cold load.

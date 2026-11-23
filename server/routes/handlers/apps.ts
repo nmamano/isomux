@@ -133,6 +133,11 @@ export interface AppsDeps {
     createdBy: string;
     createdByAgentId?: string;
   }): AppRecord;
+  // Get the new app's certificate before the register route answers, so the
+  // first member who opens it does not wait for one (server/app-cert-warm.ts).
+  // Absent on an office without app hostnames. Awaited after the announce; a
+  // throw is logged and the answer stays 201.
+  warmCertificate?(record: AppRecord): Promise<void>;
   remove(name: string): AppRecord | null;
   // Apply a patch to a registered app. Returns the updated record, or null when
   // the app is gone.
@@ -680,6 +685,20 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           deps.states([record.name]).get(record.name),
         );
         announced(record.name, () => deps.announce(wire));
+        // The certificate before the answer: the caller shares the link as
+        // soon as it has it. After the announce, never before: a delete or
+        // update during the warm-up announces its own event, and a later
+        // announce of this record would overwrite it. Same rule as the
+        // install: past the commit, a failure is logged and the answer stays
+        // 201.
+        try {
+          await deps.warmCertificate?.(record);
+        } catch (err) {
+          console.error(
+            `[apps] "${record.name}" registered; certificate warm-up failed:`,
+            err,
+          );
+        }
         return created(wire);
       } catch (err) {
         return renderRegistryError(err);

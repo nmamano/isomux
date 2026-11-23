@@ -58,8 +58,8 @@ See the [hosting reference](hosting-reference.md) for installer parameters and r
 ## Apps and server access
 
 The wildcard DNS record gives registered apps addresses such as
-`notes.office.example.com`. Caddy obtains their certificates when they are first
-opened. Keep your private SSH key on your laptop; do not store a key accepted
+`notes.office.example.com`. Caddy obtains their certificates when they are
+registered. Keep your private SSH key on your laptop; do not store a key accepted
 by root inside the office account.
 
 ## Re-run after an installation failure

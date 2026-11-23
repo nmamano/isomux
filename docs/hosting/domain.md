@@ -116,8 +116,8 @@ firewalls, and `sudo journalctl -u caddy -n 50 --no-pager`.
 ## Apps and maintenance
 
 Registered apps get separate HTTPS addresses, such as
-`notes.office.example.com`. Caddy obtains each app certificate when it is first
-opened. The wildcard DNS record must continue to point at this computer.
+`notes.office.example.com`. Caddy obtains each app certificate when the app is
+registered. The wildcard DNS record must continue to point at this computer.
 
 You manage the firewall, Caddy updates, DNS, and any request-log retention.
 This manual setup does not install the VPS updater or its hardening checks.

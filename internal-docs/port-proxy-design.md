@@ -237,10 +237,15 @@ already exists adds it as a documented operator step. The ask endpoint is
 `/__isomux/tls-ask` (`server/tls-ask.ts`), and the measurement that shaped it:
 Caddy 2.11.4 consults the ask before loading a STORED certificate too, so it is
 a live access gate rather than an issuance hook, and a refusal breaks a name
-whose certificate already exists. Admissions are therefore persisted in the
-registry's ledger - admitted and still-live labels always pass, ten new
-admissions per hour bound the rest, and unknown or retired labels are refused
-before the budget is touched. The updater never rewrites the Caddyfile.
+whose certificate already exists. The gate therefore has no issuance budget: it
+passes the office host and every live app label and refuses the rest. The
+updater never rewrites the Caddyfile. The register route then opens one TLS
+handshake to the new name (`server/app-cert-warm.ts`), so Caddy gets the
+certificate before the route answers instead of at the first visit (4-7 s,
+measured). That issues a certificate for every registered name, also one
+nobody opens, and on a self-hoster's domain each counts against Let's Encrypt's
+50 per registered domain per week; registering the same name again reuses the
+stored certificate.
 
 **Hosted launch arithmetic, measured 2026-08-13.** Let's Encrypt currently
 allows 50 new certificates per registered domain in seven days, refilling one

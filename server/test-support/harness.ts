@@ -307,6 +307,10 @@ async function bootTestServer(
       skipBackups: true,
       skipAdminSocket: true,
       skipUpdateChecker: true,
+      // No test opens a TLS handshake to the box's :443 (on a dev box, the
+      // production terminator) or looks up an app name in DNS: a test of the
+      // warm-up passes its own through opts.startServer.warmAppCertificate.
+      warmAppCertificate: async () => false,
       // No test sends a page to Discord: a test that saves a webhook passes
       // its own stub through opts.startServer.pagerFetch.
       pagerFetch: async () => {

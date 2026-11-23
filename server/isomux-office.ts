@@ -302,6 +302,7 @@ import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
+import { warmAppCertificate } from "./app-cert-warm.ts";
 import { appShortUrl } from "./app-short-url.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
 import {
@@ -3857,6 +3858,7 @@ function buildExecutorDeps(
   officeProbe: OfficeProbeOptions = {},
   sudoPath?: string,
   rescue: RescueSeams = {},
+  warmCertificate: (hostname: string) => Promise<boolean> = warmAppCertificate,
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   // The storage planners and appliers, shared by the storage routes and the
@@ -4385,6 +4387,7 @@ function buildExecutorDeps(
     }),
   );
 
+  const certDomain = appHostDomain();
   // Apps (agent-built web apps). Ownership + attribution come from the token:
   // the app belongs to the caller's USER so it outlives the agent that built
   // it. Registry errors (including a corrupt or unwritable registry) surface as
@@ -4396,6 +4399,13 @@ function buildExecutorDeps(
       list: () => appRegistry.list(),
       get: (name) => appRegistry.get(name),
       register: (input) => appRegistry.register(input),
+      // Only where apps have their own hostnames. appHostDomain() is frozen at
+      // boot, before this runs.
+      warmCertificate: certDomain
+        ? async (record) => {
+            await warmCertificate(`${record.hostLabel}.${certDomain}`);
+          }
+        : undefined,
       // An isolated member's app: its folder's links resolve as the member.
       folderRefusal: async (cwd, ownerUserId) => {
         const dir = memberFolderHost(ownerUserId)
@@ -7244,6 +7254,10 @@ export interface StartServerOpts {
   // host and supervisor of a member whose runner is connected. Absent: their
   // runner, through sync_call.py.
   memberAppSupervisor?: AppSupervisorRouterDeps["memberSupervisor"];
+  // The certificate warm-up of a new app's hostname (server/app-cert-warm.ts).
+  // Production omits it and uses warmAppCertificate; the harness passes a
+  // stand-in, so no test opens a handshake to the box's real :443.
+  warmAppCertificate?: (hostname: string) => Promise<boolean>;
   // Inject the pager's HTTP send. Tests pass a stub: no test sends to Discord.
   pagerFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // Inject the GitHub issue sync's HTTP calls (task 7fc83592). Tests pass a
@@ -7596,6 +7610,7 @@ export async function startServer(
     opts.officeProbe,
     opts.sudoPath,
     opts.rescue,
+    opts.warmAppCertificate,
   );
   // What a crash or an earlier run left in the exports folder: no owner
   // export outlives the office that made it.

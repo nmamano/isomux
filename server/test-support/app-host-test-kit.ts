@@ -15,7 +15,11 @@
 import { expect } from "bun:test";
 import { connect } from "net";
 import { readFileSync } from "fs";
-import { startTestServer, type TestServer } from "./harness.ts";
+import {
+  startTestServer,
+  type StartTestServerOpts,
+  type TestServer,
+} from "./harness.ts";
 import { STATE_ROOT } from "../config.ts";
 import { appRegistry } from "../app-registry.ts";
 import { appSecretsDir, appSecretsPath } from "../app-secrets.ts";
@@ -52,11 +56,12 @@ export const TEST_APP_RESPONSE_HEADERS = { Connection: "close" } as const;
 //
 // `track` is called with every server this creates, including the one that is
 // discarded by the restart, so a caller's afterEach can stop whichever is live
-// even if the restart throws.
+// even if the restart throws. `opts` reach both boots.
 export async function startFlatOffice(
   track: (srv: TestServer) => void,
+  opts: StartTestServerOpts = {},
 ): Promise<TestServer> {
-  const first = await startTestServer();
+  const first = await startTestServer(opts);
   track(first);
   const owner = await first.seedOwner("Morgan");
   const r = await first.http("/api/office/access", {
