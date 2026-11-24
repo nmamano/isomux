@@ -240,7 +240,11 @@ describe("Isomux's OpenCode 2 config (C1)", () => {
     // the transport adds the servers at run time instead.
     const config = { ...openCodeDefaultConfig(), plugins: ["member-plugin"] };
     expect(Object.hasOwn(openCodeDefaultConfig(), "mcp")).toBe(false);
-    const top = openCodeConfigOverride(config, "/profile/isomux-safety-plugin");
+    const top = openCodeConfigOverride(
+      config,
+      "/profile/isomux-safety-plugin",
+      {},
+    );
     expect(top.plugins).toEqual([
       "member-plugin",
       "/profile/isomux-safety-plugin",
@@ -249,5 +253,76 @@ describe("Isomux's OpenCode 2 config (C1)", () => {
     const { plugins: _plugins, ...rest } = top;
     const { plugins: _given, ...expected } = config;
     expect(rest).toEqual(expected);
+  });
+});
+
+// Task 82639464: OpenCode 2.2.5 reads the google key from GOOGLE_API_KEY
+// first, so a Maps key or a secret placeholder under that name breaks Gemini
+// for a member who set GEMINI_API_KEY. The live proof that 2.2.5 follows the
+// list is in supervisor.test.ts.
+describe("openCodeConfigOverride: the google key order", () => {
+  const plugin = "/profile/isomux-safety-plugin";
+  const geminiFirst = [
+    "GEMINI_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "GOOGLE_API_KEY",
+  ];
+  const googleEnv = (top: Record<string, unknown>) =>
+    (top.providers as { google?: { env?: unknown } } | undefined)?.google?.env;
+
+  it("puts the Gemini names first when GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY has a value", () => {
+    for (const name of ["GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"]) {
+      const top = openCodeConfigOverride(openCodeDefaultConfig(), plugin, {
+        [name]: "fake-gemini-value",
+        GOOGLE_API_KEY: "fake-maps-value",
+      });
+      expect(googleEnv(top), name).toEqual(geminiFirst);
+    }
+  });
+
+  it("adds no provider without a Gemini key: none, only GOOGLE_API_KEY, or a blank one", () => {
+    // With the list and no key, OpenCode lists google models that cannot
+    // run. A blank GEMINI_API_KEY first would beat a working GOOGLE_API_KEY.
+    for (const env of [
+      {},
+      { GOOGLE_API_KEY: "fake-google-value" },
+      { GEMINI_API_KEY: "", GOOGLE_API_KEY: "fake-google-value" },
+      {
+        GEMINI_API_KEY: "  ",
+        GOOGLE_GENERATIVE_AI_API_KEY: "\n",
+        GOOGLE_API_KEY: "fake-google-value",
+      },
+    ]) {
+      const top = openCodeConfigOverride(openCodeDefaultConfig(), plugin, env);
+      expect(Object.hasOwn(top, "providers"), Object.keys(env).join()).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps the other providers and the other google settings, and leaves the given config as it was", () => {
+    const config = {
+      ...openCodeDefaultConfig(),
+      providers: {
+        gate: { name: "Gate", env: [] },
+        google: { settings: { baseURL: "http://127.0.0.1:1/v1beta" } },
+      },
+    };
+    const before = structuredClone(config);
+    const top = openCodeConfigOverride(config, plugin, {
+      GEMINI_API_KEY: "fake-gemini-value",
+    });
+    expect(top.providers).toEqual({
+      gate: { name: "Gate", env: [] },
+      google: {
+        settings: { baseURL: "http://127.0.0.1:1/v1beta" },
+        env: geminiFirst,
+      },
+    });
+    expect(config).toEqual(before);
+    // Without a Gemini key, the given providers pass through as they are.
+    expect(openCodeConfigOverride(config, plugin, {}).providers).toEqual(
+      before.providers,
+    );
   });
 });

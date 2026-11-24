@@ -799,6 +799,101 @@ describe("OpenCode shared server supervisor", () => {
     30_000,
   );
 
+  it.skipIf(!LIVE)(
+    "sends GEMINI_API_KEY to Google, not a GOOGLE_API_KEY beside it, with the member's google settings kept",
+    async () => {
+      // Task 82639464: 2.2.5 takes GOOGLE_API_KEY first. A Maps key or a
+      // secret placeholder there broke Gemini for a member who set
+      // GEMINI_API_KEY.
+      const gemini = "fake-gemini-key-82639464";
+      const maps = "fake-maps-key-82639464";
+      const seen: Array<{ path: string; key: string | null }> = [];
+      const google = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(request) {
+          const url = new URL(request.url);
+          seen.push({
+            path: url.pathname,
+            key:
+              request.headers.get("x-goog-api-key") ??
+              url.searchParams.get("key"),
+          });
+          // A fast failure: the turn need not stream.
+          return Response.json(
+            {
+              error: {
+                code: 400,
+                message: "probe",
+                status: "INVALID_ARGUMENT",
+              },
+            },
+            { status: 400 },
+          );
+        },
+      });
+      mocks.push(google);
+      const path = await root();
+      // The member's own layer points google at the fake: the case also
+      // proves the top layer merges into it instead of replacing it.
+      await mkdir(join(path, "member-opencode"));
+      await writeFile(
+        join(path, "member-opencode", "opencode.json"),
+        JSON.stringify({
+          providers: {
+            google: {
+              settings: { baseURL: `http://127.0.0.1:${google.port}/v1beta` },
+            },
+          },
+        }),
+      );
+      const supervisor = makeSupervisor(path, undefined, 1000, {
+        GEMINI_API_KEY: gemini,
+        GOOGLE_API_KEY: maps,
+      });
+      const lease = await supervisor.acquire();
+      const call = async (route: string, body: unknown) => {
+        const response = await fetch(`${lease.baseUrl}${route}`, {
+          method: "POST",
+          headers: {
+            authorization: lease.authHeader,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        expect(response.ok, `${route}: response ok`).toBe(true);
+        // The model route answers with no body.
+        const text = await response.text();
+        return (text ? JSON.parse(text) : {}) as { data?: { id?: string } };
+      };
+      const session = (
+        await call("/api/session", {
+          title: "google key order",
+          location: { directory: path },
+        })
+      ).data?.id;
+      expect(typeof session, "session id").toBe("string");
+      await call(`/api/session/${session}/model`, {
+        model: { providerID: "google", id: "gemini-4-neon" },
+      });
+      await call(`/api/session/${session}/prompt`, { text: "Say hi." });
+      const turnRequest = () =>
+        seen.some((request) => request.path.includes("gemini-4-neon"));
+      const deadline = Date.now() + 15_000;
+      while (!turnRequest() && Date.now() < deadline) await Bun.sleep(100);
+      // The enabling condition: the turn's own request reached the fake.
+      expect(turnRequest(), "the fake got the turn's request").toBe(true);
+      // Every request, the title one included. Booleans only: a failed
+      // matcher prints its values.
+      expect(
+        seen.every((request) => request.key === gemini),
+        `every request sent GEMINI_API_KEY (${seen.length} requests, ${seen.filter((request) => request.key === maps).length} with GOOGLE_API_KEY)`,
+      ).toBe(true);
+      lease.release();
+    },
+    40_000,
+  );
+
   it("starts concurrent real servers on distinct ports", async () => {
     const config = gateConfig(mockProvider());
     const first = makeSupervisor(await root(), config);

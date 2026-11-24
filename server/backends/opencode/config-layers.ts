@@ -38,14 +38,52 @@ export function openCodeUserConfigDir(
 export function openCodeConfigOverride(
   config: Record<string, unknown>,
   safetyPlugin: string,
+  // The helper's launch env: the member's variables and secret placeholders.
+  env: Record<string, string | undefined>,
 ): Record<string, unknown> {
   return {
     ...config,
+    ...googleKeyOrder(config, env),
     plugins: [
       ...(Array.isArray(config.plugins) ? (config.plugins as unknown[]) : []),
       safetyPlugin,
     ],
   };
+}
+
+// The names OpenCode reads Google's key from, the Gemini ones first. 2.2.5
+// takes GOOGLE_API_KEY first (models.dev order), and that generic name can
+// hold a Maps key, or a secret's placeholder that the proxy never swaps for
+// Google's model hosts: Gemini then fails although GEMINI_API_KEY is set.
+// providers.google.settings.apiKey does not help (the env key wins over it);
+// the env list does. It goes in only when a Gemini name has a value: with no
+// key, the list makes OpenCode show google models that cannot run, and a
+// blank name first would beat a working GOOGLE_API_KEY. This layer replaces
+// a member's own providers.google.env then; their other google settings stay.
+const GOOGLE_KEY_ORDER = [
+  "GEMINI_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GOOGLE_API_KEY",
+];
+
+function googleKeyOrder(
+  config: Record<string, unknown>,
+  env: Record<string, string | undefined>,
+): { providers?: Record<string, unknown> } {
+  if (!env.GEMINI_API_KEY?.trim() && !env.GOOGLE_GENERATIVE_AI_API_KEY?.trim())
+    return {};
+  const providers = isRecord(config.providers) ? config.providers : {};
+  const google = isRecord(providers.google) ? providers.google : {};
+  return {
+    providers: {
+      ...providers,
+      google: { ...google, env: [...GOOGLE_KEY_ORDER] },
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 // An Isomux MCP server as the transport gives it to a folder at run time

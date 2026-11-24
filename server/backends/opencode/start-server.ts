@@ -446,6 +446,7 @@ const configOverride = JSON.stringify(
   openCodeConfigOverride(
     JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>,
     safetyPluginDir,
+    process.env,
   ),
 );
 // The server's TMPDIR is in a temp folder other OS users can write to
