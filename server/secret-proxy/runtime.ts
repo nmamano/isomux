@@ -536,6 +536,34 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       return material?.bundlePem ?? null;
     },
 
+    // True when `value` is the current placeholder of the agent secret
+    // `name` in some scope. Never makes the material; false while secrets
+    // are off or no material exists. An unreadable scope counts as no match,
+    // and nothing here throws: the caller then keeps today's behaviour.
+    isPlaceholder(name: string, value: string): boolean {
+      if (!enabled || !material) return false;
+      const key = material.placeholderKey;
+      try {
+        return deps.store
+          .scopes()
+          .some((scope) =>
+            agentSecrets(scope).some(
+              (secret) =>
+                secret.name === name &&
+                placeholderFor(
+                  key,
+                  scope,
+                  name,
+                  secret.generation,
+                  secret.value,
+                ) === value,
+            ),
+          );
+      } catch {
+        return false;
+      }
+    },
+
     // The placeholder of one secret, for an MCP server's header, or null
     // while no proxy listens (the header could not reach its host with the
     // value) or the secret does not exist.

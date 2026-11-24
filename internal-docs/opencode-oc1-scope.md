@@ -259,6 +259,10 @@ The first S6-era acquire treats a pre-S6 record without that revision as stale
 and replaces the server.
 An operator can therefore see each still-running OpenCode server restart once
 after this upgrade. An unchanged config continues to adopt the same process.
+The record also keeps a hash of the top config layer
+(`OPENCODE_CONFIG_CONTENT`), which also depends on the helper's environment
+(the Google key order, and google disabled behind a `GOOGLE_API_KEY` secret):
+a server with another top layer, or a record without the hash, is not adopted.
 
 This grouping preserves Isomux's existing environment selection. It does not
 make agents or conversations private to the spawning user.

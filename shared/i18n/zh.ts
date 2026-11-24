@@ -1603,11 +1603,14 @@ export const zh: Catalog = {
   "integrations.providers.opencode.keyHeading.office":
     "全办公室的 OpenCode 密钥",
   "integrations.providers.opencode.keyLabel": "OpenCode API 密钥",
+  "integrations.providers.opencode.google.title": "Google Gemini",
+  "integrations.providers.opencode.google.text":
+    "将你的 Gemini 密钥添加为 GEMINI_API_KEY 变量。<link>设置方法</link>",
   "integrations.providers.opencode.ownServer.title": "你自己的模型服务器",
   "integrations.providers.opencode.ownServer.text":
     "在你自己托管的服务器上运行模型，例如 Ollama。<link>设置方法</link>",
-  "integrations.providers.opencode.ownServer.listed": "当前列出：{models}",
-  "integrations.providers.opencode.ownServer.none": "当前列出：无",
+  "integrations.providers.opencode.listed": "当前列出：{models}",
+  "integrations.providers.opencode.listedNone": "当前列出：无",
   "integrations.providers.opencode.freeLimit.about":
     "OpenCode 的免费额度按网络计算，稍后会恢复。",
   "integrations.providers.testSignedOut": "未登录。",

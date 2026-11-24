@@ -1764,11 +1764,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.providers.opencode.keyHeading.office":
     "The office-wide OpenCode key",
   "integrations.providers.opencode.keyLabel": "OpenCode API key",
+  "integrations.providers.opencode.google.title": "Google Gemini",
+  "integrations.providers.opencode.google.text":
+    "Add your Gemini key as the GEMINI_API_KEY variable. <link>Set it up</link>",
   "integrations.providers.opencode.ownServer.title": "Your own model server",
   "integrations.providers.opencode.ownServer.text":
     "Run models on a server you host, such as Ollama. <link>Set it up</link>",
-  "integrations.providers.opencode.ownServer.listed": "Listed now: {models}",
-  "integrations.providers.opencode.ownServer.none": "Listed now: none",
+  "integrations.providers.opencode.listed": "Listed now: {models}",
+  "integrations.providers.opencode.listedNone": "Listed now: none",
   "integrations.providers.opencode.freeLimit.about":
     "OpenCode's free limit is per network. It resets later.",
   "integrations.providers.testSignedOut": "Not signed in.",

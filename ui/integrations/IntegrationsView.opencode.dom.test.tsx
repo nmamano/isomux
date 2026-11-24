@@ -1,6 +1,6 @@
 // OpenCode on the Model providers tab (task a1e5ea01): a section on a par with
-// Claude and Codex. Three rows that are always drawn (free models, paid models
-// and the key, your own model server); the office's free limit; the key added,
+// Claude and Codex. Four rows that are always drawn (free models, paid models
+// and the key, Google Gemini, your own model server); the office's free limit; the key added,
 // replaced or removed in place as the OPENCODE_API_KEY variable; an owner on
 // another member's card does the same for that member.
 //
@@ -46,7 +46,8 @@ const section = (view: View, which: Which) =>
   card(view, which).querySelector<HTMLElement>(
     '[data-provider-block="opencode"]',
   )!;
-const row = (root: Element, name: "free" | "paid" | "own-server") =>
+type Row = "free" | "paid" | "google" | "own-server";
+const row = (root: Element, name: Row) =>
   root.querySelector<HTMLElement>(`[data-opencode-row="${name}"]`)!;
 const held = (root: Element) => root.querySelectorAll("[data-reserved]");
 const gets = () => fake.requests("GET", ME).length;
@@ -66,10 +67,13 @@ const MODELS_LISTED = [
   // A model server of the member's own, with no cost block: not free, and
   // not one of OpenCode's paid models either.
   model("ollama/llama3", "ollama - Llama 3"),
+  // Google's provider, from a Gemini key in the member's variables: its own
+  // row, not your own server (task d0e4679b).
+  model("google/gemini-fake", "Gemini Fake"),
 ];
 
 describe("the rows", () => {
-  it("draws the three rows while the reads are out, and fills them in place", async () => {
+  it("draws the four rows while the reads are out, and fills them in place", async () => {
     const releases = [
       fake.hold(ME),
       fake.hold(MODELS),
@@ -81,7 +85,7 @@ describe("the rows", () => {
     const view = await open();
     for (const which of ["office", "personal"] as const) {
       const root = section(view, which);
-      for (const name of ["free", "paid", "own-server"] as const)
+      for (const name of ["free", "paid", "google", "own-server"] as const)
         expect({ which, name, drawn: row(root, name) !== null }).toEqual({
           which,
           name,
@@ -100,7 +104,7 @@ describe("the rows", () => {
     });
     for (const which of ["office", "personal"] as const) {
       const root = section(view, which);
-      for (const name of ["free", "paid", "own-server"] as const)
+      for (const name of ["free", "paid", "google", "own-server"] as const)
         expect(row(root, name)).not.toBeNull();
       expect({ which, held: held(root).length }).toEqual({ which, held: 0 });
       expect(row(root, "paid").getAttribute("data-opencode-key")).toBe("set");
@@ -126,9 +130,10 @@ describe("the rows", () => {
     const bare = { painted: true, bars: true, text: "" };
     for (const which of ["office", "personal"] as const) {
       const root = section(view, which);
-      const rows = (["free", "paid", "own-server"] as const).filter(
-        // Your own server's models show on the viewer's card only.
-        (name) => which === "personal" || name !== "own-server",
+      const rows = (["free", "paid", "google", "own-server"] as const).filter(
+        // The Google and own-server models show on the viewer's card only.
+        (name) =>
+          which === "personal" || (name !== "own-server" && name !== "google"),
       );
       for (const name of rows)
         expect({ which, name, held: looks(row(root, name)) }).toEqual({
@@ -172,6 +177,18 @@ describe("the rows", () => {
     // opencode/claude-sonnet, opencode-go/kimi, opencode/gpt-mini.
     expect(paid.getAttribute("data-opencode-paid-count")).toBe("3");
     expect(row(mine, "own-server").textContent).toContain("Llama 3");
+    // Task d0e4679b: google models on the Google row, not your own server.
+    expect(row(mine, "google").textContent).toContain("Gemini Fake");
+    expect(row(mine, "own-server").textContent!.includes("Gemini Fake")).toBe(
+      false,
+    );
+    expect(row(mine, "google").textContent!.includes("Llama 3")).toBe(false);
+    // The office card lists no models.
+    expect(
+      row(section(view, "office"), "google").textContent!.includes(
+        "Gemini Fake",
+      ),
+    ).toBe(false);
   });
 
   it("gives no paid count without a key, even when the listing names paid models", async () => {
@@ -201,6 +218,17 @@ describe("the rows", () => {
     expect(fake.requests("POST", MODELS).length).toBeGreaterThan(0);
     expect(paid.hasAttribute("data-opencode-paid-count")).toBe(false);
     expect(held(section(view, "personal"))).toHaveLength(0);
+  });
+
+  it("links the Google row to its docs section on both cards", async () => {
+    const view = await open();
+    for (const which of ["office", "personal"] as const) {
+      const link = row(section(view, which), "google").querySelector("a");
+      expect({ which, href: link?.getAttribute("href") ?? null }).toEqual({
+        which,
+        href: "https://isomux.com/docs/llm-providers#google-models-in-opencode",
+      });
+    }
   });
 
   it("links your own model server to its docs section on both cards", async () => {

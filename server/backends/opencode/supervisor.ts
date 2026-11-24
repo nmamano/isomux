@@ -20,6 +20,8 @@ import {
 } from "./profile-paths.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
 import {
+  OPENCODE_PLACEHOLDER_CHECKED_KEYS,
+  OPENCODE_PLACEHOLDER_KEYS_ENV,
   openCodeToolEnvironment,
   openCodeUserConfigDir,
 } from "./config-layers.ts";
@@ -887,6 +889,9 @@ export class OpenCodeSupervisor {
         // Set even when unset: a member's variable of this name never
         // reaches the helper.
         OPENCODE_MODELS_PATH: this.modelsCatalog,
+        // Set even when unset, as above. Facts only: the config layer
+        // decides what they hide (config-layers.ts).
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: placeholderKeysIn(launchEnv),
         // After the launch env, which holds the member's variables: the
         // safety plugin uses this process's roots, as Claude's hook does.
         OPENCODE_SAFETY_ROOTS: JSON.stringify({
@@ -1078,6 +1083,31 @@ export class OpenCodeSupervisor {
       return null;
     }
   }
+}
+
+// Whether `value` is a secret's placeholder for `name` (the secrets runtime,
+// wired by the office). Returns the check it replaced, so a test can put it
+// back.
+let isSecretPlaceholder: (name: string, value: string) => boolean = () => false;
+
+export function setOpenCodePlaceholderCheck(
+  fn: typeof isSecretPlaceholder,
+): typeof isSecretPlaceholder {
+  const previous = isSecretPlaceholder;
+  isSecretPlaceholder = fn;
+  return previous;
+}
+
+// The checked key names whose value in `env` is a secret's placeholder, as
+// the helper variable's JSON list; undefined when none is.
+function placeholderKeysIn(
+  env: Record<string, string | undefined>,
+): string | undefined {
+  const names = OPENCODE_PLACEHOLDER_CHECKED_KEYS.filter((name) => {
+    const value = env[name];
+    return !!value && isSecretPlaceholder(name, value);
+  });
+  return names.length > 0 ? JSON.stringify(names) : undefined;
 }
 
 export const openCodeSupervisor = new OpenCodeSupervisor();

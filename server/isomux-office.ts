@@ -405,6 +405,7 @@ import {
   setMcpOAuthPlaceholderProvider,
   setMcpPlaceholderProvider,
 } from "./mcp-servers.ts";
+import { setOpenCodePlaceholderCheck } from "./backends/opencode/supervisor.ts";
 import {
   createSecretStore,
   SecretStoreUnreadableError,
@@ -966,6 +967,9 @@ function vaultValues(): string[] {
 // A grant names a live app by name and creation time.
 const isLiveAppGrant = (grant: AppGrant): boolean =>
   appRegistry.get(grant.name)?.createdAt === grant.createdAt;
+setOpenCodePlaceholderCheck((name, value) =>
+  secretsRuntime.isPlaceholder(name, value),
+);
 setMcpPlaceholderProvider((scope, name) =>
   secretsRuntime.placeholderOf(scope, name),
 );

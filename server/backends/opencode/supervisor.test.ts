@@ -30,6 +30,7 @@ import {
   openCodeDefaultConfig,
   openCodeSupervisorForEnvironment,
   reloadOpenCodeServer,
+  setOpenCodePlaceholderCheck,
   stopOpenCodeServers,
   updateOpenCodeSupervisorSettings,
 } from "./supervisor.ts";
@@ -5184,4 +5185,192 @@ describe("a listing that stops the server it started", () => {
     expect(await launched()).toEqual([pid]);
     member.release();
   }, 20_000);
+});
+
+// Task d0e4679b: a GOOGLE_API_KEY secret's placeholder never reaches Google's
+// model hosts (the proxy's never-list), so with no Gemini key OpenCode would
+// list google models that fail every turn.
+describe("google models behind a GOOGLE_API_KEY secret", () => {
+  const PLACEHOLDER = "fakePlaceholderGoogle0000000000000000000";
+  const MAPS = "fake-maps-value-d0e4679b";
+  let restoreCheck: Parameters<typeof setOpenCodePlaceholderCheck>[0] | null =
+    null;
+  afterEach(() => {
+    if (restoreCheck) setOpenCodePlaceholderCheck(restoreCheck);
+    restoreCheck = null;
+  });
+  // Booleans only: a failed matcher prints its values.
+  const checkPlaceholder = (fn: (name: string, value: string) => boolean) => {
+    const previous = setOpenCodePlaceholderCheck(fn);
+    restoreCheck ??= previous;
+  };
+
+  // One google model in models.dev's shape, read in place of models.dev.
+  async function googleCatalog(path: string): Promise<string> {
+    const catalog = join(path, "models-catalog.json");
+    await writeFile(
+      catalog,
+      JSON.stringify({
+        google: {
+          id: "google",
+          name: "Google",
+          npm: "@ai-sdk/google",
+          env: [
+            "GOOGLE_GENERATIVE_AI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+          ],
+          models: {
+            "gemini-fake": {
+              id: "gemini-fake",
+              name: "Gemini Fake",
+              release_date: "2025-01-01",
+              attachment: false,
+              reasoning: false,
+              temperature: true,
+              tool_call: true,
+              cost: { input: 1, output: 1 },
+              limit: { context: 100000, output: 1000 },
+              options: {},
+            },
+          },
+        },
+      }),
+    );
+    return catalog;
+  }
+
+  // The runner's own environment is the base of the launch env, and an
+  // agent shell here can hold a Gemini name: blank, which the top layer
+  // reads as unset.
+  const NO_GEMINI = { GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "" };
+
+  // Whether the server lists the google model, beside the gate's mock
+  // model. The mock keeps the list non-empty with google hidden:
+  // discoverOpenCodeModels waits for a first model.
+  async function googleListed(
+    launchEnv: Record<string, string>,
+  ): Promise<{ gate: boolean; google: boolean }> {
+    const path = await root();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      idleShutdownMs: 1000,
+      launchEnv: {
+        OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+        ...NO_GEMINI,
+        ...launchEnv,
+      },
+      modelsCatalog: await googleCatalog(path),
+    });
+    supervisors.push(supervisor);
+    const models = await discoverOpenCodeModels(supervisor, path);
+    return {
+      gate: models.some((model) => model.id.startsWith("gate/")),
+      google: models.some((model) => model.id.startsWith("google/")),
+    };
+  }
+
+  it("lists no google model when GOOGLE_API_KEY is a secret's placeholder and no Gemini key is set", async () => {
+    checkPlaceholder(
+      (name, value) => name === "GOOGLE_API_KEY" && value === PLACEHOLDER,
+    );
+    const [plain, secret, withGemini, memberVariable] = await Promise.all([
+      // The enabling condition: the catalog's google model is listed for a
+      // GOOGLE_API_KEY that is not a placeholder.
+      googleListed({ GOOGLE_API_KEY: MAPS }),
+      googleListed({ GOOGLE_API_KEY: PLACEHOLDER }),
+      // A Gemini name with a value: OpenCode reads it first (82639464).
+      googleListed({
+        GOOGLE_API_KEY: PLACEHOLDER,
+        GEMINI_API_KEY: "fake-gemini-value-d0e4679b",
+      }),
+      // A member's variable of the helper's name does not reach the helper.
+      googleListed({
+        GOOGLE_API_KEY: MAPS,
+        OPENCODE_PLACEHOLDER_KEYS: JSON.stringify(["GOOGLE_API_KEY"]),
+      }),
+    ]);
+    // The enabling condition: every server listed its models.
+    for (const listed of [plain, secret, withGemini, memberVariable])
+      expect(listed.gate, "the gate's model is listed").toBe(true);
+    expect(plain.google, "listed for a plain GOOGLE_API_KEY").toBe(true);
+    expect(secret.google, "listed for a placeholder GOOGLE_API_KEY").toBe(
+      false,
+    );
+    expect(
+      withGemini.google,
+      "listed with GEMINI_API_KEY beside a placeholder",
+    ).toBe(true);
+    expect(
+      memberVariable.google,
+      "listed with a member's helper-named variable",
+    ).toBe(true);
+  }, 30_000);
+
+  // A server another Isomux process left running is adopted only when it
+  // started with the same top layer: the hide is in that layer, not in a
+  // revision, and a server from before this change has no hash at all.
+  it("does not adopt a server whose top config layer differs", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    // One config for every owner: the config revision stays the same.
+    const config = gateConfig(mockProvider());
+    // Each owner releases its lease; the fixture holds every idle reaper, so
+    // only the helper's adoption check stops a server.
+    const owner = () => {
+      const supervisor = new OpenCodeSupervisor({
+        profileDir: join(path, "profile"),
+        serverCwd: path,
+        config,
+        launchEnv: {
+          OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+          ...NO_GEMINI,
+          GOOGLE_API_KEY: PLACEHOLDER,
+        },
+        binary,
+        idleScheduler: manualIdleScheduler().scheduler,
+      });
+      supervisors.push(supervisor);
+      return supervisor;
+    };
+    const startedBy = async (supervisor: OpenCodeSupervisor) => {
+      const lease = await supervisor.acquire();
+      const pid = lease.pid;
+      lease.release();
+      return pid;
+    };
+    let placeholder = true;
+    checkPlaceholder(
+      (name, value) =>
+        placeholder && name === "GOOGLE_API_KEY" && value === PLACEHOLDER,
+    );
+    const first = owner();
+    const firstPid = await startedBy(first);
+    // The enabling condition: the same layer is adopted.
+    expect(await startedBy(owner()), "the same top layer is adopted").toBe(
+      firstPid,
+    );
+
+    placeholder = false;
+    const changedPid = await startedBy(owner());
+    expect(changedPid, "another top layer is not adopted").not.toBe(firstPid);
+    expect(alive(firstPid)).toBe(false);
+
+    // A record from before the hash: not adopted either.
+    const record = JSON.parse(
+      await readFile(first.recordPath, "utf8"),
+    ) as Record<string, unknown>;
+    expect(
+      typeof record.configOverride,
+      "the record keeps the layer's hash",
+    ).toBe("string");
+    delete record.configOverride;
+    await writeFile(first.recordPath, `${JSON.stringify(record)}\n`);
+    expect(
+      await startedBy(owner()),
+      "a record with no hash is not adopted",
+    ).not.toBe(changedPid);
+  }, 30_000);
 });

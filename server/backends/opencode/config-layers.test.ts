@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { STATE_ROOT } from "../../config.ts";
 import {
+  OPENCODE_PLACEHOLDER_KEYS_ENV,
   OPENCODE_V2_DATABASE,
   openCodeConfigOverride,
   openCodeMcpServerConfig,
@@ -324,5 +325,96 @@ describe("openCodeConfigOverride: the google key order", () => {
     expect(openCodeConfigOverride(config, plugin, {}).providers).toEqual(
       before.providers,
     );
+  });
+});
+
+// Task d0e4679b: a GOOGLE_API_KEY secret's placeholder never reaches Google's
+// model hosts. With no Gemini name set, OpenCode would list google models
+// that fail every turn, so the top layer disables the provider. The live
+// proof that 2.2.5 hides them is in supervisor.test.ts.
+describe("openCodeConfigOverride: google behind a GOOGLE_API_KEY secret", () => {
+  const plugin = "/profile/isomux-safety-plugin";
+  const placeholderKeys = JSON.stringify(["GOOGLE_API_KEY"]);
+  const disabled = (top: Record<string, unknown>): unknown[] =>
+    Array.isArray(top.disabled_providers) ? top.disabled_providers : [];
+  const googleOff = (top: Record<string, unknown>) =>
+    disabled(top).includes("google");
+
+  it("disables google when GOOGLE_API_KEY is a placeholder and no Gemini name has a value", () => {
+    for (const env of [
+      { GOOGLE_API_KEY: "fake-placeholder" },
+      {
+        GOOGLE_API_KEY: "fake-placeholder",
+        GEMINI_API_KEY: " ",
+        GOOGLE_GENERATIVE_AI_API_KEY: "",
+      },
+    ]) {
+      const top = openCodeConfigOverride(openCodeDefaultConfig(), plugin, {
+        ...env,
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: placeholderKeys,
+      });
+      expect(googleOff(top), Object.keys(env).join()).toBe(true);
+    }
+  });
+
+  it("keeps the config's own disabled providers, with google once, and leaves the given config as it was", () => {
+    const env = {
+      GOOGLE_API_KEY: "fake-placeholder",
+      [OPENCODE_PLACEHOLDER_KEYS_ENV]: placeholderKeys,
+    };
+    const config = {
+      ...openCodeDefaultConfig(),
+      disabled_providers: ["fake-provider"],
+    };
+    const before = structuredClone(config);
+    expect(
+      [...disabled(openCodeConfigOverride(config, plugin, env))].sort(),
+    ).toEqual(["fake-provider", "google"]);
+    expect(config).toEqual(before);
+    const already = {
+      ...openCodeDefaultConfig(),
+      disabled_providers: ["google"],
+    };
+    expect(disabled(openCodeConfigOverride(already, plugin, env))).toEqual([
+      "google",
+    ]);
+  });
+
+  it("leaves google on with a Gemini key, with no placeholder list, or with one that names another key", () => {
+    const cases: Record<string, string>[] = [
+      {
+        GOOGLE_API_KEY: "fake-placeholder",
+        GEMINI_API_KEY: "fake-gemini-value",
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: placeholderKeys,
+      },
+      {
+        GOOGLE_API_KEY: "fake-placeholder",
+        GOOGLE_GENERATIVE_AI_API_KEY: "fake-gemini-value",
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: placeholderKeys,
+      },
+      { GOOGLE_API_KEY: "fake-google-value" },
+      {
+        GOOGLE_API_KEY: "fake-google-value",
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: JSON.stringify(["OTHER_API_KEY"]),
+      },
+      {
+        GOOGLE_API_KEY: "fake-google-value",
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: "[]",
+      },
+    ];
+    for (const env of cases) {
+      const top = openCodeConfigOverride(openCodeDefaultConfig(), plugin, env);
+      expect(googleOff(top), JSON.stringify(env)).toBe(false);
+    }
+  });
+
+  it("does not throw on a malformed placeholder list, and leaves google on", () => {
+    for (const value of ["not json", "{}", '"GOOGLE_API_KEY"', "[1]", "null"]) {
+      const top = openCodeConfigOverride(openCodeDefaultConfig(), plugin, {
+        GOOGLE_API_KEY: "fake-google-value",
+        [OPENCODE_PLACEHOLDER_KEYS_ENV]: value,
+      });
+      expect(googleOff(top), value).toBe(false);
+    }
   });
 });

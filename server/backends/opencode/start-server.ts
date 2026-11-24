@@ -61,6 +61,9 @@ interface ServerRecord {
   // pid is the outer bwrap of a PID namespace (server/process-isolation.ts).
   isolated?: boolean;
   safetyPlugin?: string;
+  // sha256 of the OPENCODE_CONFIG_CONTENT override the server started with:
+  // a server with another override is not adopted.
+  configOverride?: string;
   // Set while 2.1.4 still imports the OpenCode 1 sessions: such a server is
   // never adopted (a helper that died during the import left it).
   v1Import?: "running";
@@ -131,6 +134,22 @@ const openCodeDataDir = join(profileDir, "data", "opencode");
 const v1Database = join(openCodeDataDir, "opencode.db");
 const v2Database = join(openCodeDataDir, OPENCODE_V2_DATABASE);
 
+// User and project plugins and config load as in a stock install; Isomux's
+// own config is the file layer and the top layer, which also loads the
+// safety plugin last. The top layer depends on this helper's env as well as
+// the config (config-layers.ts), so a server that started with another one is
+// not adopted.
+const configOverride = JSON.stringify(
+  openCodeConfigOverride(
+    JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>,
+    safetyPluginDir,
+    process.env,
+  ),
+);
+const configOverrideHash = createHash("sha256")
+  .update(configOverride)
+  .digest("hex");
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
@@ -149,6 +168,7 @@ async function adoptable(record: ServerRecord): Promise<boolean> {
     record.environmentRevision !== environmentRevision ||
     record.configRevision !== configRevision ||
     record.safetyPlugin !== safetyPlugin ||
+    record.configOverride !== configOverrideHash ||
     record.pid === unresponsivePid ||
     record.v1Import !== undefined
   )
@@ -439,16 +459,6 @@ if (prior) {
 }
 await copyVersionOneDatabase();
 
-// User and project plugins and config load as in a stock install; Isomux's
-// own config is the file layer and the top layer, which also loads the
-// safety plugin last.
-const configOverride = JSON.stringify(
-  openCodeConfigOverride(
-    JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>,
-    safetyPluginDir,
-    process.env,
-  ),
-);
 // The server's TMPDIR is in a temp folder other OS users can write to
 // (/tmp on Linux), so a link or a folder they made there is refused, never
 // followed.
@@ -582,6 +592,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
         configRevision,
         startTicks,
         safetyPlugin,
+        configOverride: configOverrideHash,
         ...(isolate ? { isolated: true } : {}),
       };
       if (!keepDebugOutput)

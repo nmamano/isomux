@@ -1801,14 +1801,15 @@ Cosas que puedes hacer por él:
   "integrations.providers.opencode.keyHeading.office":
     "La clave de OpenCode de toda la oficina",
   "integrations.providers.opencode.keyLabel": "Clave de API de OpenCode",
+  "integrations.providers.opencode.google.title": "Google Gemini",
+  "integrations.providers.opencode.google.text":
+    "Añade tu clave de Gemini como la variable GEMINI_API_KEY. <link>Configúrala</link>",
   "integrations.providers.opencode.ownServer.title":
     "Tu propio servidor de modelos",
   "integrations.providers.opencode.ownServer.text":
     "Ejecuta modelos en un servidor tuyo, como Ollama. <link>Configúralo</link>",
-  "integrations.providers.opencode.ownServer.listed":
-    "Disponibles ahora: {models}",
-  "integrations.providers.opencode.ownServer.none":
-    "Disponibles ahora: ninguno",
+  "integrations.providers.opencode.listed": "Disponibles ahora: {models}",
+  "integrations.providers.opencode.listedNone": "Disponibles ahora: ninguno",
   "integrations.providers.opencode.freeLimit.about":
     "El límite gratuito de OpenCode es por red. Se restablece más adelante.",
   "integrations.providers.testSignedOut": "No hay sesión iniciada.",

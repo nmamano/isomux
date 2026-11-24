@@ -1282,3 +1282,61 @@ describe("an OAuth MCP access token", () => {
     );
   });
 });
+
+// Task d0e4679b: the OpenCode supervisor asks whether GOOGLE_API_KEY in an
+// agent's environment is a secret's placeholder, which the proxy never swaps
+// in for Google's model hosts.
+describe("isPlaceholder", () => {
+  const GOOGLE_VALUE = "fake-google-maps-value-0001";
+
+  test("is true for the placeholder a member's or the office's agents get, and false for the value or another name's", async () => {
+    await runtime.enable();
+    add(AT_ALICE, "GOOGLE_API_KEY", GOOGLE_VALUE);
+    add(OFFICE, "GOOGLE_API_KEY", OFFICE_VALUE);
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    await runtime.changed();
+    const alice = buildEnvForUserId(ALICE)!.GOOGLE_API_KEY!;
+    const office = buildEnvForUserId(BOB)!.GOOGLE_API_KEY!;
+    const other = buildEnvForUserId(ALICE)!.GH_TOKEN!;
+    // The enabling condition: both are placeholders, not the values.
+    expect(alice).not.toBe(GOOGLE_VALUE);
+    expect(office).not.toBe(OFFICE_VALUE);
+    expect(alice).not.toBe(office);
+    expect(runtime.isPlaceholder("GOOGLE_API_KEY", alice)).toBe(true);
+    expect(runtime.isPlaceholder("GOOGLE_API_KEY", office)).toBe(true);
+    expect(runtime.isPlaceholder("GOOGLE_API_KEY", GOOGLE_VALUE)).toBe(false);
+    expect(runtime.isPlaceholder("GOOGLE_API_KEY", other)).toBe(false);
+    expect(runtime.isPlaceholder("GH_TOKEN", alice)).toBe(false);
+  });
+
+  test("is false while secrets are off, and makes no material", async () => {
+    await runtime.enable();
+    add(AT_ALICE, "GOOGLE_API_KEY", GOOGLE_VALUE);
+    await runtime.changed();
+    const placeholder = buildEnvForUserId(ALICE)!.GOOGLE_API_KEY!;
+    expect(runtime.isPlaceholder("GOOGLE_API_KEY", placeholder)).toBe(true);
+    // A runtime that was never enabled: the same store and material on disk.
+    const off = makeRuntime();
+    try {
+      expect(off.isPlaceholder("GOOGLE_API_KEY", placeholder)).toBe(false);
+    } finally {
+      await off.stop();
+    }
+  });
+
+  test("makes no material in an office whose only secrets apps read", async () => {
+    const result = store.create(AT_ALICE, {
+      name: "GOOGLE_API_KEY",
+      value: GOOGLE_VALUE,
+      hosts: [],
+      form: { kind: "authorization" },
+      apps: [{ name: "bot", createdAt: 1 }],
+    });
+    if (!result.ok) throw new Error(`create failed: ${result.kind}`);
+    await runtime.enable();
+    const bundle = secretMaterialPaths(STATE_ROOT, STATE_ROOT).bundle;
+    expect(existsSync(bundle)).toBe(false);
+    expect(runtime.isPlaceholder("GOOGLE_API_KEY", GOOGLE_VALUE)).toBe(false);
+    expect(existsSync(bundle)).toBe(false);
+  });
+});

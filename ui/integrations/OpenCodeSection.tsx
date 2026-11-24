@@ -1,7 +1,7 @@
 // OpenCode on the Model providers tab, laid out like the Claude and Codex
 // cards: rows that are always drawn (free models, paid models and the key,
-// your own model server), their content held while it loads. On another
-// member's card (an owner) it is one row beside Claude and Codex.
+// Google Gemini, your own model server), their content held while it loads.
+// On another member's card (an owner) it is one row beside Claude and Codex.
 //
 // `keySet`: whether the card's own OPENCODE_API_KEY variable is set, from the
 // variable names the page already reads; null while they are not read. The key
@@ -62,13 +62,17 @@ import { canEdit, type Role, type Target } from "./target.ts";
 const KEY = "OPENCODE_API_KEY";
 const OWN_SERVER_DOCS =
   "https://isomux.com/docs/llm-providers#opencode-on-your-own-model-server";
+const GOOGLE_DOCS =
+  "https://isomux.com/docs/llm-providers#google-models-in-opencode";
 
 // OpenCode's house providers: "opencode" (Zen, pay as you go) and
 // "opencode-go" (the Go subscription). Their free models are the "opencode/"
 // ones: Go refuses its "-free" models without a subscription
-// (shared/opencode-model.ts). Every other provider is a server of your own.
+// (shared/opencode-model.ts). Google's models have a row of their own; every
+// other provider is a server of your own.
 const isHouse = (id: string) =>
   id.startsWith("opencode/") || id.startsWith("opencode-go/");
+const isGoogle = (id: string) => id.startsWith("google/");
 
 // Where the viewer's agents get the key, one sentence per source, so a new
 // source fails tsc.
@@ -198,8 +202,11 @@ function OpenCodeCard({
   const paidCount = models.filter(
     (model) => isHouse(model.id) && !model.isFree,
   ).length;
+  const googleLabels = models
+    .filter((model) => isGoogle(model.id))
+    .map((model) => model.label);
   const ownLabels = models
-    .filter((model) => !isHouse(model.id))
+    .filter((model) => !isHouse(model.id) && !isGoogle(model.id))
     .map((model) => model.label);
 
   const since = freeLimitAt === null ? null : timeSince(language, freeLimitAt);
@@ -260,16 +267,16 @@ function OpenCodeCard({
         {tn("integrations.providers.opencode.paidCount", paidCount)}
       </Pill>
     ) : undefined;
-  // Your own server's models, on the viewer's card: a line always drawn,
+  // The listed models of a row, on the viewer's card: a line always drawn,
   // held until the listing answers.
-  const ownLine = (
+  const listedLine = (labels: string[]) => (
     <OneLine
       text={
-        ownLabels.length > 0
-          ? t("integrations.providers.opencode.ownServer.listed", {
-              models: ownLabels.join(", "),
+        labels.length > 0
+          ? t("integrations.providers.opencode.listed", {
+              models: labels.join(", "),
             })
-          : t("integrations.providers.opencode.ownServer.none")
+          : t("integrations.providers.opencode.listedNone")
       }
     />
   );
@@ -361,6 +368,24 @@ function OpenCodeCard({
         ready={paidIn}
       />
       <ItemRow
+        data-opencode-row="google"
+        title={t("integrations.providers.opencode.google.title")}
+        detail={
+          <>
+            <span>
+              {rich("integrations.providers.opencode.google.text", {
+                link: (chunk: ReactNode) => (
+                  <a href={GOOGLE_DOCS} target="_blank" rel="noreferrer">
+                    {chunk}
+                  </a>
+                ),
+              })}
+            </span>
+            {!office && (modelsIn ? listedLine(googleLabels) : heldLine)}
+          </>
+        }
+      />
+      <ItemRow
         data-opencode-row="own-server"
         title={t("integrations.providers.opencode.ownServer.title")}
         detail={
@@ -374,7 +399,7 @@ function OpenCodeCard({
                 ),
               })}
             </span>
-            {!office && (modelsIn ? ownLine : heldLine)}
+            {!office && (modelsIn ? listedLine(ownLabels) : heldLine)}
           </>
         }
       />

@@ -29,6 +29,18 @@ export function openCodeUserConfigDir(
   );
 }
 
+// The helper variable that names the provider key names whose value in the
+// launch env is a secret's placeholder (a JSON list). The supervisor sets it
+// from the server's secrets; the config layer below decides what it hides.
+export const OPENCODE_PLACEHOLDER_KEYS_ENV = "OPENCODE_PLACEHOLDER_KEYS";
+
+// The names the supervisor checks: generic names a member can hold a
+// non-model key under, as a secret whose placeholder never reaches a model
+// host.
+export const OPENCODE_PLACEHOLDER_CHECKED_KEYS: readonly string[] = [
+  "GOOGLE_API_KEY",
+];
+
 // Isomux's config also goes in OPENCODE_CONFIG_CONTENT, the layer OpenCode
 // loads after user and project config, so Isomux's permissions and agents win
 // over theirs, and its plugin loads last. MCP servers are in neither layer:
@@ -44,6 +56,7 @@ export function openCodeConfigOverride(
   return {
     ...config,
     ...googleKeyOrder(config, env),
+    ...googleBehindSecret(config, env),
     plugins: [
       ...(Array.isArray(config.plugins) ? (config.plugins as unknown[]) : []),
       safetyPlugin,
@@ -80,6 +93,41 @@ function googleKeyOrder(
       google: { ...google, env: [...GOOGLE_KEY_ORDER] },
     },
   };
+}
+
+// A GOOGLE_API_KEY secret puts a placeholder in the env that the proxy never
+// swaps for Google's model hosts (the never-list). With no Gemini name set,
+// OpenCode would list google models that fail every turn, so the layer
+// disables the provider. disabled_providers adds up across config layers
+// (2.2.5), so a member's own list stays in force. A malformed list counts as
+// none: google stays on, as before.
+function googleBehindSecret(
+  config: Record<string, unknown>,
+  env: Record<string, string | undefined>,
+): { disabled_providers?: unknown[] } {
+  if (
+    env.GEMINI_API_KEY?.trim() ||
+    env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
+    !placeholderKeys(env).includes("GOOGLE_API_KEY")
+  )
+    return {};
+  const own = Array.isArray(config.disabled_providers)
+    ? (config.disabled_providers as unknown[])
+    : [];
+  return {
+    disabled_providers: own.includes("google") ? [...own] : [...own, "google"],
+  };
+}
+
+function placeholderKeys(env: Record<string, string | undefined>): string[] {
+  try {
+    const value: unknown = JSON.parse(env[OPENCODE_PLACEHOLDER_KEYS_ENV] ?? "");
+    return Array.isArray(value)
+      ? value.filter((name): name is string => typeof name === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

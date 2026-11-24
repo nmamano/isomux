@@ -1805,13 +1805,15 @@ Coses que pots fer per ell:
   "integrations.providers.opencode.keyHeading.office":
     "La clau d'OpenCode de tota l'oficina",
   "integrations.providers.opencode.keyLabel": "Clau d'API d'OpenCode",
+  "integrations.providers.opencode.google.title": "Google Gemini",
+  "integrations.providers.opencode.google.text":
+    "Afegeix la teva clau de Gemini com a variable GEMINI_API_KEY. <link>Configura-la</link>",
   "integrations.providers.opencode.ownServer.title":
     "El teu propi servidor de models",
   "integrations.providers.opencode.ownServer.text":
     "Executa models en un servidor teu, com Ollama. <link>Configura'l</link>",
-  "integrations.providers.opencode.ownServer.listed":
-    "Disponibles ara: {models}",
-  "integrations.providers.opencode.ownServer.none": "Disponibles ara: cap",
+  "integrations.providers.opencode.listed": "Disponibles ara: {models}",
+  "integrations.providers.opencode.listedNone": "Disponibles ara: cap",
   "integrations.providers.opencode.freeLimit.about":
     "El límit gratuït d'OpenCode és per xarxa. Es restableix més endavant.",
   "integrations.providers.testSignedOut": "No hi ha cap sessió iniciada.",

@@ -68,7 +68,7 @@ GEMINI_API_KEY=...
 
 Gemini 4 Neon needs a paid key. A free key runs only the free-tier models, and Google can use your prompts to improve its products. Google does not let other apps sign in with a Google AI Pro or Ultra plan.
 
-OpenCode agents use `GEMINI_API_KEY` for Gemini even when `GOOGLE_API_KEY` holds another Google key, such as a Maps key.
+OpenCode agents use `GEMINI_API_KEY` for Gemini even when `GOOGLE_API_KEY` holds another Google key, such as a Maps key. A `GOOGLE_API_KEY` secret never reaches Google's model hosts, so with only that key, OpenCode agents list no Google models.
 
 ## OpenCode on your own model server
 
