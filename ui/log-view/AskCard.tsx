@@ -16,7 +16,9 @@
 // option's does. At most one tag; a tap on an option takes it off. A tag tap
 // empties the field, and the field goes with the tag as it is (blank = no
 // words). Postpone and Rewrite show suggestions above the field, whose words
-// replace the field's ("File as a task" too: the agent files it). A tap that
+// replace the field's ("File as a task" too: the agent files it); a tap on the
+// one the field holds sends it, as an option's does, except a suggestion that
+// asks for words after it (task 6439c0f5). A tap that
 // erases the member's words shows a line with Undo (task 9d79a544). The
 // agent can recommend a tag with words (recommendedTag): an untouched card
 // starts with it, so Enter sends it. Rewrite asks the agent to rewrite the
@@ -170,19 +172,21 @@ const tagHue = (tag: AskTag) => ({
   tint: `color-mix(in srgb, var(--ask-${tag}) 14%, transparent)`,
 });
 // The suggestions above the field: a tap puts their words in the field in
-// place of what it held. "File as a task" is words too: the agent files it.
+// place of what it held, and a tap on the one the field holds sends it, as
+// an option's does (task 6439c0f5). "File as a task" is words too: the agent
+// files it. An `open` suggestion asks for words after it, so it never sends.
 const SUGGESTIONS: Partial<
-  Record<AskTag, { name: string; label: PlainMessageKey }[]>
+  Record<AskTag, { name: string; label: PlainMessageKey; open?: true }[]>
 > = {
   postpone: [
     { name: "file", label: "asks.suggest.file" },
-    { name: "circle-back", label: "asks.suggest.circleBack" },
+    { name: "circle-back", label: "asks.suggest.circleBack", open: true },
   ],
   rewrite: [
     { name: "simplify", label: "asks.suggest.simplify" },
     { name: "context", label: "asks.suggest.context" },
     { name: "visuals", label: "asks.suggest.visuals" },
-    { name: "answer", label: "asks.suggest.answer" },
+    { name: "answer", label: "asks.suggest.answer", open: true },
   ],
 };
 
@@ -1663,32 +1667,41 @@ function ReplyAskCard({
   const suggestionHue = tag === null ? undefined : tagHue(tag);
   const suggestionRow = suggestionList && suggestionHue && (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-      {suggestionList.map(({ name, label }) => {
+      {suggestionList.map(({ name, label, open }) => {
         const words = t(label);
+        // The one the field holds sends, filled as the tag that sends.
+        const sends = !automateOpen && !open && reply.trim() === words.trim();
         return (
           <button
             key={name}
             type="button"
             data-ask-suggestion={name}
-            disabled={answerOff}
+            {...(sends ? { "data-ask-suggestion-sends": "" } : {})}
+            disabled={answerOff || (sends && tag === "rewrite" && simplifying)}
             onClick={() =>
-              // A label that ends with a colon asks for words after it.
-              replaceWords(words.endsWith(":") ? `${words} ` : words, tag)
+              sends
+                ? sendTagged()
+                : // A label that ends with a colon asks for words after it.
+                  replaceWords(words.endsWith(":") ? `${words} ` : words, tag)
             }
             style={{
               // The tag's hue: a suggestion belongs to the tag above it,
               // not to the options.
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
               padding: isMobile ? "4px 9px" : "2px 8px",
               borderRadius: 4,
               border: `1px solid ${suggestionHue.text}`,
-              background: suggestionHue.tint,
-              color: suggestionHue.text,
+              background: sends ? suggestionHue.text : suggestionHue.tint,
+              color: sends ? "var(--bg-base)" : suggestionHue.text,
               fontFamily: "var(--font-ui)",
               fontSize: buttonFont,
               cursor: "pointer",
             }}
           >
-            {words}
+            <span>{words}</span>
+            <OptionMark sends={sends} size={11} />
           </button>
         );
       })}
