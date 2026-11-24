@@ -76,6 +76,25 @@ describe("showEngineCue", () => {
     );
   });
 
+  // Task 8b6ffd30: an OpenRouter model key holds a slash. The label comes
+  // from the key's last segment, as a two-segment id's does.
+  it("labels a provider/vendor/model id by its last segment", () => {
+    const two = familyDisplayLabel("p/llama-3.1-70b");
+    expect(two).not.toContain("/");
+    expect(familyDisplayLabel("openrouter/meta-llama/llama-3.1-70b")).toBe(two);
+    expect(familyDisplayLabel("openrouter/a/b/llama-3.1-70b")).toBe(two);
+    expect(familyDisplayLabel("openrouter/~openai/gpt-sol-latest")).toBe(
+      familyDisplayLabel("p/gpt-sol-latest"),
+    );
+    // An empty segment is no model key: the id shows as it is.
+    expect(familyDisplayLabel("openrouter//llama-3.1-70b")).toBe(
+      "openrouter//llama-3.1-70b",
+    );
+    expect(familyDisplayLabel("openrouter/meta-llama/")).toBe(
+      "openrouter/meta-llama/",
+    );
+  });
+
   it("keeps the OpenCode badge for models from recognizable providers", () => {
     for (const model of [
       "anthropic/claude-sonnet-4-5",

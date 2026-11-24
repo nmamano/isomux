@@ -2944,6 +2944,86 @@ describe("OpenCode 2 model catalog (E4a)", () => {
     expect(label("gate/big-pickle")).not.toBe("Big Pickle");
   });
 
+  // Task 8b6ffd30 (GitHub #80): OpenCode names a model by its provider's own
+  // key, verbatim, and OpenRouter's keys hold a slash ("meta-llama/...") or
+  // start with the provider's own name ("openrouter/auto", 2.2.5). The id
+  // is "<providerID>/<model key>"; only the model key may hold "/" and "~".
+  it("keeps a model key that holds a slash, verbatim, and drops path-like or malformed keys", async () => {
+    const longKey = (length: number) => `${"a".repeat(length - 2)}/b`;
+    const withoutModelId = (provider: string, key: string) => {
+      const row = modelRow(provider, key);
+      delete row.modelID;
+      return row;
+    };
+    const fake = fakeOpenCode({
+      models: () => [
+        modelRow("openrouter", "meta-llama/llama-3.1-70b", {
+          name: "Llama 3.1 70B",
+        }),
+        // A key that starts with its own provider id: no prefix strip.
+        modelRow("openrouter", "openrouter/auto"),
+        // The same through the id field, for a row without modelID.
+        withoutModelId("openrouter", "openrouter/free"),
+        // OpenRouter's alias keys.
+        modelRow("openrouter", "~openai/gpt-sol-latest"),
+        modelRow("gate", longKey(128)),
+        // Dropped: over 128, an empty or path-like segment, a character
+        // outside the set, and "/" or "~" in the provider id.
+        modelRow("gate", longKey(129)),
+        modelRow("gate", "/lead"),
+        modelRow("gate", "trail/"),
+        modelRow("gate", "double//slash"),
+        modelRow("gate", "dot/./segment"),
+        modelRow("gate", "dotdot/../segment"),
+        modelRow("gate", ".."),
+        modelRow("gate", "bad/sp ace"),
+        modelRow("open/router", "model"),
+        modelRow("~gate", "model"),
+      ],
+    });
+    cleanups.push(fake.restore);
+    const models = await discoverOpenCodeModels(
+      fakeSupervisor().supervisor,
+      FAKE_CWD,
+    );
+    expect(models.map((m) => m.id).sort()).toEqual(
+      [
+        "openrouter/meta-llama/llama-3.1-70b",
+        "openrouter/openrouter/auto",
+        "openrouter/openrouter/free",
+        "openrouter/~openai/gpt-sol-latest",
+        `gate/${longKey(128)}`,
+      ].sort(),
+    );
+    const llama = models.find(
+      (m) => m.id === "openrouter/meta-llama/llama-3.1-70b",
+    )!.label;
+    expect(llama).toContain("Llama 3.1 70B");
+    expect(llama).toContain("openrouter");
+  });
+
+  // The picked id reaches OpenCode split at the FIRST slash, and the turn
+  // finds the model's variants in the catalog under the same id.
+  it("sends a slashed model key whole as the model id, with its catalog variant", async () => {
+    const h = setup({
+      fake: {
+        models: () => [modelRow("openrouter", "openrouter/auto")],
+        turns: [fixtureTurn("text-reasoning")],
+      },
+      transport: { model: "openrouter/openrouter/auto", effort: "high" },
+    });
+    const turn = await h.turn();
+    expect(turn.end?.status).toBe("completed");
+    expect(h.fake.calls("POST", /\/model$/).at(-1)?.body).toEqual({
+      model: {
+        providerID: "openrouter",
+        id: "openrouter/auto",
+        variant: "high",
+      },
+    });
+    expect(kinds(turn.events, "system_text")).toEqual([]);
+  });
+
   it("keeps no empty or failed load: the next caller loads again", async () => {
     let loads = 0;
     const fake = fakeOpenCode({

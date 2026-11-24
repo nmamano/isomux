@@ -461,9 +461,10 @@ export function familyDisplayLabel(
   }
   const codex = CODEX_MODELS.find((m) => m.value === family);
   if (codex) return codex.label;
-  const [, model, ...rest] = family.split("/");
-  if (model && rest.length === 0) {
-    return slugDisplayLabel(model);
+  // provider/model, or provider/vendor/model: label from the last segment.
+  const [, ...modelPath] = family.split("/");
+  if (modelPath.length > 0 && modelPath.every(Boolean)) {
+    return slugDisplayLabel(modelPath[modelPath.length - 1]);
   }
   if (/^gpt-/i.test(family)) return slugDisplayLabel(family);
   return family;

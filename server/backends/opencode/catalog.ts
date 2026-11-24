@@ -284,13 +284,10 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
     if (model.enabled !== true || model.status !== "active") continue;
     const providerId = stringField(model, "providerID");
     if (!providerId || !safeCatalogId(providerId)) continue;
-    const rawModelId =
-      stringField(model, "modelID") ?? stringField(model, "id");
-    if (!rawModelId) continue;
-    const modelId = rawModelId.startsWith(`${providerId}/`)
-      ? rawModelId.slice(providerId.length + 1)
-      : rawModelId;
-    if (!modelId || !safeCatalogId(modelId)) continue;
+    // Verbatim: 2.2.5 never prefixes the provider, and a key may start with
+    // it on its own (OpenRouter's "openrouter/auto").
+    const modelId = stringField(model, "modelID") ?? stringField(model, "id");
+    if (!modelId || !safeCatalogModelId(modelId)) continue;
     const id = `${providerId}/${modelId}`;
     const modelLabel = safeCatalogLabel(model.name, modelId);
     const contextLimit = positiveNumber(asRecord(model.limit), "context");
@@ -336,6 +333,22 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
 
 function safeCatalogId(value: string): boolean {
   return value.length <= 128 && /^[a-zA-Z0-9._:-]+$/.test(value);
+}
+
+// A model key may hold slashes ("meta-llama/llama-3.1-70b") and OpenRouter's
+// "~" aliases; no empty, "." or ".." segment.
+function safeCatalogModelId(value: string): boolean {
+  return (
+    value.length <= 128 &&
+    value
+      .split("/")
+      .every(
+        (segment) =>
+          /^[a-zA-Z0-9._:~-]+$/.test(segment) &&
+          segment !== "." &&
+          segment !== "..",
+      )
+  );
 }
 
 function safeCatalogLabel(value: unknown, fallback: string): string {
