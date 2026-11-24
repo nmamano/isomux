@@ -3027,8 +3027,14 @@ export class OpenCodeTransport {
         if (providers.length > 0) {
           const provider = splitModel(this.model)[0];
           // A connected provider without the model: OpenCode no longer has it.
+          // 2.2.5 says "enabled" for a provider set up in config and "auto"
+          // for one found from an env key or a sign-in; a provider with no
+          // key has no row (probed 2026-11-24). "disabled" and unknown
+          // values stay not connected on purpose.
           return providers.some(
-            (row) => row.id === provider && row.activation === "enabled",
+            (row) =>
+              row.id === provider &&
+              CONNECTED_ACTIVATIONS.has(String(row.activation)),
           )
             ? "model_gone"
             : "provider_not_connected";
@@ -3087,6 +3093,9 @@ export class OpenCodeTransport {
     return models.find((model) => model.id === this.model)?.isFree !== true;
   }
 }
+
+// GET /api/provider activations of a connected provider.
+const CONNECTED_ACTIVATIONS = new Set(["enabled", "auto"]);
 
 const TERMINAL_FRAMES = new Set([
   "session.execution.succeeded",

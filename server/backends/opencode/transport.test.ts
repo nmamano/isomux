@@ -2374,47 +2374,61 @@ describe("OpenCode 2 failures (T10)", () => {
     });
   });
 
-  it("names a model OpenCode cannot route as gone when its provider is enabled", async () => {
-    const h = setup({
-      fake: {
-        turns: [
-          failingTurn({
-            type: "provider.no-route",
-            message: "Model unavailable: provider/model",
-          }),
-        ],
-      },
+  // @opencode/cli 2.2.5 lists a provider set up in config as "enabled" and
+  // one found from an env key or a sign-in as "auto" (probe 2026-11-24,
+  // task 8a55cf89). Both are connected: a model they lack is gone.
+  for (const activation of ["enabled", "auto"]) {
+    it(`names a model OpenCode cannot route as gone when its provider is ${activation}`, async () => {
+      const h = setup({
+        fake: {
+          providers: () => [{ id: "provider", activation }],
+          turns: [
+            failingTurn({
+              type: "provider.no-route",
+              message: "Model unavailable: provider/model",
+            }),
+          ],
+        },
+      });
+      const { end } = await h.turn();
+      expect(end).toMatchObject({
+        status: "failed",
+        pickModel: true,
+        goneModel: "provider/model",
+        modelUnavailable: true,
+      });
+      expect(english(end!.error!)).toContain(
+        english(openCodeModelGoneFailure("provider/model")),
+      );
     });
-    const { end } = await h.turn();
-    expect(end).toMatchObject({
-      status: "failed",
-      pickModel: true,
-      goneModel: "provider/model",
-      modelUnavailable: true,
-    });
-    expect(english(end!.error!)).toContain(
-      english(openCodeModelGoneFailure("provider/model")),
-    );
-  });
+  }
 
-  it("offers the picker, not a gone model, when the provider is not connected", async () => {
-    const h = setup({
-      fake: {
-        providers: () => [{ id: "other", activation: "enabled" }],
-        turns: [
-          failingTurn({
-            type: "provider.no-route",
-            message: "Model unavailable: provider/model",
-          }),
-        ],
-      },
+  // No row for the provider, or a row whose activation is not a connected
+  // one ("disabled" is in 2.2.5's schema; an unknown value may come later).
+  for (const [label, rows] of [
+    ["has no row", [{ id: "other", activation: "enabled" }]],
+    ["is disabled", [{ id: "provider", activation: "disabled" }]],
+    ["has an unknown activation", [{ id: "provider", activation: "pending" }]],
+  ] as const) {
+    it(`offers the picker, not a gone model, when the provider ${label}`, async () => {
+      const h = setup({
+        fake: {
+          providers: () => [...rows],
+          turns: [
+            failingTurn({
+              type: "provider.no-route",
+              message: "Model unavailable: provider/model",
+            }),
+          ],
+        },
+      });
+      const { end } = await h.turn();
+      expect(end).toMatchObject({ status: "failed", pickModel: true });
+      expect(end?.goneModel).toBeUndefined();
+      // Another model of a provider that is not connected fixes nothing.
+      expect(end?.modelUnavailable).toBeUndefined();
     });
-    const { end } = await h.turn();
-    expect(end).toMatchObject({ status: "failed", pickModel: true });
-    expect(end?.goneModel).toBeUndefined();
-    // Another model of a provider that is not connected fixes nothing.
-    expect(end?.modelUnavailable).toBeUndefined();
-  });
+  }
 
   // Task 0387b8de: the provider refuses one free model that its catalog
   // still lists. Another model of the same provider can serve the turn; a
