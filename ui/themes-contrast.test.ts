@@ -96,7 +96,8 @@ function worst(color: string, bgs: Rgb[]): number {
 }
 
 const TEXT = ["primary", "secondary", "dim", "muted", "faint", "ghost", "hint"];
-const HUES = ["accent", "green", "orange", "red", "purple", "ask-tag"];
+const ASK_TAGS = ["ask-rewrite", "ask-postpone", "ask-dismiss"] as const;
+const HUES = ["accent", "green", "orange", "red", "purple", ...ASK_TAGS];
 
 describe.each(THEMES.map((t) => [t.id, t] as const))("%s theme", (_, t) => {
   const v = t.vars;
@@ -139,27 +140,41 @@ describe.each(THEMES.map((t) => [t.id, t] as const))("%s theme", (_, t) => {
     }
   });
 
-  // The ask card's tag buttons (task 9d79a544): --ask-tag-text on a 14%
-  // --ask-tag tint, in a hue that never reads as an error (no red or pink)
-  // and stands apart from the accent.
-  it("draws the ask tags' text at AA on their own tint, in a hue apart from red and the accent", () => {
-    const solids = backgrounds(v, []);
-    const tint = parse(v["--ask-tag"]).rgb;
-    const tinted = solids.map(
-      (bg) => bg.map((c, i) => tint[i] * 0.14 + c * 0.86) as Rgb,
-    );
-    expect(worst(v["--ask-tag-text"], tinted) >= AA).toBe(true);
-    const tag = hue(parse(v["--ask-tag"]).rgb);
-    const apart = (other: keyof ThemeVars) => {
-      const d = Math.abs(tag - hue(parse(v[other]).rgb)) % 360;
-      return Math.min(d, 360 - d);
-    };
-    expect({
-      notRed: tag > 30 && tag < 290,
-      fromRed: apart("--red") >= 40,
-      fromAccent: apart("--accent") >= 20,
-    }).toEqual({ notRed: true, fromRed: true, fromAccent: true });
-  });
+  // The ask card's tag buttons (tasks 9d79a544, 8d850163): each tag's text
+  // on a 14% tint of its own hue, a hue that never reads as an error (no red
+  // or pink), stands apart from the accent and from the other tags.
+  it.each(ASK_TAGS)(
+    "draws the %s tag's text at AA on its own tint, in a hue apart from red, the accent and the other tags",
+    (name) => {
+      const solids = backgrounds(v, []);
+      const tint = parse(v[`--${name}` as keyof ThemeVars]).rgb;
+      const tinted = solids.map(
+        (bg) => bg.map((c, i) => tint[i] * 0.14 + c * 0.86) as Rgb,
+      );
+      expect(worst(v[`--${name}-text` as keyof ThemeVars], tinted) >= AA).toBe(
+        true,
+      );
+      const tag = hue(tint);
+      const apart = (other: string) => {
+        const d =
+          Math.abs(tag - hue(parse(v[other as keyof ThemeVars]).rgb)) % 360;
+        return Math.min(d, 360 - d);
+      };
+      expect({
+        notRed: tag > 30 && tag < 290,
+        fromRed: apart("--red") >= 40,
+        fromAccent: apart("--accent") >= 20,
+        fromOtherTags: ASK_TAGS.filter((o) => o !== name).every(
+          (o) => apart(`--${o}`) >= 40,
+        ),
+      }).toEqual({
+        notRed: true,
+        fromRed: true,
+        fromAccent: true,
+        fromOtherTags: true,
+      });
+    },
+  );
 
   it("draws syntax colours at AA", () => {
     for (const key of Object.keys(v).filter((k) => k.startsWith("--hljs-")))

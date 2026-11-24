@@ -162,6 +162,13 @@ const TAG_LABEL: Record<AskTag, PlainMessageKey> = {
   postpone: "asks.tag.postpone",
   rewrite: "asks.tag.rewrite",
 };
+// Each tag's own hue (themes.ts): its button, its suggestions, its chip and
+// the send button it names take it, so each group reads as downstream of
+// its tag. `text` is the text strength; `tint` the 14% wash behind it.
+const tagHue = (tag: AskTag) => ({
+  text: `var(--ask-${tag}-text)`,
+  tint: `color-mix(in srgb, var(--ask-${tag}) 14%, transparent)`,
+});
 // The suggestions above the field: a tap puts their words in the field in
 // place of what it held. "File as a task" is words too: the agent files it.
 const SUGGESTIONS: Partial<
@@ -1465,7 +1472,7 @@ function ReplyAskCard({
           padding: buttonPad,
           borderRadius: 8,
           border: "none",
-          background: "var(--accent-text)",
+          background: tag === null ? "var(--accent-text)" : tagHue(tag).text,
           color: "var(--bg-base)",
           fontSize: buttonFont,
           fontWeight: 600,
@@ -1598,9 +1605,9 @@ function ReplyAskCard({
       )}
     </div>
   );
-  // The tags' own hue, so they read as answers apart from the agent's
-  // options and never as greyed out: a hue of its own (--ask-tag, never
-  // red), filled with the send arrow on the tag that sends.
+  // Each tag in its own hue (tagHue), so the tags read as answers apart
+  // from the agent's options and from each other, and never as greyed out;
+  // filled with the send arrow on the tag that sends.
   const tagRow = offered.length > 0 && (
     <div
       data-ask-tags=""
@@ -1609,6 +1616,7 @@ function ReplyAskCard({
       {offered.map((name) => {
         const sends = !automateOpen && tag === name;
         const recommended = name === recommendedTag;
+        const hue = tagHue(name);
         return (
           <button
             key={name}
@@ -1629,13 +1637,11 @@ function ReplyAskCard({
               gap: 6,
               padding: recommended ? markedPad : buttonPad,
               borderRadius: 8,
-              border: "1px solid var(--ask-tag-text)",
+              border: `1px solid ${hue.text}`,
               // Filled as the options are: the text colour as the fill and
               // the page's ground as the text, readable in every theme.
-              background: sends
-                ? "var(--ask-tag-text)"
-                : "color-mix(in srgb, var(--ask-tag) 14%, transparent)",
-              color: sends ? "var(--bg-base)" : "var(--ask-tag-text)",
+              background: sends ? hue.text : hue.tint,
+              color: sends ? "var(--bg-base)" : hue.text,
               fontFamily: "var(--font-ui)",
               fontSize: buttonFont,
               fontWeight: 600,
@@ -1654,7 +1660,8 @@ function ReplyAskCard({
     </div>
   );
   const suggestionList = tag === null ? undefined : SUGGESTIONS[tag];
-  const suggestionRow = suggestionList && (
+  const suggestionHue = tag === null ? undefined : tagHue(tag);
+  const suggestionRow = suggestionList && suggestionHue && (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
       {suggestionList.map(({ name, label }) => {
         const words = t(label);
@@ -1673,9 +1680,9 @@ function ReplyAskCard({
               // not to the options.
               padding: isMobile ? "4px 9px" : "2px 8px",
               borderRadius: 4,
-              border: "1px solid var(--ask-tag-text)",
-              background: "color-mix(in srgb, var(--ask-tag) 14%, transparent)",
-              color: "var(--ask-tag-text)",
+              border: `1px solid ${suggestionHue.text}`,
+              background: suggestionHue.tint,
+              color: suggestionHue.text,
               fontFamily: "var(--font-ui)",
               fontSize: buttonFont,
               cursor: "pointer",
@@ -2199,7 +2206,7 @@ function ReplyAskCard({
                       gap: 4,
                       padding: isMobile ? "2px 4px 2px 8px" : "1px 3px 1px 7px",
                       borderRadius: 5,
-                      background: "var(--ask-tag-text)",
+                      background: tagHue(tag).text,
                       color: "var(--bg-base)",
                       fontFamily: "var(--font-ui)",
                       fontSize: isMobile ? 13 : 11,
