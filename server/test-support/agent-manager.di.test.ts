@@ -1492,7 +1492,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
       // The member's OpenCode folder, never the OS user's real one. It
       // routes the reply and the title work to the local provider: 2.1.4
       // reads the base URL from config, not from OPENAI_BASE_URL. This
-      // config is separate from the supervisor's managed config.
+      // config is separate from the supervisor's managed config. The model is
+      // the config's own: OpenCode disables a catalog model that models.dev
+      // marks deprecated, as it did gpt-4o.
       const configDir = join(STATE_ROOT, `${userId}-opencode`);
       const env = {
         OPENAI_API_KEY: apiKey,
@@ -1513,10 +1515,16 @@ describe("AgentManager DI (temp-state isolated)", () => {
       writeFileSync(
         join(configDir, "opencode.json"),
         JSON.stringify({
-          model: "openai/gpt-4o",
+          model: "openai/gate-model",
           providers: {
             openai: {
               settings: { baseURL: `http://127.0.0.1:${mock.port}/v1` },
+              models: {
+                "gate-model": {
+                  name: "Gate model",
+                  limit: { context: 100000, output: 1000 },
+                },
+              },
             },
           },
         }),
@@ -1642,7 +1650,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
           undefined,
           "room-opencode-recovery",
           undefined,
-          "openai/gpt-4o",
+          "openai/gate-model",
           "high",
           "tester",
           "opencode",
