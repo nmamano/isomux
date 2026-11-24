@@ -724,8 +724,12 @@ export function createOpenCodeBackend(
     },
     async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
       const supervisor = supervisorFor(opts);
+      // The model route and the model check (opencode-model-check) list
+      // here; both get each provider's origin, at one more request.
       const models = await discoverOpenCodeModels(supervisor, opts.cwd, {
         stopIfStarted: opts.stopIfStarted,
+        providerOrigin: true,
+        signal: opts.signal,
       });
       return models.map(({ contextLimit: _contextLimit, ...entry }) => ({
         ...entry,

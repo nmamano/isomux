@@ -53,20 +53,26 @@ const held = (root: Element) => root.querySelectorAll("[data-reserved]");
 const gets = () => fake.requests("GET", ME).length;
 const listings = () => fake.requests("POST", MODELS).length;
 
-const model = (id: string, label: string, isFree?: true) => ({
+const model = (
+  id: string,
+  label: string,
+  isFree?: true,
+  providerFromConfig?: boolean,
+) => ({
   id,
   label,
   supportedEfforts: [],
   ...(isFree ? { isFree } : {}),
+  ...(providerFromConfig !== undefined ? { providerFromConfig } : {}),
 });
 const MODELS_LISTED = [
   model("opencode/big-pickle", "Big Pickle", true),
   model("opencode/claude-sonnet", "Claude Sonnet"),
   model("opencode-go/kimi", "Kimi"),
   model("opencode/gpt-mini", "GPT Mini"),
-  // A model server of the member's own, with no cost block: not free, and
-  // not one of OpenCode's paid models either.
-  model("ollama/llama3", "ollama - Llama 3"),
+  // A model server of the member's own, set up in OpenCode config, with no
+  // cost block: not free, and not one of OpenCode's paid models either.
+  model("ollama/llama3", "ollama - Llama 3", undefined, true),
   // Google's provider, from a Gemini key in the member's variables: its own
   // row, not your own server (task d0e4679b).
   model("google/gemini-fake", "Gemini Fake"),
@@ -189,6 +195,37 @@ describe("the rows", () => {
         "Gemini Fake",
       ),
     ).toBe(false);
+  });
+
+  // Task ef863241: your own model server is a provider set up in OpenCode
+  // config. A provider OpenCode found from an env key (OPENAI_API_KEY) is a
+  // cloud provider, and a model whose origin the listing did not give is in
+  // no row: an empty row is better than a wrong one.
+  it("puts only providers set up in OpenCode config under your own server", async () => {
+    fake.openCode = { freeLimitAt: null, keySource: "member_variable" };
+    fake.openCodeModels = [
+      model("ollama/llama3", "ollama - Llama 3", undefined, true),
+      model("openai/gpt-five", "openai - GPT Five", undefined, false),
+      model("anthropic/opus", "anthropic - Opus", undefined, false),
+      model("lmstudio/qwen", "lmstudio - Qwen"),
+      // House and Google models keep their rows, whatever the origin says.
+      model("opencode/big-pickle", "Big Pickle", true, true),
+      model("google/gemini-fake", "Gemini Fake", undefined, true),
+    ];
+    const view = await open();
+    const own = row(section(view, "personal"), "own-server").textContent!;
+    expect(
+      ["Llama 3", "GPT Five", "Opus", "Qwen", "Big Pickle", "Gemini Fake"].map(
+        (label) => [label, own.includes(label)],
+      ),
+    ).toEqual([
+      ["Llama 3", true],
+      ["GPT Five", false],
+      ["Opus", false],
+      ["Qwen", false],
+      ["Big Pickle", false],
+      ["Gemini Fake", false],
+    ]);
   });
 
   it("gives no paid count without a key, even when the listing names paid models", async () => {

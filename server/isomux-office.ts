@@ -2853,6 +2853,7 @@ async function listBackendModels(input: {
       isDefault: m.isDefault,
       hidden: m.hidden,
       isFree: m.isFree,
+      providerFromConfig: m.providerFromConfig,
       supportedEfforts: m.supportedEfforts,
       defaultEffort: m.defaultEffort,
     }));

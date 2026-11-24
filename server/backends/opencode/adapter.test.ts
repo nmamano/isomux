@@ -947,6 +947,9 @@ describe("OpenCode pinned transport", () => {
       // 2.1.4 model rows name the provider by its id.
       label: "gate - Gate model",
       isFree: true,
+      // Task ef863241: the gate provider is set up in OpenCode config, and
+      // the real server says so (GET /api/provider activation "enabled").
+      providerFromConfig: true,
     });
     expect(gateModel?.supportedEfforts).toContainEqual({ level: "low" });
     expect(gateModel?.supportedEfforts).toContainEqual({ level: "high" });

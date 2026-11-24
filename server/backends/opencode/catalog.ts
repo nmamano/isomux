@@ -46,6 +46,8 @@ export interface DiscoveredOpenCodeModel {
   inputLimit?: number;
   outputLimit?: number;
   isFree?: boolean;
+  // Only on a listing with the providerOrigin option (BackendModel).
+  providerFromConfig?: boolean;
   supportedEfforts: { level: EffortLevel }[];
 }
 
@@ -195,17 +197,82 @@ export function pauseFor(
 
 // stopIfStarted: a server this listing starts stops when it ends, instead of
 // after the idle wait (OpenCodeLease.releaseAndStopIfStarted).
+// providerOrigin: each model also says whether its provider is set up in
+// config (providerFromConfig), from one more read; without that answer the
+// models come back without the field.
 export async function discoverOpenCodeModels(
   supervisor: OpenCodeSupervisor,
   cwd: string,
-  options: { stopIfStarted?: boolean } = {},
+  options: {
+    stopIfStarted?: boolean;
+    providerOrigin?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<DiscoveredOpenCodeModel[]> {
   const lease = await supervisor.acquire();
   try {
-    return await keptCatalog(supervisor, lease, cwd);
+    const models = await keptCatalog(supervisor, lease, cwd);
+    if (!options.providerOrigin) return models;
+    const activations = await readProviderActivations(
+      lease,
+      cwd,
+      options.signal,
+    );
+    if (!activations) return models;
+    // Copies: the kept catalog serves turns, which do not read the field.
+    return models.map((model) => {
+      const activation = activations.get(model.id.split("/")[0]);
+      return activation === undefined
+        ? model
+        : { ...model, providerFromConfig: activation === "enabled" };
+    });
   } finally {
     if (options.stopIfStarted) lease.releaseAndStopIfStarted();
     else lease.release();
+  }
+}
+
+// GET /api/provider for one folder: provider id -> activation. 2.2.5 says
+// "enabled" for a provider set up in config, "auto" for one it found from an
+// env key or a sign-in (probed 2026-11-24). One request: the catalog read
+// for the folder already waited out the plugins. Any failure gives null, and
+// the error is dropped: a row carries its provider's settings, which can hold
+// an API key, so each row is reduced to its two scalars here.
+export async function readProviderActivations(
+  lease: OpenCodeLease,
+  cwd: string,
+  signal?: AbortSignal,
+  scheduler: OpenCodeDeadlineScheduler = realDeadlineScheduler,
+): Promise<Map<string, string> | null> {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  const timer = scheduler.setTimeout(stop, OPENCODE_EVENT_STREAM_DEADLINE_MS);
+  if (signal?.aborted) stop();
+  else signal?.addEventListener("abort", stop, { once: true });
+  try {
+    const response = await fetch(
+      new URL(folderPath("/api/provider", cwd), lease.baseUrl),
+      {
+        headers: { authorization: lease.authHeader },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return null;
+    }
+    const activations = new Map<string, string>();
+    for (const row of listData(await response.json()).map(asRecord)) {
+      const id = stringField(row, "id");
+      const activation = stringField(row, "activation");
+      if (id && activation) activations.set(id, activation);
+    }
+    return activations;
+  } catch {
+    return null;
+  } finally {
+    scheduler.clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
   }
 }
 

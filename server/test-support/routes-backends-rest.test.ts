@@ -140,6 +140,55 @@ describe("routes/backends.listModels REST", () => {
     expect(calls[1].includeHidden).toBe(false);
   });
 
+  // Task ef863241: the wire shape is a whitelist; the provider origin the
+  // OpenCode Integrations row reads goes through it as is, and stays absent
+  // when the backend gave none.
+  it("passes each model's provider origin through to the wire, true, false or absent", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const spy = spyOn(claudeBackend, "listModels").mockImplementation(
+      async () => [
+        {
+          id: "own/llama",
+          label: "Llama",
+          providerFromConfig: true,
+          supportedEfforts: [],
+        },
+        {
+          id: "openai/gpt",
+          label: "GPT",
+          providerFromConfig: false,
+          supportedEfforts: [],
+        },
+        { id: "stray/model", label: "Stray", supportedEfforts: [] },
+      ],
+    );
+    restoreSpy = () => spy.mockRestore();
+    const r = await dialogPost(
+      srv,
+      "claude",
+      { cwd: srv.workDir },
+      owner.rawSessionId,
+    );
+    expect(r.status).toBe(200);
+    const models = (r.body as { models: BackendModelWire[] }).models;
+    expect(
+      Object.fromEntries(
+        models.map((m) => [
+          m.id,
+          Object.hasOwn(m, "providerFromConfig")
+            ? m.providerFromConfig
+            : "absent",
+        ]),
+      ),
+    ).toEqual({
+      "own/llama": true,
+      "openai/gpt": false,
+      "stray/model": "absent",
+    });
+  });
+
   it("a request from another site never reaches a backend, while the same cookie works for the dialog", async () => {
     const srv = await startTestServer();
     server = srv;

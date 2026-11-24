@@ -2850,6 +2850,9 @@ export interface BackendModelWire {
   isDefault?: boolean;
   hidden?: boolean;
   isFree?: boolean;
+  // OpenCode only: the model's provider is set up in OpenCode's config, not
+  // found from an env key or a sign-in. Absent when OpenCode did not say.
+  providerFromConfig?: boolean;
   supportedEfforts: BackendEffortOptionWire[];
   defaultEffort?: string;
 }

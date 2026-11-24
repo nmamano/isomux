@@ -68,8 +68,9 @@ const GOOGLE_DOCS =
 // OpenCode's house providers: "opencode" (Zen, pay as you go) and
 // "opencode-go" (the Go subscription). Their free models are the "opencode/"
 // ones: Go refuses its "-free" models without a subscription
-// (shared/opencode-model.ts). Google's models have a row of their own; every
-// other provider is a server of your own.
+// (shared/opencode-model.ts). Google's models have a row of their own. A
+// server of your own is a provider set up in OpenCode's config; one OpenCode
+// found from an env key (OpenAI, Anthropic, ...) is in no row.
 const isHouse = (id: string) =>
   id.startsWith("opencode/") || id.startsWith("opencode-go/");
 const isGoogle = (id: string) => id.startsWith("google/");
@@ -206,7 +207,12 @@ function OpenCodeCard({
     .filter((model) => isGoogle(model.id))
     .map((model) => model.label);
   const ownLabels = models
-    .filter((model) => !isHouse(model.id) && !isGoogle(model.id))
+    .filter(
+      (model) =>
+        model.providerFromConfig === true &&
+        !isHouse(model.id) &&
+        !isGoogle(model.id),
+    )
     .map((model) => model.label);
 
   const since = freeLimitAt === null ? null : timeSince(language, freeLimitAt);
