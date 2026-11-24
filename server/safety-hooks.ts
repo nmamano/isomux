@@ -14,6 +14,36 @@ import {
   type ProposedAction,
 } from "./safety-policy.ts";
 import { hostForEnv } from "./member-hosts.ts";
+import { isOfficeApiCall } from "./office-api-call.ts";
+
+// The port agents reach the office API on, as server/system-prompt.ts names it.
+const OFFICE_PORT = process.env.PORT || "4000";
+
+const OFFICE_CALL_ALLOW: HookJSONOutput = {
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse",
+    permissionDecision: "allow",
+    permissionDecisionReason: "A call to this office's own API.",
+  },
+};
+
+// GitHub #82: auto mode refused office calls such as GET /agents as
+// "Undermining Oversight", and other modes prompt for them. A hook allow
+// skips both; a deny rule in the member's own settings still wins. In plan
+// mode only a read. Never for an agent confined to a folder.
+function officeCallAllowed(
+  input: PreToolUseHookInput,
+  confine: FolderConfinement | undefined,
+): boolean {
+  if (confine) return false;
+  const command = (input.tool_input as { command?: unknown })?.command;
+  return (
+    typeof command === "string" &&
+    isOfficeApiCall(command, OFFICE_PORT, {
+      readOnly: input.permission_mode === "plan",
+    })
+  );
+}
 
 function toClaudeDecision(decision: PolicyDecision): HookJSONOutput {
   if (decision.decision === "allow") return {};
@@ -34,6 +64,7 @@ function callbackFor(
   confine?: FolderConfinement,
   onDeny?: (denial: SafetyDenial) => void,
   shellHome?: string,
+  officeCalls = false,
 ): HookCallback {
   return async (input) => {
     const hookInput = input as PreToolUseHookInput;
@@ -49,6 +80,12 @@ function callbackFor(
         toolName: hookInput.tool_name,
         reason: decision.reason,
       });
+    if (
+      decision.decision === "allow" &&
+      officeCalls &&
+      officeCallAllowed(hookInput, confine)
+    )
+      return OFFICE_CALL_ALLOW;
     return toClaudeDecision(decision);
   };
 }
@@ -94,7 +131,14 @@ export function createSafetyHooks(
   onDeny?: (denial: SafetyDenial) => void,
   shellHome?: string,
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-  const shell = callbackFor(shellAction, codexHome, confine, onDeny, shellHome);
+  const shell = callbackFor(
+    shellAction,
+    codexHome,
+    confine,
+    onDeny,
+    shellHome,
+    true,
+  );
   const readFiles = callbackFor(
     fileAction("read-files"),
     codexHome,

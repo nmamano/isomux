@@ -14,6 +14,8 @@ import { homedir } from "os";
 import { join, sep } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
+import { isOfficeApiCall } from "./office-api-call.ts";
+import type { FolderConfinement } from "./safety-policy.ts";
 
 const realStateRoot = join(homedir(), ".isomux");
 if (
@@ -1295,5 +1297,114 @@ describe("a refusal reaches onDeny", () => {
     const { heard, denied } = await run("Bash", { command: "ls /tmp" });
     expect(denied.length).toBe(0);
     expect(heard.length).toBe(0);
+  });
+});
+
+// GitHub #82: auto mode refused GET /agents as "Undermining Oversight". The
+// Bash hook says allow for one curl call to this office, which skips the
+// prompt and the classifier in every mode, but only after the policy agreed.
+describe("office API calls", () => {
+  const PORT = process.env.PORT || "4000";
+  const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  const lookup = `curl -s "localhost:${PORT}/agents?back=1" ${AUTH}`;
+  const send = `curl -s -X POST localhost:${PORT}/api/agents/a/messages ${AUTH} --data-binary @- <<'EOF'\nhi\nEOF`;
+
+  async function bashOutputs(
+    command: string,
+    opts: { permissionMode?: string; confine?: FolderConfinement } = {},
+  ): Promise<Array<Record<string, unknown>>> {
+    const matchers =
+      createSafetyHooks(undefined, opts.confine).PreToolUse ?? [];
+    const hooks = matchers
+      .filter((m) => m.matcher === undefined || m.matcher === "Bash")
+      .flatMap((m) => m.hooks);
+    const input = {
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_use_id: "toolu-office",
+      cwd: "/tmp/probe",
+      ...(opts.permissionMode ? { permission_mode: opts.permissionMode } : {}),
+    } as unknown as Parameters<HookCallback>[0];
+    const outs: Array<Record<string, unknown>> = [];
+    for (const hook of hooks) {
+      const out = await hook(input, undefined, {
+        signal: new AbortController().signal,
+      });
+      outs.push(
+        (out as { hookSpecificOutput?: Record<string, unknown> })
+          .hookSpecificOutput ?? {},
+      );
+    }
+    return outs;
+  }
+  const decisions = (outs: Array<Record<string, unknown>>) =>
+    outs.map((o) => o.permissionDecision ?? "none");
+
+  it("allows an office lookup and an office send in every mode but plan", async () => {
+    for (const permissionMode of [
+      undefined,
+      "default",
+      "acceptEdits",
+      "auto",
+      "bypassPermissions",
+    ])
+      for (const command of [lookup, send]) {
+        const outs = await bashOutputs(command, { permissionMode });
+        expect({ permissionMode, command, d: decisions(outs) }).toEqual({
+          permissionMode,
+          command,
+          d: ["allow"],
+        });
+        expect(outs[0]!.hookEventName).toBe("PreToolUse");
+        expect(String(outs[0]!.permissionDecisionReason ?? "")).not.toBe("");
+      }
+    // The enabling condition: both calls are office calls by the grammar.
+    expect([lookup, send].map((c) => isOfficeApiCall(c, PORT))).toEqual([
+      true,
+      true,
+    ]);
+  });
+
+  it("leaves an ordinary command and another port to the mode", async () => {
+    for (const command of [
+      "ls /tmp",
+      `curl -s localhost:${PORT}1/agents ${AUTH}`,
+      `curl -s http://example.com/ ${AUTH}`,
+    ])
+      expect({ command, d: decisions(await bashOutputs(command)) }).toEqual({
+        command,
+        d: ["none"],
+      });
+  });
+
+  it("in plan mode allows a read and leaves a send to the mode", async () => {
+    expect(
+      decisions(await bashOutputs(lookup, { permissionMode: "plan" })),
+    ).toEqual(["allow"]);
+    expect(
+      decisions(await bashOutputs(send, { permissionMode: "plan" })),
+    ).toEqual(["none"]);
+  });
+
+  it("still denies an office call the safety policy refuses", async () => {
+    // The data word names another process's environment: the policy denies
+    // it, and the grammar alone would call it an office call.
+    const command = `curl -s -X POST localhost:${PORT}/api/x ${AUTH} -d /proc/1/environ`;
+    expect(isOfficeApiCall(command, PORT)).toBe(true);
+    expect(decisions(await bashOutputs(command))).toEqual(["deny"]);
+  });
+
+  // The policy denies every shell call of a confined agent today, so this
+  // case stays green without the hook's own confine guard: that guard is a
+  // last line, checked by reading (safety-hooks.ts officeCallAllowed).
+  it("gives no allow to an agent confined to a folder", async () => {
+    const confine: FolderConfinement = {
+      access: "folder",
+      folder: "/tmp/probe",
+    };
+    const outs = await bashOutputs(lookup, { confine });
+    expect(outs.length).toBeGreaterThan(0);
+    expect(decisions(outs)).not.toContain("allow");
   });
 });

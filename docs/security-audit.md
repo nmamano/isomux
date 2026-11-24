@@ -5,7 +5,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-11-16. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-11-25. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -283,6 +283,8 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - recognized uses of the owner recovery socket.
 
 The check reads each command of a shell line, also the commands inside `bash -c`, `eval`, `find -exec` and command substitutions. One blocked command blocks the line.
+
+For Claude agents, the check also lets one `curl` call to the office's own API run with no prompt and no auto-mode classifier, in every mode except plan mode, where only a read passes. A deny rule in the member's own Claude settings still wins.
 
 A refusal of an agent's command shows in the chat as a refused card. A member who can use the agent's terminal can run the command from the card, after a confirm.
 
