@@ -92,8 +92,8 @@ export function SettingsItemPage<P extends string>({
 }: {
   // data-settings-item: "<kind>:<id>", or "newMember".
   item: string;
-  // The phone header's back from a part to the part list: the item's name.
-  backLabel: string;
+  // The phone back row from a part to the part list: the item's settings.
+  backLabel: ReactNode;
   view: SettingsItemView<P>;
   onPart: (part: P | null) => void;
   // The back row to the Settings list; the parent routes it through the

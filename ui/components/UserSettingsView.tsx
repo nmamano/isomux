@@ -13,7 +13,7 @@ import { ordinaryRooms } from "../../shared/types.ts";
 // user's editor,
 // organized into sections (Identity / Rooms / Agent context) with a sticky
 // save footer. On mobile exactly one of the two panes shows at a time - the
-// list first, then the detail, whose header goes back to the list.
+// list first, then the detail with a back row.
 //
 // The user rows double as a roster: a green dot on the
 // avatar for users with a live connection (store.onlineUserIds, an
@@ -439,7 +439,7 @@ export function UserSettingsView({
   // Filled by the currently-mounted detail panel - UserEditPanel, or the
   // External access card inside ExternalAccessPane - whichever holds unsaved
   // form state. Lets us route every navigation away from it (sidebar click,
-  // header close, ESC, the phone header's back to the list) through the panel's
+  // header back arrow, ESC, mobile back row) through the panel's
   // dirty-check, so we surface the "Discard unsaved changes?" prompt
   // instead of silently dropping in-progress edits.
   const detailCloseRef = useRef<((after?: () => void) => void) | null>(null);
@@ -1115,11 +1115,19 @@ export function UserSettingsView({
     </SidebarPage>
   );
 
+  // The phone back row of a named item: "<name> settings", not the bare
+  // name the header's Close can show (task 9ec5ce17). The name keeps its form
+  // under browser translation; the rest translates.
+  const itemBack = (name: string): React.ReactNode =>
+    i18n.rich("settings.itemBack", {
+      name: <span {...noTranslate()}>{name}</span>,
+    });
+
   // A listed item drilled in (task 1f79f2e3): its parts replace the list
   // column, under a back row to the Settings list.
   const itemPage = <P extends string>(
     item: string,
-    backLabel: string,
+    backLabel: React.ReactNode,
     view: SettingsItemView<P>,
   ) => (
     <SettingsItemPage
@@ -1156,7 +1164,11 @@ export function UserSettingsView({
         onClosePage={onClose}
       >
         {(view) =>
-          itemPage(`agent:${selectedAgent.id}`, selectedAgent.name, view)
+          itemPage(
+            `agent:${selectedAgent.id}`,
+            itemBack(selectedAgent.name),
+            view,
+          )
         }
       </EditAgentDialog>
     );
@@ -1173,7 +1185,9 @@ export function UserSettingsView({
         closeRef={detailCloseRef}
         onDeleted={() => setSelection(null)}
       >
-        {(view) => itemPage(`room:${selection.roomId}`, room?.name ?? "", view)}
+        {(view) =>
+          itemPage(`room:${selection.roomId}`, itemBack(room?.name ?? ""), view)
+        }
       </RoomPane>
     );
   }
@@ -1240,7 +1254,9 @@ export function UserSettingsView({
         onRenamed={onRenamedFor(selectedUser)}
         onDeleted={onDeletedFor(selectedUser)}
       >
-        {(view) => itemPage(`user:${selectedUser.id}`, selectedUser.name, view)}
+        {(view) =>
+          itemPage(`user:${selectedUser.id}`, itemBack(selectedUser.name), view)
+        }
       </UserEditPanel>
     );
   }
@@ -2662,7 +2678,7 @@ function UserEditPanel({
         saved={savedHere}
         canSave={!!name.trim()}
         // Cancel throws the edits away and stays, as on the room and agent
-        // parts; the back controls and the header's close leave.
+        // parts; the back row and the header's close leave.
         onCancel={revert}
         onSave={() => void handleSave()}
         saveLabel={creating ? t("settings.members.create") : undefined}

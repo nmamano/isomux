@@ -567,6 +567,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.members.onlineSessions.other": "online · {count} sessions",
   "settings.members.lastSeen": "last seen {when}",
   "settings.members.newMember": "New member",
+  // The phone back row from an item's part to its part list (an agent,
+  // a room, a member): distinct from the header's Close, which can name
+  // the same agent or member.
+  "settings.itemBack": "{name} settings",
   "settings.osUser.title": "OS user",
   "settings.osUser.hint":
     "Their agents can run as their own OS user on the office's machine, so they cannot read the office's files.",

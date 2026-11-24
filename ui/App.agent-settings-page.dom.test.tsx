@@ -33,6 +33,8 @@ const {
   pageAgent,
   shows,
 } = await import("./test-support/agent-settings-page-fixture.ts");
+const { expectItemBackRow, phoneLeaveControls } =
+  await import("./test-support/drill-in-fixture.tsx");
 
 setUpChatSidebarTests();
 
@@ -104,6 +106,38 @@ it("on a phone the page fills the screen with the section list first; Close retu
     sections: ["general", "access", "instructions", "engine"],
     current: null,
   });
+  await click(view.baseElement.querySelector("[data-page-close]"));
+  expect({ page: pageAgent(view), chat: chatOpen(view) }).toEqual({
+    page: null,
+    chat: true,
+  });
+});
+
+it("on a phone, opened from the agent's chat with a section open: Close names the agent and returns to the chat, and a back row in the section names the agent's settings and returns to the section list (task 9ec5ce17)", async () => {
+  const view = await bootPhone();
+  await openFirstDesk(view);
+  await click(headerName(view));
+  const sectionRows = () =>
+    view.baseElement.querySelectorAll("button[data-settings-part]").length;
+  expect(sectionRows()).toBe(4);
+  await click(
+    view.baseElement.querySelector('button[data-settings-part="general"]'),
+  );
+  expect(sectionRows()).toBe(0);
+  // Close names the screen under the page: the agent's chat.
+  expect(phoneLeaveControls(view).close).toBe(scout.name);
+  expectItemBackRow(view, scout.name);
+
+  await click(view.baseElement.querySelector("[data-page-back-to-list]"));
+  expect({
+    page: pageAgent(view),
+    chat: chatOpen(view),
+    sections: sectionRows(),
+  }).toEqual({ page: scout.id, chat: false, sections: 4 });
+
+  await click(
+    view.baseElement.querySelector('button[data-settings-part="general"]'),
+  );
   await click(view.baseElement.querySelector("[data-page-close]"));
   expect({ page: pageAgent(view), chat: chatOpen(view) }).toEqual({
     page: null,

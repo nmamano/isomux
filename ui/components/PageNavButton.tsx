@@ -1,5 +1,5 @@
 // The control that leaves a page: the Close at the left of a page's header,
-// or, on a phone with an entry open, the back to the list in its place. One look on every page (AGENTS.md "UI
+// and a phone's back-to-list row. One look on every page (AGENTS.md "UI
 // rules": every button has a background, one look per kind of control), so it
 // takes no style: a caller spaces it with a wrapper element.
 
@@ -13,22 +13,31 @@ export function PageNavButton({
   label,
   onClick,
   noTranslate = false,
+  wide = false,
   ...attrs
 }: {
   label: ReactNode;
   onClick: () => void;
   // The label is a name (an agent, a member) that browser translation keeps.
   noTranslate?: boolean;
+  // Outside a header: the label takes the width it has, not 12em.
+  wide?: boolean;
 } & DataAttrs): React.ReactElement {
   return (
-    <button type="button" onClick={onClick} style={pageNavBtn} {...attrs}>
+    <button
+      type="button"
+      onClick={onClick}
+      style={wide ? { ...pageNavBtn, maxWidth: "100%" } : pageNavBtn}
+      {...attrs}
+    >
       <BackArrow />
       {/* A long name or a long translation ends in an ellipsis rather than
           pushing the page title off a phone's header. */}
       <span
         {...(noTranslate ? keepForm() : {})}
         style={{
-          maxWidth: "12em",
+          maxWidth: wide ? undefined : "12em",
+          minWidth: 0,
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}

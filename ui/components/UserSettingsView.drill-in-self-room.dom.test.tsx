@@ -22,6 +22,7 @@ const {
   current,
   dirty,
   discardPrompt,
+  expectItemBackRow,
   inputWith,
   item,
   listRow,
@@ -265,5 +266,23 @@ describe("on a phone", () => {
       officeRow: listRow(view, en["settings.sidebar.office"]) !== null,
     }).toEqual({ item: null, officeRow: true });
     view.unmount();
+  });
+
+  it("a member's and a room's open part has a back row that names the item's settings, not the bare name (task 9ec5ce17)", async () => {
+    const member = await mount(
+      { initialTarget: { kind: "user", id: STEPHEN.id, part: "osUser" } },
+      { isMobile: true },
+    );
+    expect(bodies(member)).toEqual(["osUser"]);
+    expectItemBackRow(member, STEPHEN.name);
+    member.unmount();
+
+    const room = await mount(
+      { initialTarget: { kind: "room", roomId: ROOM.id, part: "general" } },
+      { isMobile: true },
+    );
+    expect(bodies(room)).toEqual(["general"]);
+    expectItemBackRow(room, ROOM.name);
+    room.unmount();
   });
 });

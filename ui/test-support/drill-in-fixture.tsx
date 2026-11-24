@@ -10,8 +10,10 @@
 // a row whose part holds an unsaved edit carries data-settings-part-dirty.
 // Your own rows in the You group are the same buttons. The open part's body
 // is [data-settings-part-body="<part>"]. The back row to the Settings list
-// is button[data-settings-back]; on a phone with a part open, the header's
-// back to the parts list is [data-page-back-to-list]. Save is [data-settings-save].
+// is button[data-settings-back]; on a phone with a part open, the back row
+// to the parts list is [data-page-back-to-list], in the open part above its
+// body, and the header keeps the page's Close, [data-page-close]. Save is
+// [data-settings-save].
 import { act, fireEvent, render } from "@testing-library/react";
 import { expect } from "bun:test";
 import { createElement } from "react";
@@ -213,6 +215,46 @@ export const backRow = (view: View) =>
   );
 export const phoneBack = (view: View) =>
   view.baseElement.querySelector<HTMLButtonElement>("[data-page-back-to-list]");
+/** On a phone with a part open, the page's two leave controls (task
+ *  9ec5ce17): the header's Close and the back row to the parts list. `kept`
+ *  is the back row's text that page translation keeps (translate="no"), and
+ *  `inPart` tells whether the back row is in the open part, not the header. */
+export function phoneLeaveControls(view: View) {
+  const close = view.baseElement.querySelector("[data-page-close]");
+  const back = phoneBack(view);
+  return {
+    close: close?.textContent?.trim() ?? null,
+    back: back?.textContent?.trim() ?? null,
+    kept: [...(back?.querySelectorAll('[translate="no"]') ?? [])].map(
+      (el) => el.textContent,
+    ),
+    inPart: back?.closest('[data-testid="settings-content"]') != null,
+  };
+}
+/** What a phone shows for an item named `name` with a part open: Close and a
+ *  back row, the back row in the part; the back row keeps the name out of
+ *  page translation and adds words to it, so it names the item's parts list,
+ *  not the item, and does not read as the Close. */
+export function expectItemBackRow(view: View, name: string): void {
+  const c = phoneLeaveControls(view);
+  expect({
+    close: c.close !== null,
+    back: c.back !== null,
+    inPart: c.inPart,
+    kept: c.kept,
+    namesItem: c.back?.includes(name),
+    moreThanName: c.back !== null && c.back !== name,
+    sameAsClose: c.back === c.close,
+  }).toEqual({
+    close: true,
+    back: true,
+    inPart: true,
+    kept: [name],
+    namesItem: true,
+    moreThanName: true,
+    sameAsClose: false,
+  });
+}
 export const saveButton = (view: View) =>
   view.baseElement.querySelector<HTMLButtonElement>("[data-settings-save]");
 /** A Settings list row by its catalog label (not a part row, and not the

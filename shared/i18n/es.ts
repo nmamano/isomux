@@ -560,6 +560,7 @@ Cosas que puedes hacer por él:
   "settings.members.onlineSessions.other": "en línea · {count} sesiones",
   "settings.members.lastSeen": "visto por última vez {when}",
   "settings.members.newMember": "Nuevo miembro",
+  "settings.itemBack": "Ajustes de {name}",
   "settings.osUser.title": "Usuario del sistema",
   "settings.osUser.hint":
     "Sus agentes pueden ejecutarse como su propio usuario del sistema en la máquina de la oficina, así que no pueden leer los archivos de la oficina.",

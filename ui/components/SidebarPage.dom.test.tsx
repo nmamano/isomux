@@ -1,8 +1,8 @@
-// The two-column page's back controls (task ed4c14c4). On a phone with an
-// entry open, the header's left control goes back to the list and the page
-// has no other back control (the header Close and a back row in the entry
-// showed the same name and read as one button twice). On a phone with the
-// list open and on desktop, the header control is the page Close.
+// The two-column page's leave controls (task 9ec5ce17, which undid task
+// ed4c14c4). On a phone with an entry open, the header's Close leaves the page
+// and a back row in the entry goes back to the list: two controls to two
+// places, so both stay. On a phone with the list open and on desktop, the
+// page Close is the only control.
 //
 // The list and the entry hold no buttons here, so every button on the page
 // is a control SidebarPage itself draws.
@@ -63,28 +63,42 @@ function open(isMobile: boolean, startListShown: boolean) {
 
 const buttons = (el: HTMLElement) => [...el.querySelectorAll("button")];
 
-describe("SidebarPage back controls", () => {
-  it("phone, entry open: one back control, in the header, back to the list", async () => {
+describe("SidebarPage leave controls", () => {
+  it("phone, entry open: Close in the header leaves the page, and a back row in the entry goes back to the list", async () => {
     const { root, header, onClose, onBack } = open(true, false);
     // The view under test: the entry shows and the list does not.
-    expect(root.querySelector("[data-test-entry]")).not.toBeNull();
+    const entry = root.querySelector<HTMLElement>("[data-test-entry]");
+    expect(entry).not.toBeNull();
     expect(root.querySelector("[data-test-list]")).toBeNull();
 
-    expect(buttons(root).length).toBe(1);
-    const back = buttons(root)[0]!;
-    expect(header.contains(back)).toBe(true);
-    expect(back.hasAttribute("data-page-back-to-list")).toBe(true);
-    expect(back.hasAttribute("data-test-back")).toBe(true);
-    expect(back.hasAttribute("data-page-close")).toBe(false);
-    expect(back.textContent?.trim()).toBe(BACK_LABEL);
-    expect(root.querySelector("[data-page-close]")).toBeNull();
+    expect(buttons(root).length).toBe(2);
+    const headerButtons = buttons(header);
+    expect(headerButtons.length).toBe(1);
+    const close = headerButtons[0]!;
+    expect(close.hasAttribute("data-page-close")).toBe(true);
+    expect(close.hasAttribute("data-page-back-to-list")).toBe(false);
 
+    const back = buttons(entry!);
+    expect(back.length).toBe(1);
+    expect(back[0]!.hasAttribute("data-page-back-to-list")).toBe(true);
+    expect(back[0]!.hasAttribute("data-test-back")).toBe(true);
+    expect(back[0]!.hasAttribute("data-page-close")).toBe(false);
+    expect(back[0]!.textContent?.trim()).toBe(BACK_LABEL);
+
+    // Close leaves the page and does not go back to the list.
     await act(async () => {
-      fireEvent.click(back);
+      fireEvent.click(close);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onBack).not.toHaveBeenCalled();
+    expect(root.querySelector("[data-test-entry]")).not.toBeNull();
+
+    // The back row goes back to the list and does not close the page.
+    await act(async () => {
+      fireEvent.click(back[0]!);
     });
     expect(onBack).toHaveBeenCalledTimes(1);
-    expect(onClose).not.toHaveBeenCalled();
-    // Back shows the list, whose header control is Close again.
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(root.querySelector("[data-test-list]")).not.toBeNull();
     expect(root.querySelector("[data-test-entry]")).toBeNull();
     expect(header.querySelector("[data-page-close]")).not.toBeNull();

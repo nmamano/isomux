@@ -21,8 +21,8 @@
 // with an unsaved edit data-settings-part-dirty; the back row to the Settings
 // list is button[data-settings-back]; Save is [data-settings-save]; the
 // header close is [data-page-close]; on a phone with a section open, the
-// header's back to the list is [data-page-back-to-list] instead; the open part's body is
-// [data-settings-part-body="<id>"]. A section's fields keep their classes:
+// back row to the section list is [data-page-back-to-list], in the section;
+// the open part's body is [data-settings-part-body="<id>"]. A section's fields keep their classes:
 // .agent-identity-section, .agent-appearance-section, .agent-room-field and
 // .agent-directory-field (General), .agent-manager-field and
 // .agent-access-field (Access), .agent-instructions-section,

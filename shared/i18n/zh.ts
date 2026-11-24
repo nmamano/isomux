@@ -526,6 +526,7 @@ export const zh: Catalog = {
   "settings.members.onlineSessions.other": "在线 · {count} 个会话",
   "settings.members.lastSeen": "上次在线：{when}",
   "settings.members.newMember": "新成员",
+  "settings.itemBack": "{name}的设置",
   "settings.osUser.title": "系统用户",
   "settings.osUser.hint":
     "其代理可以以办公室机器上的专属系统用户运行，因此无法读取办公室的文件。",

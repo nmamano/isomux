@@ -559,6 +559,7 @@ Coses que pots fer per ell:
   "settings.members.onlineSessions.other": "en línia · {count} sessions",
   "settings.members.lastSeen": "vist per última vegada {when}",
   "settings.members.newMember": "Membre nou",
+  "settings.itemBack": "Configuració de {name}",
   "settings.osUser.title": "Usuari del sistema",
   "settings.osUser.hint":
     "Els seus agents es poden executar com el seu propi usuari del sistema a la màquina de l'oficina, així que no poden llegir els fitxers de l'oficina.",
