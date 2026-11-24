@@ -290,7 +290,7 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
     const modelId = rawModelId.startsWith(`${providerId}/`)
       ? rawModelId.slice(providerId.length + 1)
       : rawModelId;
-    if (!modelId || !safeCatalogId(modelId)) continue;
+    if (!modelId || !safeCatalogModelId(modelId)) continue;
     const id = `${providerId}/${modelId}`;
     const modelLabel = safeCatalogLabel(model.name, modelId);
     const contextLimit = positiveNumber(asRecord(model.limit), "context");
@@ -336,6 +336,14 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
 
 function safeCatalogId(value: string): boolean {
   return value.length <= 128 && /^[a-zA-Z0-9._:-]+$/.test(value);
+}
+
+// A model id can hold slashes: a provider that routes to other vendors names
+// its models vendor/model, and one can start with a slash ("/auto"). The id
+// Isomux keeps is provider/model, split at its first slash (splitModel), so
+// the provider id takes none.
+function safeCatalogModelId(value: string): boolean {
+  return value.length <= 128 && /^[a-zA-Z0-9._:/-]+$/.test(value);
 }
 
 function safeCatalogLabel(value: unknown, fallback: string): string {

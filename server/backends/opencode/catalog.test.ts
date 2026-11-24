@@ -19,6 +19,7 @@ import {
   settleUntil,
   type FakeOptions,
 } from "./fake-opencode-v2.ts";
+import { splitModel } from "./transport.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -194,5 +195,40 @@ describe("OpenCode 2 model list: provider origin", () => {
     controller.abort();
     await settleUntil(() => state.value !== "pending");
     expect(state.value).toBeNull();
+  });
+});
+
+// A provider that routes to other vendors names its models vendor/model, so
+// the model half of an id can hold slashes. The provider half takes none: the
+// id Isomux keeps is split at its first slash.
+describe("OpenCode 2 model list: model ids with slashes", () => {
+  it("lists a model whose id holds slashes, under its provider", async () => {
+    const fake = fakeOpenCode({
+      models: () => [
+        modelRow("router", "vendor/model", { name: "Vendor Model" }),
+        modelRow("router", "/auto", { name: "Auto" }),
+        modelRow("bad/provider", "model"),
+        modelRow("router", "bad model"),
+        modelRow("router", "bad?model"),
+      ],
+      providers: () => [
+        { id: "router", name: "Router", activation: "enabled" },
+      ],
+    });
+    cleanups.push(fake.restore);
+    const listed = await discoverOpenCodeModels(
+      fakeSupervisor().supervisor,
+      FAKE_CWD,
+      { providerOrigin: true },
+    );
+    expect(listed.map((m) => [m.id, m.label, m.providerFromConfig])).toEqual([
+      ["router//auto", "router - Auto", true],
+      ["router/vendor/model", "router - Vendor Model", true],
+    ]);
+    for (const { id } of listed) {
+      expect(splitModel(id)[0]).toBe("router");
+    }
+    expect(splitModel("router/vendor/model")[1]).toBe("vendor/model");
+    expect(splitModel("router//auto")[1]).toBe("/auto");
   });
 });
