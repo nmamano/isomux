@@ -806,8 +806,7 @@ describe("a folder copy", () => {
 });
 
 describe("a later copy", () => {
-  // Quarantined: task 16c585f3 (a same-size rewrite in one kernel clock tick keeps mtime; red on WSL 6.6)
-  test.skip("links what did not change, copies what did, and an edit in the office never reaches a copy", async () => {
+  test("links what did not change, copies what did, and an edit in the office never reaches a copy", async () => {
     const f = fixture();
     const at = new Date(Date.UTC(2026, 7, 1)); // whole seconds: utimes is exact
     write(f.state, "same.txt", "same");
@@ -824,8 +823,19 @@ describe("a later copy", () => {
     const before = fs.lstatSync(sameSize, { bigint: true });
     fs.writeFileSync(sameSize, "BBBB");
     fs.utimesSync(sameSize, at, at);
-    const after = fs.lstatSync(sameSize, { bigint: true });
-    expect([after.size, after.mtimeNs]).toEqual([before.size, before.mtimeNs]);
+    // Kernels before 6.13 stamp ctime at the clock tick, so a rewrite in the
+    // tick of the first backup keeps it: touch again until the tick moves.
+    let after = fs.lstatSync(sameSize, { bigint: true });
+    for (let i = 0; i < 1000 && after.ctimeNs === before.ctimeNs; i++) {
+      await Bun.sleep(1);
+      fs.utimesSync(sameSize, at, at);
+      after = fs.lstatSync(sameSize, { bigint: true });
+    }
+    expect([
+      after.size,
+      after.mtimeNs,
+      after.ctimeNs === before.ctimeNs,
+    ]).toEqual([before.size, before.mtimeNs, false]);
     fs.rmSync(path.join(f.state, "gone.txt"));
     write(f.state, "new.txt", "new");
     const b = await runBackupOnceForTest(config(f), deps({ now }));
@@ -1235,8 +1245,7 @@ describe("retention and names", () => {
     expect(backupStatusForTest(cfg, BASE + 60_000).lastBackupFile).toBe(b);
   });
 
-  // Quarantined: task 16c585f3 (a same-size rewrite in one kernel clock tick keeps mtime; red on WSL 6.6)
-  test.skip("deleting any copy by hand leaves the others whole, and later runs stay right", async () => {
+  test("deleting any copy by hand leaves the others whole, and later runs stay right", async () => {
     const f = fixture();
     write(f.state, "keep.txt", "unchanged");
     const day = write(f.state, "day.txt", "");
@@ -1244,6 +1253,11 @@ describe("retention and names", () => {
     const made = new Map<string, string>();
     const run = async (n: number) => {
       fs.writeFileSync(day, `day ${n}`);
+      // Same size each run: give each its own mtime, or a rewrite in the
+      // kernel clock tick of the last backup reads as unchanged.
+      const at = new Date(Date.UTC(2026, 7, n));
+      fs.utimesSync(day, at, at);
+      expect(fs.statSync(day).mtimeMs).toBe(at.getTime());
       const name = await runBackupOnceForTest(config(f), deps({ now }));
       made.set(name, `day ${n}`);
       return name;
@@ -1288,6 +1302,8 @@ describe("retention and names", () => {
     const names: string[] = [];
     for (let i = 1; i <= 3; i++) {
       fs.writeFileSync(day, `day ${i} `.repeat(1000));
+      const at = new Date(Date.UTC(2026, 7, i)); // same size: a new mtime
+      fs.utimesSync(day, at, at);
       names.push(await runBackupOnceForTest(config(f), deps({ now })));
     }
     const shown = () =>
