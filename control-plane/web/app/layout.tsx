@@ -1,4 +1,5 @@
 import "./globals.css";
+import type { Metadata } from "next";
 import Script from "next/script";
 import { TopBar } from "../components/top-bar";
 import { SignupSourceCapture } from "./signup-source-capture";
@@ -36,8 +37,14 @@ const analyticsBootstrap = `
   })();
 `;
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Hosted Isomux",
+  // Each page names its own path as canonical, so a query-string variant such
+  // as /?landing_path=/hosted is not a duplicate of the page in Search Console.
+  // Next resolves "./" against the request pathname, never the query string.
+  // The base is explicit because Next's fallback is not the custom domain.
+  metadataBase: new URL("https://cloud.isomux.com"),
+  alternates: { canonical: "./" },
 };
 
 export default function RootLayout({
