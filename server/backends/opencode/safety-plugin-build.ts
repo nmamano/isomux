@@ -23,7 +23,9 @@ export interface OpenCodeSafetyShell {
 
 // safety-plugin.ts as one self-contained module with the roots baked in: no
 // read of the OpenCode server's HOME or environment is left, and it imports
-// only Bun built-ins, so no config layer can change what it resolves.
+// only Bun built-ins, so no config layer can change what it resolves. Its one
+// use of the server's environment is a write: at setup it deletes the
+// server-only variables (OPENCODE_SERVER_ONLY_VARIABLES) from it.
 export async function buildOpenCodeSafetyPlugin(
   roots: OpenCodeSafetyRoots,
   shell: OpenCodeSafetyShell,

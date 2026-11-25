@@ -24,8 +24,8 @@ export interface OpenCodeDenialReport {
 // What a tool must never see: the server password opens every stored
 // provider secret (GET /api/credential, gate E2), and the config names
 // Isomux's file. The session's tool environment leaves these out
-// (config-layers.ts), and the safety plugin drops them from every shell it
-// sees. This module imports only node:path, so the plugin bundle and the
+// (config-layers.ts), the safety plugin deletes them from the server's own
+// environment at setup, and drops them from every shell it sees. This module imports only node:path, so the plugin bundle and the
 // start helper (start-server.ts) can take it.
 export const OPENCODE_SERVER_ONLY_VARIABLES = [
   "OPENCODE_SERVER_PASSWORD",

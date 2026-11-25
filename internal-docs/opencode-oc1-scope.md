@@ -175,17 +175,23 @@ that loaded another build is not adopted. OpenCode loads plugins fail-open,
 and a project plugin with the same id displaces this one, so before every
 prompt the transport requires that `GET /api/plugin` for the folder lists this
 plugin active and alone with its id. A refusal writes its cause to the
-service log (`detail`). The plugin also removes the server
-password and Isomux's config variables from the environment of every shell it
-sees, and gives it the user's HOME and folders (the `create.before` shell
-hook). Plugins are code with the member's
+service log (`detail`). At setup the plugin deletes the server
+password and Isomux's config variables from the server's own environment
+(OpenCode reads them once, at start), so a process OpenCode starts later
+does not get them: a schedule's shell check, which runs with no hook
+(task 25ac1be4), a terminal, a formatter. It also removes them from every
+shell it sees, and gives it the user's HOME and folders (the `create.before`
+shell hook). Plugins are code with the member's
 trust, as Claude hooks are: a plugin that runs a command itself is outside any
 policy. Two consequences of that trust are not a boundary Isomux defends. A
 project or member plugin can rename a tool for the model (a session request
-hook), and `execute.before` then sees the model's name. Formatters, language
-servers and local MCP commands start from the server's environment, password
-included: they are commands from project or member config, not agent tool
-calls.
+hook), and `execute.before` then sees the model's name. A plugin that loads
+before this one, and a formatter, language server or local MCP command that
+starts before its setup, get the server's environment, password included:
+they are code from project or member config, not agent tool calls. When this
+plugin did not load, nothing deletes the variables: the transport then
+refuses prompts, but a stored schedule's check does not go through the
+transport, and it runs with them.
 
 A member's server restarts when Isomux stops normally (an unclean stop leaves
 it running, and the next boot adopts it), 10 minutes after its last session

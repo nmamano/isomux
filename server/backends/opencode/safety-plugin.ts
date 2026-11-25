@@ -11,6 +11,10 @@
 // fail-open, so the transport runs no prompt in a folder whose plugin list
 // does not show this plugin active (S2).
 import { isAbsolute, resolve } from "node:path";
+// The OpenCode server's own environment. Not process.env: the build
+// (safety-plugin-build.ts) rewrites every literal process.env to the baked
+// roots, so a delete there would not reach the server.
+import { env as serverEnv } from "node:process";
 import { stopHasFolder } from "../../../shared/agent-access.ts";
 import {
   evaluateProposedAction,
@@ -337,6 +341,11 @@ export default {
   // OpenCode reports the plugin active once setup resolves, and the
   // transport sends prompts from then on: setup waits for both hooks.
   async setup(ctx: PluginContext): Promise<void> {
+    // OpenCode reads these once, at start. A process it starts later gets
+    // its environment: a schedule's shell check (spawned with no hook, task
+    // 25ac1be4), a terminal, a formatter. First, before any await, so the
+    // delete holds even when a hook fails to register.
+    for (const name of OPENCODE_SERVER_ONLY_VARIABLES) delete serverEnv[name];
     const directory = ctx.location.directory;
     const rpc = await registerDenialRpc(ctx);
     // Every throw is rethrown after its report: a mapping or policy error
@@ -367,7 +376,8 @@ export default {
       }),
       // E2: a shell of a session whose environment Isomux did not set (a
       // subagent's, before its PUT lands) starts from the server's, which
-      // holds the server password and the profile's HOME and XDG folders.
+      // holds the profile's HOME and XDG folders (setup already removed the
+      // server-only variables; the delete here stays as a second guard).
       // OpenCode spawns with this object's env.
       ctx.shell.hook("create.before", (event) => {
         for (const name of OPENCODE_SERVER_ONLY_VARIABLES)

@@ -38,6 +38,7 @@ import { createOpenCodeBackend } from "./opencode/adapter.ts";
 import { openCodeProfileKey } from "./opencode/access.ts";
 import { openCodeProfilePaths } from "./opencode/profile-paths.ts";
 import { OpenCodeSupervisor } from "./opencode/supervisor.ts";
+import { OPENCODE_SERVER_ONLY_VARIABLES } from "./opencode/safety-plugin-tool.ts";
 import type {
   BackendSession,
   CreateSessionOptions,
@@ -216,6 +217,38 @@ export default {
 `;
 }
 
+// A plugin with one tool that writes, to a marker file, which of the
+// server-only variables and of a control variable the OpenCode server's own
+// environment holds when the tool runs (task 25ac1be4). It takes no
+// permission, so no stop below Standard offers it.
+const SERVER_ENV_NAMES = [
+  ...OPENCODE_SERVER_ONLY_VARIABLES,
+  "OPENCODE_DISABLE_AUTOUPDATE",
+];
+function serverEnvPlugin(): string {
+  return `import { writeFileSync } from "node:fs";
+export default {
+  id: "server-env",
+  async setup(ctx) {
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: "server_env",
+        description: "server env",
+        input: { type: "object", properties: {} },
+        options: { codemode: false },
+        execute: async () => {
+          const names = ${JSON.stringify(SERVER_ENV_NAMES)};
+          const present = names.filter((name) => name in process.env);
+          writeFileSync(${JSON.stringify(marker("server-env"))}, JSON.stringify(present));
+          return { output: "ok" };
+        },
+      });
+    });
+  },
+};
+`;
+}
+
 beforeAll(async () => {
   if (!LIVE) return;
   root = mkdtempSync(join(tmpdir(), "opencode-access-live-"));
@@ -250,6 +283,7 @@ beforeAll(async () => {
       ["plug_office", "isomux_x"],
     ]),
   );
+  writeFileSync(join(memberDir, "plugin", "server-env.ts"), serverEnvPlugin());
   // The project: settings, a plugin, an MCP server and AGENTS.md in the
   // agent's folder and in a folder above it.
   project = join(root, "project");
@@ -698,5 +732,30 @@ describe.skipIf(!LIVE)("OpenCode refused cards, live", () => {
     ]);
     expect(shown[0]).toMatchObject({ name: "shell", input: { command } });
     expect(shown[1]).toMatchObject({ toolName: "shell" });
+  }, 120_000);
+});
+
+// Task 25ac1be4: OpenCode starts some processes from its own environment
+// with no Isomux hook (a schedule's shell check, a terminal, a formatter),
+// and reads the server-only variables once, at start. After the safety
+// plugin's setup the server's environment holds none of them. A tool of a
+// member plugin runs in the server process and reads it at call time.
+describe.skipIf(!LIVE)("OpenCode server environment, live", () => {
+  it("holds none of the server-only variables once the plugins are active", async () => {
+    const { events } = await turn(sessionAt("standard"), [
+      { name: "server_env", args: {} },
+    ]);
+    expect({
+      completed: completed(events),
+      failures: failures(events),
+    }).toEqual({ completed: true, failures: [] });
+    // The condition: the tool ran in the server and saw its environment.
+    expect(ran("server-env")).toBe(true);
+    const present = JSON.parse(
+      readFileSync(marker("server-env"), "utf8"),
+    ) as string[];
+    // MUTANT: the safety plugin's setup leaves the server's environment as
+    // it is.
+    expect(present).toEqual(["OPENCODE_DISABLE_AUTOUPDATE"]);
   }, 120_000);
 });

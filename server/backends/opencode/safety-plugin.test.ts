@@ -18,6 +18,7 @@ import safetyPlugin, { openCodeToolAction } from "./safety-plugin.ts";
 import {
   OPENCODE_DENIAL_EVENT,
   OPENCODE_SAFETY_PLUGIN_ID,
+  OPENCODE_SERVER_ONLY_VARIABLES,
 } from "./safety-plugin-tool.ts";
 import { openCodeStopRules } from "./access.ts";
 
@@ -559,6 +560,76 @@ describe("the bundled safety plugin", () => {
         TMPDIR: "/member-tmp",
       });
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Task 25ac1be4: OpenCode spawns some processes from its own environment,
+  // with no hook (a schedule's shell check: env process.env), and reads the
+  // server-only variables once, at start. The bundle's setup removes them
+  // from the server's real environment before any await, so they are gone
+  // even when setup then fails. The test runs the bundle: the build rewrites
+  // a literal process.env to the baked roots.
+  it("removes the server-only variables from the server's own environment at setup", async () => {
+    const shellValues = {
+      HOME: "/profile-home",
+      XDG_CONFIG_HOME: "/profile-config",
+      XDG_DATA_HOME: "/profile-data",
+      XDG_STATE_HOME: "/profile-state",
+      XDG_CACHE_HOME: "/profile-cache",
+      TMPDIR: "/profile-tmp",
+      OPENCODE_DB: OPENCODE_V2_DATABASE,
+    };
+    const text = await buildOpenCodeSafetyPlugin(
+      {
+        home: "/srv/isomux-safety-plugin-home",
+        env: {
+          ISOMUX_HOME: "/srv/isomux-safety-plugin-state",
+          ISOMUX_ADMIN_SOCKET: "/srv/isomux-safety-plugin-state/admin.sock",
+        },
+      },
+      {
+        user: Object.fromEntries(
+          Object.keys(shellValues).map((name) => [name, null]),
+        ) as never,
+        profile: shellValues,
+      },
+    );
+    const dir = await mkdtemp(join(tmpdir(), "isomux-safety-plugin-"));
+    const kept = "ISOMUX_TEST_SERVER_ENV_KEPT";
+    const names = [...OPENCODE_SERVER_ONLY_VARIABLES, kept];
+    const before = Object.fromEntries(
+      names.map((name) => [name, process.env[name]]),
+    );
+    try {
+      const file = join(dir, "index.js");
+      await writeFile(file, text);
+      const bundled = (await import(pathToFileURL(file).href)) as {
+        default: Plugin;
+      };
+      for (const registration of ["fails", "succeeds"]) {
+        for (const name of names) process.env[name] = `fake-${name}`;
+        const { ctx } = fakeContext("/srv/repo", () =>
+          registration === "fails"
+            ? Promise.reject(new Error("registration failed"))
+            : Promise.resolve({ dispose: async () => {} }),
+        );
+        const outcome = await Promise.resolve(
+          bundled.default.setup(ctx as never),
+        ).then(
+          () => "succeeds",
+          () => "fails",
+        );
+        expect(outcome).toBe(registration);
+        expect({
+          registration,
+          left: names.filter((name) => name in process.env),
+        }).toEqual({ registration, left: [kept] });
+      }
+    } finally {
+      for (const [name, value] of Object.entries(before))
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
       await rm(dir, { recursive: true, force: true });
     }
   });
