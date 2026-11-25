@@ -1905,7 +1905,7 @@ export const zh: Catalog = {
   "dialogs.agent.managerNoUser": "（未指定成员）",
   "dialogs.agent.managerUnowned": "（无所有者）",
   "dialogs.agent.managerHint":
-    "智能体使用此成员的提供方连接和个人变量。请查看「集成」页面。",
+    "智能体使用此成员的提供方连接和个人变量。它创建的应用也会转给此成员，但不带之前负责人的个人密钥。请查看「集成」页面。",
   "dialogs.agent.privileged": "特权操作权限",
   "dialogs.agent.privilegedHint":
     "让此智能体在整个办公室代你操作：编辑、移动和移除其他智能体并操作它们的对话，管理房间、定时任务和集成，并在成员聊天中发言。如果你是办公室所有者，它还可以添加成员并更改办公室设置。它以自己的身份操作，使用你的权限。",
@@ -3806,6 +3806,17 @@ export const zh: Catalog = {
   "systemEntries.hostMove.appsStayed":
     "这些应用留给之前的负责人，因为在新负责人下无法使用它们的文件夹：{apps}。",
   "systemEntries.hostMove.failed": "更换负责人失败，没有任何更改：{reason}",
+  "systemEntries.managerMove.released":
+    "{app} 已转给 {member}，不再获得 {previous} 的这些密钥：{names}。",
+  "systemEntries.managerMove.reopened": "已向 {member} 请求：{names}。",
+  "systemEntries.managerMove.giveApp":
+    "{member} 可以在「集成」页面把自己的 {name} 给 {app}。",
+  "systemEntries.managerMove.usesOwn": "智能体现在使用 {member} 的 {name}。",
+  "systemEntries.managerMove.notReopened": "{name} 的请求没有重新打开。",
+  "systemEntries.managerMove.botWithdrawn":
+    "已撤回 {previous} 的 Discord 机器人请求。",
+  "systemEntries.managerMove.askReason":
+    "{app} 已转给你，不再获得 {previous} 的 {name}。",
   "systemEntries.autoHandoff.writingTokens":
     "上下文已达 {thousands}k 个 token。正在为新会话撰写交接简报。",
   "systemEntries.autoHandoff.writingPercent":

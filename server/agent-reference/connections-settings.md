@@ -37,7 +37,7 @@ On a saved secret you cannot add, change or remove `exchange`, or move its form 
 
 A secret with a host cannot use a model sign-in key name such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`: the engine signs in with it and fails. The save or edit gets 400 `invalid_secret` with reason `model_key`; set it as a variable.
 
-A secret can also go to apps: the app gets the value in its environment. Only a member gives a secret to an app, on the Integrations page. A save with `apps`, or an edit that adds one, gets 403 `secret_app_add_refused`. You can remove apps with `PATCH` and `{apps}`, the names that stay. A secret with no host is not in your environment or in `GET /api/agent-connections`.
+A secret can also go to apps: the app gets the value in its environment. Only a member gives a secret to an app, on the Integrations page. A save with `apps`, or an edit that adds one, gets 403 `secret_app_add_refused`. You can remove apps with `PATCH` and `{apps}`, the names that stay. A secret left with no host and no app keeps its value and reaches nothing. A secret with no host is not in your environment or in `GET /api/agent-connections`.
 
 Safe example: `PUT /api/users/:username/env/TZ` with `{"value":"Europe/Madrid"}`.
 

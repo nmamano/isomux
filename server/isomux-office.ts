@@ -56,11 +56,17 @@ import { type GithubSync } from "./github-sync.ts";
 import { githubSyncHandlers } from "./routes/handlers/github-sync.ts";
 import { formatIssueData } from "../shared/github-issue.ts";
 import { officeAuditStore, recordAudit } from "./audit-store.ts";
-import { notePromptContent } from "./audit-context.ts";
+import { noteAuditTarget, notePromptContent } from "./audit-context.ts";
+import {
+  managerMoveNote,
+  moveAgentApps,
+  type AppOwnerMove,
+} from "./app-owner-move.ts";
 import { type ExtensionWsData } from "./browser-extension-service";
 import { browserExtensionHandlers } from "./routes/handlers/browser-extension";
-import { english } from "./i18n.ts";
+import { english, translatorForUserId } from "./i18n.ts";
 import {
+  joinLogText,
   msg,
   renderLogText,
   type LogMessage,
@@ -379,7 +385,11 @@ import { createOfficeNameCache } from "./office-name-cache.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
-import { createSecretRequests } from "./secret-requests.ts";
+import {
+  createSecretRequests,
+  type ManagerMoveRequests,
+  type SecretRequests,
+} from "./secret-requests.ts";
 import { sudoRequestHandlers } from "./routes/handlers/sudo-requests.ts";
 import {
   createSudoRequests,
@@ -2246,6 +2256,9 @@ const folderMcpDeps: FolderMcpDeps = {
 let mcpOAuth: McpOAuth | null = null;
 let mcpOAuthTimer: ReturnType<typeof setInterval> | null = null;
 let sudoRequests: SudoRequests | null = null;
+// The secret requests of this boot: a manager change asks again (task
+// cf032293).
+let secretRequests: SecretRequests | null = null;
 // The Enterprise Contract seats of this boot (server/enterprise-seats.ts).
 let enterpriseSeats: EnterpriseSeats | null = null;
 const MCP_OAUTH_TICK_MS = 60_000;
@@ -3755,12 +3768,22 @@ function madeRecordsMove(agentId: string, from: string | null) {
       to: { id: string; name: string },
       keepApps: ReadonlySet<string>,
     ): void {
+      // Each moved app and each secret it lost is a target of the manager
+      // change's audit row.
+      let apps: AppOwnerMove = { moved: [], released: [] };
       try {
-        for (const app of appRegistry.list().filter(made))
-          if (!keepApps.has(app.name))
-            appRegistry.update(app.name, {
-              owner: { userId: to.id, username: to.name },
-            });
+        apps = moveAgentApps(
+          {
+            listApps: () => appRegistry.list(),
+            updateOwner: (name, owner) => {
+              appRegistry.update(name, { owner });
+            },
+            releaseApp: (userId, grant) =>
+              secretStore.releaseApp(userId, grant),
+            noteTarget: noteAuditTarget,
+          },
+          { agentId, from, to, keepApps },
+        );
       } catch (err) {
         console.error(`[manager] the apps of ${agentId} did not move:`, err);
       }
@@ -3795,8 +3818,50 @@ function madeRecordsMove(agentId: string, from: string | null) {
       // An app reads only its owner's member secrets: the old manager's
       // leave it, and a running app whose file changed restarts.
       appSecrets.syncNow();
+      askNewManager(agentId, from, to, apps);
     },
   };
+}
+
+// After a manager change (task cf032293): the agent's requests the old
+// manager owns, and the secrets its moved apps lost, are asked of the new
+// manager. One note in the agent's chat says what happened.
+function askNewManager(
+  agentId: string,
+  from: string | null,
+  to: { id: string; name: string },
+  apps: AppOwnerMove,
+): void {
+  if (from === null) return;
+  const previous = getUserById(from)?.name ?? from;
+  let requests: ManagerMoveRequests = {
+    reopened: [],
+    notReopened: [],
+    withdrawnBot: false,
+  };
+  try {
+    // The new manager is the one who answers: their language.
+    const i18n = translatorForUserId(to.id);
+    if (secretRequests)
+      requests = secretRequests.moveToManager(agentId, from, {
+        moved: apps.moved.map((app) => ({
+          name: app.name,
+          createdAt: app.createdAt,
+        })),
+        released: apps.released,
+        reasonFor: (app, name) =>
+          i18n.t("systemEntries.managerMove.askReason", {
+            app,
+            name,
+            previous,
+          }),
+      });
+  } catch (err) {
+    console.error(`[manager] the requests of ${agentId} did not move:`, err);
+  }
+  const note = managerMoveNote(to.name, previous, apps, requests);
+  if (note.length > 0)
+    agentManager.addSystemNote(agentId, joinLogText(note, " "));
 }
 
 // Whether `agentId` made the job. A job made before jobs recorded their agent
@@ -5393,7 +5458,7 @@ function buildExecutorDeps(
   // masked form.
   register(
     secretRequestHandlers(
-      createSecretRequests({
+      (secretRequests = createSecretRequests({
         store: mcpSources.secrets,
         asks: askStore!,
         audience: askAudience,
@@ -5442,7 +5507,7 @@ function buildExecutorDeps(
             line,
             answeredBy,
           ),
-      }),
+      })),
       (identity) => askAudienceFor(askAudience, identity),
     ),
   );

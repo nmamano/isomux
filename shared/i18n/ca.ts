@@ -2156,7 +2156,7 @@ Coses que pots fer per ell:
   "dialogs.agent.managerNoUser": "(cap membre assignat)",
   "dialogs.agent.managerUnowned": "(sense propietari)",
   "dialogs.agent.managerHint":
-    "L’agent fa servir les connexions a proveïdors i les variables personals d’aquest membre. Consulta la pàgina Integracions.",
+    "L’agent fa servir les connexions a proveïdors i les variables personals d’aquest membre. Les aplicacions que ha creat també passen a aquest membre, sense els secrets personals del responsable anterior. Consulta la pàgina Integracions.",
   "dialogs.agent.privileged": "Accés d'operador amb privilegis",
   "dialogs.agent.privilegedHint":
     "Permet a aquest agent actuar per tu a tota l’oficina: editar, moure i eliminar altres agents i dirigir les seves converses, gestionar sales, programacions i integracions, i publicar al xat de membres. Si ets propietari de l’oficina, també pot afegir membres i canviar la configuració de l’oficina. Actua com a si mateix, amb el teu accés.",
@@ -4263,6 +4263,19 @@ Coses que pots fer per ell:
     "Aquestes aplicacions es queden amb el responsable anterior, perquè les seves carpetes no es poden fer servir amb el nou responsable: {apps}.",
   "systemEntries.hostMove.failed":
     "El canvi de responsable ha fallat, i no ha canviat res: {reason}",
+  "systemEntries.managerMove.released":
+    "{app} ha passat a {member} i ja no rep aquests secrets de {previous}: {names}.",
+  "systemEntries.managerMove.reopened": "S'ha demanat a {member}: {names}.",
+  "systemEntries.managerMove.giveApp":
+    "{member} pot donar a {app} el seu propi {name} a la pàgina Integracions.",
+  "systemEntries.managerMove.usesOwn":
+    "L'agent ara fa servir el {name} de {member}.",
+  "systemEntries.managerMove.notReopened":
+    "La sol·licitud de {name} no s'ha tornat a obrir.",
+  "systemEntries.managerMove.botWithdrawn":
+    "S'ha retirat la sol·licitud del bot de Discord de {previous}.",
+  "systemEntries.managerMove.askReason":
+    "{app} ha passat a tu i ja no rep el {name} de {previous}.",
   "systemEntries.autoHandoff.writingTokens":
     "El context és a {thousands}k tokens. S'està escrivint un resum de traspàs per a una sessió nova.",
   "systemEntries.autoHandoff.writingPercent":

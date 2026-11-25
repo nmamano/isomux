@@ -2351,3 +2351,306 @@ describe("a request with a token exchange", () => {
     );
   });
 });
+
+// A manager change (task cf032293): the agent's open personal requests that
+// the old manager owns are withdrawn and opened again for the new one, each
+// secret a moved app lost is asked for again, and every request that cannot
+// be opened again is reported, never dropped. The office moves the app
+// (apps[...].userId) and the agent (agents[...]) before it calls this, as the
+// tests do.
+describe("a manager change", () => {
+  const GAME = { name: "game", createdAt: 1000 };
+  const EXCHANGE_ASK = {
+    name: "WECOM_APP",
+    hosts: ["qyapi.example.com"],
+    form: { kind: "query", param: "access_token" },
+    exchange: {
+      url: "https://qyapi.example.com/cgi-bin/gettoken",
+      body: { kind: "oauth", clientAuth: "body" },
+      id: "fake-corp-id",
+      params: {},
+      tokenField: "access_token",
+      expiryField: "expires_in",
+    },
+    reason: "To send the daily report.",
+    link: "https://work.example.com/apps",
+  };
+  const bob = { kind: "user", userId: "u-bob" } as const;
+  const office = { kind: "office" } as const;
+  const reasonFor = (app: string, name: string) => `ask-again:${app}:${name}`;
+  type Entry = ReturnType<ReturnType<typeof setup>["asks"]["listAll"]>[number];
+  const byRequest = (t: ReturnType<typeof setup>, requestId: string) =>
+    t.asks.listAll().find((e) => e.secret?.requestId === requestId);
+  // The request as the agent asked it: everything but who owns and answers
+  // it, and its id.
+  const asked = (entry: Entry) => {
+    const {
+      requestId: _id,
+      ownerUserId: _owner,
+      answerUserId: _answer,
+      ...rest
+    } = entry.secret!;
+    return { agentId: entry.agentId, prompt: entry.prompt, ...rest };
+  };
+  const sortByName = <T extends { name: string; app?: string }>(list: T[]) =>
+    [...list].sort((a, b) =>
+      `${a.app ?? ""}/${a.name}`.localeCompare(`${b.app ?? ""}/${b.name}`),
+    );
+
+  function moving() {
+    const agents: Record<string, string | null> = {
+      a1: "u-alice",
+      a2: "u-alice",
+    };
+    const apps: Record<string, App> = {
+      game: { createdAt: GAME.createdAt, userId: "u-alice" },
+      // A host move kept it with the old manager.
+      kept: { createdAt: 2000, userId: "u-alice" },
+    };
+    const t = setup(agents, apps);
+    const move = () => {
+      agents.a1 = "u-bob";
+      apps.game.userId = "u-bob";
+    };
+    return { t, agents, apps, move };
+  }
+
+  it("opens each of the agent's requests the old manager owns again for the new manager, as asked, and the secrets a moved app lost", () => {
+    const { t, move } = moving();
+    const ids = {
+      app: opened(
+        t.requests.open("a1", {
+          name: "GAME_KEY",
+          app: "game",
+          reason: "The game signs in.",
+          link: "https://console.example.com/keys",
+        }),
+      ),
+      exchange: opened(
+        t.requests.open("a1", { ...EXCHANGE_ASK, member: "Nil" }),
+      ),
+      variable: opened(
+        t.requests.open("a1", {
+          kind: "variable",
+          name: "OPENAI_API_KEY",
+          reason: "OpenCode needs an OpenAI key.",
+        }),
+      ),
+      mcp: opened(
+        t.requests.open("a1", {
+          kind: "mcp-server",
+          name: "docs",
+          url: "https://mcp.example.com/mcp",
+          reason: "To read the docs server.",
+        }),
+      ),
+      // Stay: an app that did not move, an office request, another agent's.
+      kept: opened(
+        t.requests.open("a1", {
+          name: "KEPT_KEY",
+          app: "kept",
+          reason: "The kept app signs in.",
+        }),
+      ),
+      office: opened(
+        t.requests.open("a1", {
+          ...ASK,
+          name: "OFFICE_TOKEN",
+          scope: "office",
+        }),
+      ),
+      other: opened(t.requests.open("a2", ASK)),
+      // Only withdrawn.
+      bot: opened(
+        t.requests.open("a1", {
+          kind: "discord-bot",
+          reason: "To answer on your Discord server.",
+        }),
+      ),
+    };
+    const before = Object.fromEntries(
+      Object.entries(ids).map(([key, id]) => [key, byRequest(t, id)!]),
+    );
+    expect(before.exchange.memberUserId).toBe("u-owner");
+
+    move();
+    const result = t.requests.moveToManager("a1", "u-alice", {
+      moved: [GAME],
+      released: [{ app: "game", names: ["GAME_KEY", "LOST_KEY"] }],
+      reasonFor,
+    });
+
+    expect(sortByName(result.reopened)).toEqual([
+      { name: "docs" },
+      { name: "OPENAI_API_KEY" },
+      { name: "WECOM_APP" },
+      { name: "GAME_KEY", app: "game" },
+      { name: "LOST_KEY", app: "game" },
+    ]);
+    expect(result.notReopened).toEqual([]);
+    expect(result.withdrawnBot).toBe(true);
+
+    // The old requests are gone, the bot's too.
+    for (const key of ["app", "exchange", "variable", "mcp", "bot"] as const)
+      expect([key, byRequest(t, ids[key])]).toEqual([key, undefined]);
+    // The others stay as they were.
+    for (const key of ["kept", "office", "other"] as const)
+      expect([key, byRequest(t, ids[key])]).toEqual([key, before[key]]);
+
+    // Each reopened request is the one the agent asked, for the new manager:
+    // the app's owner is the new manager, and nobody named answers.
+    const live = t.asks.listForAgent("a1");
+    const now = (name: string) => {
+      const found = live.filter((e) => e.secret?.name === name);
+      expect([name, found.length]).toEqual([name, 1]);
+      return found[0];
+    };
+    for (const [key, name] of [
+      ["app", "GAME_KEY"],
+      ["exchange", "WECOM_APP"],
+      ["variable", "OPENAI_API_KEY"],
+      ["mcp", "docs"],
+    ] as const) {
+      const entry = now(name);
+      expect([key, entry.memberUserId, entry.secret?.ownerUserId]).toEqual([
+        key,
+        "u-bob",
+        "u-bob",
+      ]);
+      expect(entry.secret?.requestId).not.toBe(ids[key]);
+      expect("answerUserId" in entry.secret!).toBe(false);
+      expect(asked(entry)).toEqual(asked(before[key]));
+    }
+    // A lost secret no request named: asked for with the office's reason,
+    // for the app, by the maker agent.
+    const lost = now("LOST_KEY");
+    expect(lost).toMatchObject({
+      agentId: "a1",
+      memberUserId: "u-bob",
+      secret: {
+        scope: "personal",
+        name: "LOST_KEY",
+        hosts: [],
+        app: GAME,
+        ownerUserId: "u-bob",
+        reason: reasonFor("game", "LOST_KEY"),
+      },
+    });
+    // GAME_KEY was asked for once, with the agent's own reason.
+    expect(now("GAME_KEY").secret?.reason).toBe("The game signs in.");
+  });
+
+  it("the new manager answers a reopened app request: the value goes to their secrets with the app's grant", async () => {
+    const { t, move } = moving();
+    opened(
+      t.requests.open("a1", {
+        name: "GAME_KEY",
+        app: "game",
+        reason: "The game signs in.",
+      }),
+    );
+    move();
+    t.requests.moveToManager("a1", "u-alice", {
+      moved: [GAME],
+      released: [],
+      reasonFor,
+    });
+    const [entry] = t.asks.listForAgent("a1");
+    const requestId = entry.secret!.requestId;
+    expect(
+      failure(
+        await t.requests.save("u-alice", "a1", requestId, { value: VALUE }),
+      ),
+    ).toBe("403 forbidden");
+    expect(
+      failure(
+        await t.requests.save("u-bob", "a1", requestId, { value: VALUE }),
+      ),
+    ).toBe("ok");
+    expect(t.store.list(bob)).toMatchObject([
+      { name: "GAME_KEY", hosts: [], apps: ["game"] },
+    ]);
+    expect(t.store.list({ kind: "user", userId: "u-alice" })).toEqual([]);
+  });
+
+  it("reports each request it cannot open again with the refusal code, and never leaves the old one open", () => {
+    const { t, move } = moving();
+    const appId = opened(
+      t.requests.open("a1", {
+        name: "GAME_KEY",
+        app: "game",
+        reason: "The game signs in.",
+      }),
+    );
+    const ownId = opened(t.requests.open("a1", ASK));
+    // The new manager already holds both names; the office gives the app a
+    // third one.
+    for (const name of ["GAME_KEY", ASK.name])
+      expect(
+        t.store.create(bob, {
+          name,
+          value: VALUE,
+          hosts: ["api.github.com"],
+          form: { kind: "authorization" },
+        }).ok,
+      ).toBe(true);
+    expect(
+      t.store.create(office, {
+        name: "CLASH_KEY",
+        value: VALUE,
+        hosts: [],
+        form: { kind: "authorization" },
+        apps: [GAME],
+      }).ok,
+    ).toBe(true);
+
+    move();
+    const result = t.requests.moveToManager("a1", "u-alice", {
+      moved: [GAME],
+      released: [{ app: "game", names: ["CLASH_KEY", "FREE_KEY"] }],
+      reasonFor,
+    });
+
+    expect(sortByName(result.notReopened)).toEqual([
+      { name: ASK.name, code: "secret_exists" },
+      { name: "CLASH_KEY", app: "game", code: "invalid_secret" },
+      { name: "GAME_KEY", app: "game", code: "secret_exists" },
+    ]);
+    expect(result.reopened).toEqual([{ name: "FREE_KEY", app: "game" }]);
+    expect(result.withdrawnBot).toBe(false);
+    expect(byRequest(t, appId)).toBeUndefined();
+    expect(byRequest(t, ownId)).toBeUndefined();
+    expect(t.asks.listForAgent("a1").map((e) => e.secret?.name)).toEqual([
+      "FREE_KEY",
+    ]);
+  });
+
+  it("withdraws before it opens again, so a full list of requests moves whole; what does not fit is reported", () => {
+    const { t, move } = moving();
+    const names = Array.from(
+      { length: SECRET_REQUESTS_OPEN_MAX },
+      (_, i) => `TOKEN_${i}`,
+    );
+    for (const name of names) opened(t.requests.open("a1", { ...ASK, name }));
+    expect(code(t.requests.open("a1", { ...ASK, name: "ONE_MORE" }))).toBe(
+      "too_many_requests",
+    );
+
+    move();
+    const result = t.requests.moveToManager("a1", "u-alice", {
+      moved: [GAME],
+      released: [{ app: "game", names: ["EXTRA_KEY"] }],
+      reasonFor,
+    });
+
+    expect(result.reopened.map((r) => r.name).sort()).toEqual(
+      [...names].sort(),
+    );
+    expect(result.notReopened).toEqual([
+      { name: "EXTRA_KEY", app: "game", code: "too_many_requests" },
+    ]);
+    const live = t.asks.listForAgent("a1");
+    expect(live).toHaveLength(SECRET_REQUESTS_OPEN_MAX);
+    expect(live.every((e) => e.memberUserId === "u-bob")).toBe(true);
+  });
+});

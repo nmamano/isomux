@@ -40,6 +40,8 @@ import {
   updateUserById,
 } from "../users.ts";
 import { officeAuditStore } from "../audit-store.ts";
+import { appSecretsDir, appSecretsPath } from "../app-secrets.ts";
+import { STATE_ROOT } from "../config.ts";
 import type {
   AgentInfo,
   AppListWire,
@@ -271,13 +273,13 @@ async function office(backend = completingBackend()) {
   const morgan = await srv.seedOwner("Morgan");
   const roomId = srv.agentManager.getRooms()[0].id;
   const alice = await srv.seedMember("Alice");
-  await srv.seedMember("Bea");
+  const bea = await srv.seedMember("Bea");
   await srv.seedMember("Cleo");
   for (const name of ["Alice", "Bea", "Cleo"])
     expect(updateUserById(idOf(name), { allowedRooms: [roomId] }).ok).toBe(
       true,
     );
-  return { srv, morgan, alice };
+  return { srv, morgan, alice, bea };
 }
 
 describe("agents.setManager: the agent itself", () => {
@@ -653,6 +655,161 @@ describe("agents.setManager: what the agent made moves with it", () => {
     expect(
       (await api(srv, "GET", "/api/cronjobs", { bearer: appToken })).status,
     ).toBe(200);
+  });
+
+  // An app reads only its owner's member secrets (task cf032293): a grant in
+  // the old manager's secrets leaves the moved app, so the new manager can
+  // give it a value of that name, and is asked to. A name the new manager
+  // already holds cannot be asked for: the agent's note names it.
+  it("releases the moved app's grants in the old manager's secrets, asks the new manager for each, and names what it could not ask for", async () => {
+    const { srv, morgan, alice, bea } = await office();
+    const agent = await spawn(srv, "Maker", "Alice");
+    const bearer = getAgentTokenRaw(agent.id)!;
+    const app = await api(
+      srv,
+      "POST",
+      "/api/apps",
+      { bearer },
+      { name: "maker-app", command: "bun run serve.ts", cwd: srv.workDir },
+    );
+    expect(app.status).toBe(201);
+    const OLD = "fake-old-manager-value-0001";
+    const NEW = "fake-new-manager-value-0001";
+    const secret = (
+      session: string,
+      username: string,
+      body: Record<string, unknown>,
+    ) =>
+      api(
+        srv,
+        "POST",
+        `/api/users/${username}/secrets`,
+        {
+          rawSessionId: session,
+        },
+        {
+          value: OLD,
+          hosts: [],
+          form: { kind: "authorization" },
+          ...body,
+        },
+      );
+    // Alice's secrets for the app; Bea holds one name already.
+    for (const body of [
+      { name: "FREE_KEY", apps: ["maker-app"] },
+      { name: "HELD_KEY", apps: ["maker-app"] },
+      { name: "HOSTED_KEY", hosts: ["api.example.com"], apps: ["maker-app"] },
+    ])
+      expect([
+        body.name,
+        (await secret(alice.rawSessionId, "Alice", body)).status,
+      ]).toEqual([body.name, 201]);
+    expect(
+      (
+        await secret(bea.rawSessionId, "Bea", {
+          name: "HELD_KEY",
+          hosts: ["api.example.com"],
+        })
+      ).status,
+    ).toBe(201);
+    const envFile = appSecretsPath(appSecretsDir(STATE_ROOT), "maker-app");
+    const env = () =>
+      existsSync(envFile) ? readFileSync(envFile, "utf8") : "";
+    await waitUntil(() => env().includes(OLD), "the app reads Alice's values");
+    const secretsOf = async (username: string, session: string) =>
+      Object.fromEntries(
+        (
+          (
+            await api(srv, "GET", `/api/users/${username}/secrets`, {
+              rawSessionId: session,
+            })
+          ).body as {
+            secrets: { name: string; hosts: string[]; apps: string[] }[];
+          }
+        ).secrets.map((s) => [s.name, [s.hosts, s.apps]]),
+      );
+    const asksOf = async (session: string) =>
+      (
+        (await api(srv, "GET", "/api/asks", { rawSessionId: session }))
+          .body as {
+          agentId: string;
+          secret?: {
+            requestId: string;
+            name: string;
+            app?: { name: string };
+            ownerUserId?: string;
+          };
+        }[]
+      ).filter((e) => e.secret);
+    await sleep(2);
+    const since = Date.now();
+
+    const res = await setManager(
+      srv,
+      agent.id,
+      idOf("Bea"),
+      morgan.rawSessionId,
+    );
+    expect(res.status).toBe(200);
+
+    // The grants left Alice's secrets; each keeps its value's place and its
+    // hosts.
+    expect(await secretsOf("Alice", alice.rawSessionId)).toEqual({
+      FREE_KEY: [[], []],
+      HELD_KEY: [[], []],
+      HOSTED_KEY: [["api.example.com"], []],
+    });
+    await waitUntil(() => !env().includes(OLD), "the app lost Alice's values");
+    // Bea is asked for the two names she does not hold, for the app.
+    const asked = await asksOf(bea.rawSessionId);
+    expect(
+      asked
+        .map((e) => [
+          e.agentId,
+          e.secret!.name,
+          e.secret!.app?.name,
+          e.secret!.ownerUserId,
+        ])
+        .sort(),
+    ).toEqual([
+      [agent.id, "FREE_KEY", "maker-app", idOf("Bea")],
+      [agent.id, "HOSTED_KEY", "maker-app", idOf("Bea")],
+    ]);
+    expect(await asksOf(alice.rawSessionId)).toEqual([]);
+    // One note on the agent names the lost names, the held one included.
+    const notes = systemLines(srv, agent.id, since).filter(
+      (l) => l.includes("HELD_KEY") && l.includes("FREE_KEY"),
+    );
+    expect(notes).toHaveLength(1);
+    // The manager change's audit row names the app and what it lost.
+    const [row] = officeAuditStore().list({
+      operation: "agents.setManager",
+    }).items;
+    expect(row.targets).toEqual(
+      expect.arrayContaining([
+        "maker-app",
+        "FREE_KEY",
+        "HELD_KEY",
+        "HOSTED_KEY",
+      ]),
+    );
+
+    // Bea answers: the value goes to her secrets, with no clash, and the app
+    // reads it.
+    const free = asked.find((e) => e.secret!.name === "FREE_KEY")!;
+    const saved = await api(
+      srv,
+      "POST",
+      `/api/agents/${agent.id}/secret-requests/${free.secret!.requestId}/save`,
+      { rawSessionId: bea.rawSessionId },
+      { value: NEW },
+    );
+    expect(saved.status).toBe(200);
+    await waitUntil(() => env().includes(NEW), "the app reads Bea's value");
+    expect((await secretsOf("Bea", bea.rawSessionId)).FREE_KEY).toEqual([
+      [],
+      ["maker-app"],
+    ]);
   });
 
   // The old manager could read the secret of every hook they owned, so a hook

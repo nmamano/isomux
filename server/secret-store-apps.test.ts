@@ -5,12 +5,21 @@
 // grant when the caller may not add one.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   createSecretStore,
+  SecretStoreUnreadableError,
   type AppGrant,
   type SecretScope,
 } from "./secret-store.ts";
@@ -88,21 +97,30 @@ describe("a secret needs a host or an app", () => {
     ]);
   });
 
-  it("an update may leave hosts or apps empty, never both", () => {
+  // Task cf032293: the last app or the last host may go, as when an app's
+  // grants are pruned; the secret then reaches nothing until a member gives
+  // it an app or a host. Create still needs one (the case above).
+  it("an update may leave a secret with no host and no app, which keeps its value", () => {
     const { store: s } = store();
     s.create(ALICE, body({ hosts: ["api.example.com"] }));
+    s.create(
+      ALICE,
+      body({ name: "HOSTED", hosts: ["api.example.com"], apps: undefined }),
+    );
     expect(outcome(s.update(ALICE, "BOT_TOKEN", { hosts: [] }))).toBe("ok");
     // The last app with no host left.
-    expect(outcome(s.update(ALICE, "BOT_TOKEN", { apps: [] }))).toEqual({
-      field: "hosts",
-      reason: "invalid",
-    });
-    expect(
-      outcome(
-        s.update(ALICE, "BOT_TOKEN", { hosts: ["api.example.com"], apps: [] }),
-      ),
-    ).toBe("ok");
-    expect(s.list(ALICE)[0].apps).toEqual([]);
+    expect(outcome(s.update(ALICE, "BOT_TOKEN", { apps: [] }))).toBe("ok");
+    // The last host with no app.
+    expect(outcome(s.update(ALICE, "HOSTED", { hosts: [] }))).toBe("ok");
+    expect(s.list(ALICE).map((w) => [w.name, w.hosts, w.apps])).toEqual([
+      ["BOT_TOKEN", [], []],
+      ["HOSTED", [], []],
+    ]);
+    expect(s.readSecretValues(ALICE, "BOT_TOKEN")?.value).toBe(VALUE);
+    expect(s.readSecretValues(ALICE, "HOSTED")?.value).toBe(VALUE);
+    // And it takes an app again.
+    expect(outcome(s.update(ALICE, "BOT_TOKEN", { apps: [BOT] }))).toBe("ok");
+    expect(grants(s, ALICE)).toEqual({ BOT_TOKEN: [BOT], HOSTED: [] });
   });
 
   it(`takes at most ${SECRET_MAX_APPS} apps`, () => {
@@ -229,6 +247,92 @@ describe("grants of apps that are gone", () => {
     expect(s.list(ALICE).map((w) => [w.name, w.hosts, w.apps])).toEqual([
       ["BOT_TOKEN", [], []],
     ]);
+  });
+});
+
+// An app moved to another member (task cf032293): its grant leaves the old
+// owner's secrets only, so the new owner can give the app a value of the
+// same name.
+describe("releaseApp", () => {
+  const ALICE_FILE = (root: string) =>
+    join(root, "secrets", "users", "u-alice.json");
+
+  it("removes the grant from one member's secrets only, keeps hosts, other grants and values, and ends the clash", () => {
+    const { root, store: s } = store();
+    s.create(ALICE, body({ apps: [BOT, WEB] }));
+    s.create(
+      ALICE,
+      body({ name: "HOSTED", hosts: ["api.example.com"], apps: [BOT] }),
+    );
+    // Another registration of the name, and a secret with no grant.
+    s.create(ALICE, body({ name: "REBORN", apps: [NEW_BOT] }));
+    s.create(
+      ALICE,
+      body({ name: "PLAIN", hosts: ["api.example.com"], apps: undefined }),
+    );
+    s.create(OFFICE, body({ name: "OFFICE_KEY", apps: [BOT] }));
+    s.create(BOB, body({ name: "BOB_KEY", apps: [BOT] }));
+    // Bob cannot give the app a BOT_TOKEN while Alice's grant holds.
+    expect(outcome(s.create(BOB, body()))).toEqual({
+      field: "apps",
+      reason: "clash",
+    });
+
+    expect([...s.releaseApp("u-alice", BOT)].sort()).toEqual([
+      "BOT_TOKEN",
+      "HOSTED",
+    ]);
+
+    expect(grants(s, ALICE)).toEqual({
+      BOT_TOKEN: [WEB],
+      HOSTED: [],
+      PLAIN: [],
+      REBORN: [NEW_BOT],
+    });
+    expect(s.list(ALICE).map((w) => [w.name, w.hosts])).toEqual([
+      ["BOT_TOKEN", []],
+      ["HOSTED", ["api.example.com"]],
+      ["PLAIN", ["api.example.com"]],
+      ["REBORN", []],
+    ]);
+    for (const name of ["BOT_TOKEN", "HOSTED"])
+      expect([name, s.readSecretValues(ALICE, name)?.value]).toEqual([
+        name,
+        VALUE,
+      ]);
+    expect(grants(s, OFFICE)).toEqual({ OFFICE_KEY: [BOT] });
+    expect(grants(s, BOB)).toEqual({ BOB_KEY: [BOT] });
+    expect(existsSync(ALICE_FILE(root))).toBe(true);
+
+    // The clash is gone.
+    expect(outcome(s.create(BOB, body()))).toBe("ok");
+  });
+
+  it("returns no names and writes nothing when no secret holds the grant", () => {
+    const { root, store: s } = store();
+    s.create(ALICE, body({ apps: [WEB] }));
+    const before = statSync(ALICE_FILE(root));
+    expect(s.releaseApp("u-alice", BOT)).toEqual([]);
+    // Same name, another registration: not this grant.
+    expect(s.releaseApp("u-alice", NEW_BOT)).toEqual([]);
+    const after = statSync(ALICE_FILE(root));
+    // Every write is a rename: a new inode.
+    expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
+    // A member with no secrets file gets none.
+    expect(s.releaseApp("u-bob", BOT)).toEqual([]);
+    expect(existsSync(join(root, "secrets", "users", "u-bob.json"))).toBe(
+      false,
+    );
+  });
+
+  it("throws SecretStoreUnreadableError on a file it cannot read, and leaves it as it was", () => {
+    const { root, store: s } = store();
+    s.create(ALICE, body());
+    writeFileSync(ALICE_FILE(root), "{not json", { mode: 0o600 });
+    expect(() => s.releaseApp("u-alice", BOT)).toThrow(
+      SecretStoreUnreadableError,
+    );
+    expect(readFileSync(ALICE_FILE(root), "utf8")).toBe("{not json");
   });
 });
 

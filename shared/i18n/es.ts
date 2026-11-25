@@ -2150,7 +2150,7 @@ Cosas que puedes hacer por él:
   "dialogs.agent.managerNoUser": "(sin miembro asignado)",
   "dialogs.agent.managerUnowned": "(sin propietario)",
   "dialogs.agent.managerHint":
-    "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta la página Integraciones.",
+    "El agente usa las conexiones a proveedores y las variables personales de este miembro. Las aplicaciones que creó también pasan a este miembro, sin los secretos personales del responsable anterior. Consulta la página Integraciones.",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
     "Permite a este agente actuar por ti en toda la oficina: editar, mover y eliminar otros agentes y dirigir sus conversaciones, gestionar salas, programaciones e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
@@ -4263,6 +4263,19 @@ Cosas que puedes hacer por él:
     "Estas aplicaciones se quedan con el responsable anterior, porque sus carpetas no se pueden usar con el nuevo responsable: {apps}.",
   "systemEntries.hostMove.failed":
     "El cambio de responsable falló, y no cambió nada: {reason}",
+  "systemEntries.managerMove.released":
+    "{app} pasó a {member} y ya no recibe estos secretos de {previous}: {names}.",
+  "systemEntries.managerMove.reopened": "Se pidió a {member}: {names}.",
+  "systemEntries.managerMove.giveApp":
+    "{member} puede dar a {app} su propio {name} en la página Integraciones.",
+  "systemEntries.managerMove.usesOwn":
+    "El agente usa ahora el {name} de {member}.",
+  "systemEntries.managerMove.notReopened":
+    "La solicitud de {name} no se volvió a abrir.",
+  "systemEntries.managerMove.botWithdrawn":
+    "Se retiró la solicitud del bot de Discord de {previous}.",
+  "systemEntries.managerMove.askReason":
+    "{app} pasó a ti y ya no recibe el {name} de {previous}.",
   "systemEntries.autoHandoff.writingTokens":
     "El contexto está en {thousands}k tokens. Escribiendo un resumen de traspaso para una sesión nueva.",
   "systemEntries.autoHandoff.writingPercent":

@@ -253,6 +253,52 @@ const OPEN_KEYS = {
   "discord-bot": ["kind", "reason", "link", "applicationId"],
 } as const satisfies Record<string, readonly string[]>;
 
+// The open body that asks again for `request` (a manager change, task
+// cf032293): the fields the agent sent, by kind (OPEN_KEYS), without
+// `member` and `scope`, so the new manager answers a personal request.
+// Null for a Discord bot request (only withdrawn) and a kind this release
+// does not know.
+function openBodyOf(request: SecretAskRequest): Record<string, unknown> | null {
+  const common = {
+    name: request.name,
+    reason: request.reason,
+    ...(request.link !== undefined ? { link: request.link } : {}),
+  };
+  switch (request.kind) {
+    case undefined:
+      return {
+        ...common,
+        hosts: request.hosts,
+        form: request.form,
+        ...(request.exchange !== undefined
+          ? { exchange: request.exchange }
+          : {}),
+        ...(request.app ? { app: request.app.name } : {}),
+      };
+    case "variable":
+      return { kind: request.kind, ...common };
+    case "mcp-server":
+      return {
+        kind: request.kind,
+        ...common,
+        ...(request.url !== undefined ? { url: request.url } : {}),
+        ...(request.secret !== undefined ? { secret: request.secret } : {}),
+        ...(request.oauth ? { oauth: true } : {}),
+      };
+    default:
+      return null;
+  }
+}
+
+// What moveToManager did, for the agent's note.
+export interface ManagerMoveRequests {
+  reopened: { name: string; app?: string }[];
+  // Refused by open() (exists, clash, ...): with the refusal code.
+  notReopened: { name: string; app?: string; code: string }[];
+  // A Discord bot request of the old manager was withdrawn.
+  withdrawnBot: boolean;
+}
+
 // A Discord bot request's fixed name: one open request per member.
 const DISCORD_BOT_NAME = "Discord bot";
 
@@ -825,6 +871,87 @@ export function createSecretRequests(deps: SecretRequestDeps) {
   return {
     open: (agentId: string, body: unknown) =>
       guarded(() => open(agentId, body)),
+
+    // The agent's manager changed from `fromUserId` (task cf032293): its
+    // open personal requests that the old manager owns are withdrawn and
+    // opened again for the new one, and each secret a moved app lost is
+    // asked for again. A Discord bot request is only withdrawn.
+    moveToManager(
+      agentId: string,
+      fromUserId: string,
+      input: {
+        moved: { name: string; createdAt: number }[];
+        released: { app: string; names: string[] }[];
+        reasonFor: (app: string, name: string) => string;
+      },
+    ): ManagerMoveRequests {
+      const result: ManagerMoveRequests = {
+        reopened: [],
+        notReopened: [],
+        withdrawnBot: false,
+      };
+      const movedApp = (app: { name: string; createdAt: number }) =>
+        input.moved.some(
+          (m) => m.name === app.name && m.createdAt === app.createdAt,
+        );
+      // What to ask again: each withdrawn request, then each lost secret
+      // no withdrawn request names.
+      const again: { name: string; app?: string; body: unknown }[] = [];
+      try {
+        for (const entry of openRequests()) {
+          const request = entry.secret;
+          if (
+            entry.agentId !== agentId ||
+            request.scope !== "personal" ||
+            (request.ownerUserId ?? entry.memberUserId) !== fromUserId ||
+            !knownValueRequest(request)
+          )
+            continue;
+          // An app request only for an app that moved: a kept app, or one a
+          // third member owns, still reads the old owner's secrets.
+          if (
+            request.kind === undefined &&
+            request.app &&
+            !movedApp(request.app)
+          )
+            continue;
+          // An open connect of a Discord bot runs for the old manager.
+          if (connecting.has(request.requestId)) continue;
+          deps.asks.remove(entry.id, { outcome: "withdrawn" });
+          const body = openBodyOf(request);
+          if (body === null) {
+            result.withdrawnBot = true;
+            continue;
+          }
+          again.push({
+            name: request.name,
+            ...(request.kind === undefined && request.app
+              ? { app: request.app.name }
+              : {}),
+            body,
+          });
+        }
+      } catch (err) {
+        if (!(err instanceof AsksUnavailableError)) throw err;
+        console.error(
+          "[secret-requests] the requests of a manager change could not be read",
+        );
+      }
+      for (const { app, names } of input.released)
+        for (const name of names)
+          if (!again.some((a) => a.app === app && a.name === name))
+            again.push({
+              name,
+              app,
+              body: { name, app, reason: input.reasonFor(app, name) },
+            });
+      for (const { body, ...item } of again) {
+        const outcome = guarded(() => open(agentId, body));
+        if (outcome.ok) result.reopened.push(item);
+        else result.notReopened.push({ ...item, code: outcome.code });
+      }
+      return result;
+    },
 
     // The member's save: the value, and the hosts and form as the member
     // edited them.

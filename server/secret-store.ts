@@ -600,22 +600,19 @@ export function createSecretStore(
         !apps.every((grant) => stored.some((g) => sameGrant(g, grant)))
       )
         return { ok: false, kind: "app_added" };
-      if (hosts || apps) {
-        const nextHosts = hosts ?? secret.hosts;
-        const nextApps = apps ?? stored;
-        if (nextHosts.length === 0 && nextApps.length === 0)
-          return {
-            ok: false,
-            kind: "invalid",
-            error: { field: "hosts", reason: "invalid" },
-          };
-        if (nextApps.length > 0 && isAppReservedSecretName(name))
-          return {
-            ok: false,
-            kind: "invalid",
-            error: { field: "name", reason: "reserved" },
-          };
-      }
+      // An edit may leave a secret with no host and no app: it keeps its
+      // value and reaches nothing until a member gives it one (task
+      // cf032293). Only create needs a host or an app.
+      if (
+        (hosts || apps) &&
+        (apps ?? stored).length > 0 &&
+        isAppReservedSecretName(name)
+      )
+        return {
+          ok: false,
+          kind: "invalid",
+          error: { field: "name", reason: "reserved" },
+        };
       // Judged on the result, whatever the patch holds: a secret stored
       // under a model key name before the rule cannot be edited until its
       // hosts go, so the member meets the error that points to Variables.
@@ -682,6 +679,25 @@ export function createSecretStore(
       if (next.length === secrets.length) return false;
       write(scope, next);
       return true;
+    },
+
+    // An app moved to another member (a manager change of the agent that
+    // made it, task cf032293): its grant leaves this member's secrets only.
+    // Hosts and other apps' grants stay, and so does the value. Returns the
+    // names of the secrets that lost the grant.
+    releaseApp(userId: string, grant: AppGrant): string[] {
+      const scope: SecretScope = { kind: "user", userId };
+      const secrets = read(scope);
+      const names: string[] = [];
+      for (const secret of secrets) {
+        if (!secret.apps?.some((g) => sameGrant(g, grant))) continue;
+        names.push(secret.name);
+        const kept = secret.apps.filter((g) => !sameGrant(g, grant));
+        if (kept.length > 0) secret.apps = kept;
+        else delete secret.apps;
+      }
+      if (names.length > 0) write(scope, secrets);
+      return names;
     },
 
     // An app was deleted: its grant leaves every scope.

@@ -2106,7 +2106,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.managerNoUser": "(no member assigned)",
   "dialogs.agent.managerUnowned": "(unowned)",
   "dialogs.agent.managerHint":
-    "The agent uses this member’s provider connections and personal variables. See the Integrations page.",
+    "The agent uses this member’s provider connections and personal variables. The apps it made move to this member too, without the previous manager’s personal secrets. See the Integrations page.",
   "dialogs.agent.privileged": "Privileged operator access",
   "dialogs.agent.privilegedHint":
     "Lets this agent act for you across the office: edit, move and remove other agents and drive their conversations, manage rooms, schedules and integrations, and post in members chat. If you are an office owner, it can also add members and change office settings. It acts as itself, with your access.",
@@ -4181,6 +4181,18 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "These apps stay with the previous manager, because their folders cannot be used under the new manager: {apps}.",
   "systemEntries.hostMove.failed":
     "The manager change failed, and nothing changed: {reason}",
+  "systemEntries.managerMove.released":
+    "{app} moved to {member} and no longer gets these secrets of {previous}: {names}.",
+  "systemEntries.managerMove.reopened": "Asked {member} for: {names}.",
+  "systemEntries.managerMove.giveApp":
+    "{member} can give {app} their own {name} on the Integrations page.",
+  "systemEntries.managerMove.usesOwn": "The agent now uses {member}'s {name}.",
+  "systemEntries.managerMove.notReopened":
+    "The request for {name} did not open again.",
+  "systemEntries.managerMove.botWithdrawn":
+    "The request for {previous}'s Discord bot was withdrawn.",
+  "systemEntries.managerMove.askReason":
+    "{app} moved to you and no longer gets {previous}'s {name}.",
   "systemEntries.autoHandoff.writingTokens":
     "Context is at {thousands}k tokens. Writing a handoff brief for a fresh session.",
   "systemEntries.autoHandoff.writingPercent":
