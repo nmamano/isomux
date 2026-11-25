@@ -3838,10 +3838,13 @@ function askNewManager(
     reopened: [],
     notReopened: [],
     withdrawnBot: false,
+    passOn: [],
   };
   try {
-    // The new manager is the one who answers: their language.
+    // The new manager is the one who answers: their language. A pass-on
+    // card is the previous manager's (task 65bfe3a8): theirs.
     const i18n = translatorForUserId(to.id);
+    const previousI18n = translatorForUserId(from);
     if (secretRequests)
       requests = secretRequests.moveToManager(agentId, from, {
         moved: apps.moved.map((app) => ({
@@ -3854,6 +3857,12 @@ function askNewManager(
             app,
             name,
             previous,
+          }),
+        passOnReasonFor: (app, name) =>
+          previousI18n.t("systemEntries.managerMove.passOnReason", {
+            app,
+            name,
+            member: to.name,
           }),
       });
   } catch (err) {
@@ -4269,6 +4278,7 @@ function buildExecutorDeps(
       store: askStore!,
       sudoRunInProgress: (agentId) =>
         sudoRequests?.runInProgress(agentId) ?? false,
+      onSecretWithdrawn: (entry) => secretRequests?.withdrawn(entry),
       history: officeAskHistory(),
       steps: stepAsks,
       stepRuns: {

@@ -319,6 +319,46 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // A previous manager's pass-on card (task 65bfe3a8): one app, the new
+    // manager and the paired request, and nothing an MCP request carries.
+    ...(
+      [
+        ["pass-on card", {}, true],
+        ["pass-on card with no app", { app: undefined }, false],
+        ["pass-on card whose app is a bare name", { app: "uptime" }, false],
+        ["pass-on card with no new manager", { toUserId: undefined }, false],
+        ["pass-on card with an empty new manager", { toUserId: "" }, false],
+        ["pass-on card with no pair", { pairRequestId: undefined }, false],
+        ["pass-on card with an empty pair", { pairRequestId: "" }, false],
+        [
+          "pass-on card with a URL",
+          { url: "https://mcp.example.com/mcp" },
+          false,
+        ],
+        ["pass-on card with a secret name", { secret: "TOKEN" }, false],
+      ] as const
+    ).map(
+      ([label, change, loads]) =>
+        [
+          label,
+          {
+            ...BASE,
+            memberUserId: "u1",
+            secret: {
+              ...SECRET,
+              scope: "personal",
+              hosts: [],
+              kind: "pass-on",
+              app: APP_SRC,
+              ownerUserId: "u1",
+              toUserId: "u2",
+              pairRequestId: "req-9",
+              ...change,
+            },
+          },
+          loads,
+        ] as [string, unknown, boolean],
+    ),
     // Options too are bounded on write only.
     [
       "eleven options",

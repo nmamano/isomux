@@ -2944,6 +2944,11 @@ Coses que pots fer per ell:
     "El valor no entra al xat. Si l'app està en marxa, es reinicia per llegir-lo.",
   "cards.secretRequest.appGone":
     "L'app s'ha eliminat o substituït després de la sol·licitud de l'agent. Rebutja la sol·licitud.",
+  "cards.secretRequest.passOnTitle": "Vols passar {name} a {member}?",
+  "cards.secretRequest.passOnHint":
+    "{member} rep una còpia del valor per a {app} i després la pot fer servir per a altres hosts i apps. Tu conserves la teva.",
+  "cards.secretRequest.passOn": "Passa",
+  "cards.secretRequest.passOnGone": "Aquest secret s'ha eliminat.",
   "cards.toolCall.runDenied": "Executa l'ordre",
   "cards.toolCall.runDeniedHint":
     "Executa l'ordre rebutjada a la carpeta de l'agent",
@@ -4278,6 +4283,10 @@ Coses que pots fer per ell:
     "S'ha retirat la sol·licitud del bot de Discord de {previous}.",
   "systemEntries.managerMove.askReason":
     "{app} ha passat a tu i ja no rep el {name} de {previous}.",
+  "systemEntries.managerMove.passOnReason":
+    "{app} ha passat a {member} amb el seu agent i ja no rep el teu {name}.",
+  "systemEntries.managerMove.passOn":
+    "S'ha demanat a {previous} que passi: {names}.",
   "systemEntries.autoHandoff.writingTokens":
     "El context és a {thousands}k tokens. S'està escrivint un resum de traspàs per a una sessió nova.",
   "systemEntries.autoHandoff.writingPercent":
@@ -4361,6 +4370,10 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.discordRouted":
     "El lloc de Discord {place} ara va a {agent}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
+  "systemEntries.secretRequest.passedOn":
+    "{previous} ha passat {name} a {member} per a {app}.",
+  "systemEntries.secretRequest.passOnDeclined":
+    "{previous} no ha passat {name}.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":
     "Ha acabat amb el codi de sortida {code}: {command}",

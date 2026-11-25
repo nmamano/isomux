@@ -2619,6 +2619,11 @@ export const zh: Catalog = {
     "值不会进入聊天。正在运行的应用会重启以读取它。",
   "cards.secretRequest.appGone":
     "智能体提出请求后，该应用已被删除或替换。请拒绝此请求。",
+  "cards.secretRequest.passOnTitle": "把 {name} 转交给 {member}？",
+  "cards.secretRequest.passOnHint":
+    "{member} 会获得该值的副本供 {app} 使用，之后也可用于其他主机和应用。你保留自己的那份。",
+  "cards.secretRequest.passOn": "转交",
+  "cards.secretRequest.passOnGone": "此密钥已被删除。",
   "cards.toolCall.runDenied": "运行命令",
   "cards.toolCall.runDeniedHint": "在智能体的文件夹中运行被拒绝的命令",
   "cards.toolCall.runDeniedConfirm":
@@ -3819,6 +3824,9 @@ export const zh: Catalog = {
     "已撤回 {previous} 的 Discord 机器人请求。",
   "systemEntries.managerMove.askReason":
     "{app} 已转给你，不再获得 {previous} 的 {name}。",
+  "systemEntries.managerMove.passOnReason":
+    "{app} 已随智能体转给 {member}，不再获得你的 {name}。",
+  "systemEntries.managerMove.passOn": "已请 {previous} 转交：{names}。",
   "systemEntries.autoHandoff.writingTokens":
     "上下文已达 {thousands}k 个 token。正在为新会话撰写交接简报。",
   "systemEntries.autoHandoff.writingPercent":
@@ -3890,6 +3898,9 @@ export const zh: Catalog = {
   "systemEntries.stepAsk.discordRouted":
     "已将 Discord 位置 {place} 转给 {agent}。",
   "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",
+  "systemEntries.secretRequest.passedOn":
+    "{previous} 已把 {name} 转交给 {member}，供 {app} 使用。",
+  "systemEntries.secretRequest.passOnDeclined": "{previous} 没有转交 {name}。",
   "systemEntries.sudoRequest.started": "正在以 root 身份运行：{command}",
   "systemEntries.sudoRequest.exited": "已结束，退出码 {code}：{command}",
   "systemEntries.sudoRequest.timedOut": "30 分钟后已停止：{command}",

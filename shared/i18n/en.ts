@@ -2860,6 +2860,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The value stays out of the chat. A running app restarts to read it.",
   "cards.secretRequest.appGone":
     "The app was removed or replaced since the agent asked. Decline the request.",
+  "cards.secretRequest.passOnTitle": "Pass {name} on to {member}?",
+  "cards.secretRequest.passOnHint":
+    "{member} gets a copy of the value for {app}, and can then use it for other hosts and apps. You keep yours.",
+  "cards.secretRequest.passOn": "Pass on",
+  "cards.secretRequest.passOnGone": "This secret was removed.",
   "cards.toolCall.runDenied": "Run command",
   "cards.toolCall.runDeniedHint":
     "Run the refused command in the agent's folder",
@@ -4195,6 +4200,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The request for {previous}'s Discord bot was withdrawn.",
   "systemEntries.managerMove.askReason":
     "{app} moved to you and no longer gets {previous}'s {name}.",
+  "systemEntries.managerMove.passOnReason":
+    "{app} moved to {member} with its agent and no longer gets your {name}.",
+  "systemEntries.managerMove.passOn": "Asked {previous} to pass on: {names}.",
   "systemEntries.autoHandoff.writingTokens":
     "Context is at {thousands}k tokens. Writing a handoff brief for a fresh session.",
   "systemEntries.autoHandoff.writingPercent":
@@ -4270,6 +4278,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.discordRouted":
     "Discord place {place} now goes to {agent}.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",
+  "systemEntries.secretRequest.passedOn":
+    "{previous} passed {name} on to {member} for {app}.",
+  "systemEntries.secretRequest.passOnDeclined":
+    "{previous} did not pass {name} on.",
   "systemEntries.sudoRequest.started": "Running as root: {command}",
   "systemEntries.sudoRequest.exited": "Ended with exit code {code}: {command}",
   "systemEntries.sudoRequest.timedOut": "Stopped after 30 minutes: {command}",

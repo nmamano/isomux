@@ -51,6 +51,9 @@ export function secretRequestHandlers(
           ctx.params.requestId,
           ctx.body,
           audienceFor(ctx.identity),
+          // A person, not an agent: only a person passes a secret on (task
+          // 65bfe3a8), as only a person gives a secret to an app.
+          ctx.identity.scope === "user" || ctx.identity.scope === "api",
         );
         return result.ok ? ok({ name: result.name }) : failed(result);
       } catch {

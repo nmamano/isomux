@@ -2944,6 +2944,11 @@ Cosas que puedes hacer por él:
     "El valor no entra en el chat. Si la app está en marcha, se reinicia para leerlo.",
   "cards.secretRequest.appGone":
     "La app se eliminó o se sustituyó después de la solicitud del agente. Rechaza la solicitud.",
+  "cards.secretRequest.passOnTitle": "¿Pasar {name} a {member}?",
+  "cards.secretRequest.passOnHint":
+    "{member} recibe una copia del valor para {app} y después puede usarla para otros hosts y apps. Tú conservas la tuya.",
+  "cards.secretRequest.passOn": "Pasar",
+  "cards.secretRequest.passOnGone": "Este secreto se eliminó.",
   "cards.toolCall.runDenied": "Ejecutar comando",
   "cards.toolCall.runDeniedHint":
     "Ejecuta el comando rechazado en la carpeta del agente",
@@ -4278,6 +4283,10 @@ Cosas que puedes hacer por él:
     "Se retiró la solicitud del bot de Discord de {previous}.",
   "systemEntries.managerMove.askReason":
     "{app} pasó a ti y ya no recibe el {name} de {previous}.",
+  "systemEntries.managerMove.passOnReason":
+    "{app} pasó a {member} con su agente y ya no recibe tu {name}.",
+  "systemEntries.managerMove.passOn":
+    "Se pidió a {previous} que pasara: {names}.",
   "systemEntries.autoHandoff.writingTokens":
     "El contexto está en {thousands}k tokens. Escribiendo un resumen de traspaso para una sesión nueva.",
   "systemEntries.autoHandoff.writingPercent":
@@ -4362,6 +4371,9 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.discordRouted":
     "El lugar de Discord {place} ahora va a {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
+  "systemEntries.secretRequest.passedOn":
+    "{previous} pasó {name} a {member} para {app}.",
+  "systemEntries.secretRequest.passOnDeclined": "{previous} no pasó {name}.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":
     "Terminó con código de salida {code}: {command}",

@@ -89,7 +89,8 @@ export function AsksStack({
   maxHeight?: number;
 }) {
   const { t } = useI18n();
-  const { asks, answeredAsks, askResults, sessionContext } = useAppState();
+  const { asks, answeredAsks, askResults, sessionContext, users } =
+    useAppState();
   const openLink = useContext(OfficeLinkOpener);
   // Newest first, so the ask the agent just opened is the one in view.
   const entries = asksFor(openAsks(asks, answeredAsks), agentId).reverse();
@@ -237,7 +238,7 @@ export function AsksStack({
               }}
             >
               {entries[0].secret ? (
-                valueAskTitle(t, entries[0].secret)
+                valueAskTitle(t, entries[0].secret, users)
               ) : entries[0].sudo ? (
                 sudoAskTitle(t)
               ) : (

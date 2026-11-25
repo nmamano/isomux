@@ -164,7 +164,7 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
     // checked on write only.
     (r.applicationId === undefined || typeof r.applicationId === "string") &&
     // The kind (task c71cb60f; discord-bot, task c92d60f4): absent for a
-    // secret. Only a secret names an app; only an MCP server request
+    // secret. Only a secret and a pass-on (task 65bfe3a8) name an app; only an MCP server request
     // proposes a URL and a sign-in. Any other
     // non-empty kind loads, as a link does: a kind from a later release
     // cannot fail the file after a rollback (the request cannot be saved
@@ -173,12 +173,22 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
       ? r.url === undefined && r.secret === undefined
       : r.kind === "variable" || r.kind === "discord-bot"
         ? r.app === undefined && r.url === undefined && r.secret === undefined
-        : r.kind === "mcp-server"
-          ? r.app === undefined &&
-            (r.url === undefined || typeof r.url === "string") &&
-            (r.secret === undefined || typeof r.secret === "string") &&
-            (r.oauth === undefined || r.oauth === true)
-          : typeof r.kind === "string" && r.kind !== "")
+        : r.kind === "pass-on"
+          ? // A previous manager's consent (task 65bfe3a8): for one app,
+            // paired with the new manager's request.
+            r.app !== undefined &&
+            typeof r.toUserId === "string" &&
+            r.toUserId !== "" &&
+            typeof r.pairRequestId === "string" &&
+            r.pairRequestId !== "" &&
+            r.url === undefined &&
+            r.secret === undefined
+          : r.kind === "mcp-server"
+            ? r.app === undefined &&
+              (r.url === undefined || typeof r.url === "string") &&
+              (r.secret === undefined || typeof r.secret === "string") &&
+              (r.oauth === undefined || r.oauth === true)
+            : typeof r.kind === "string" && r.kind !== "")
   );
 }
 

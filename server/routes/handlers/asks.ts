@@ -130,6 +130,9 @@ export interface AsksDeps {
   // 43a28eed): from sudo's password check to the run's end. The agent's
   // withdraw of a sudo request waits for it.
   sudoRunInProgress?(agentId: string): boolean;
+  // The agent withdrew a secret request (task 65bfe3a8): its pass-on cards
+  // close with it.
+  onSecretWithdrawn?(entry: AskEntry): void;
   // An ask an agent opened to a member is the agent writing first: a member
   // with a permission pack may then reply to it (agentManager.recordMemberHeardFrom).
   recordMemberHeardFrom?(userId: string, agentId: string): void;
@@ -1962,9 +1965,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           "run_in_progress",
           "A sudo command of this agent is running. Try again when it ends.",
         );
-      return store.remove(ctx.params.askId, { outcome: "withdrawn" })
-        ? noContent()
-        : notFound();
+      if (!store.remove(ctx.params.askId, { outcome: "withdrawn" }))
+        return notFound();
+      if (entry.secret) deps.onSecretWithdrawn?.(entry);
+      return noContent();
     }),
 
     // The agent's closed asks, for any caller with the reach of its logs

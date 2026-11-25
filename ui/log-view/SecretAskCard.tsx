@@ -55,10 +55,12 @@ import { noTranslate } from "../no-translate.ts";
 import { outsideLinkFor } from "../../shared/office-links.ts";
 import { OutsideLinkButton } from "./OutsideLink.tsx";
 
-// The card's title, which the collapsed stack shows too.
+// The card's title, which the collapsed stack shows too. `users`: the
+// members, for a pass-on card's new manager.
 export function valueAskTitle(
   t: UiTranslator["t"],
   secret: SecretAskRequest,
+  users: ReadonlyMap<string, { id: string; name: string }>,
 ): string {
   const { name } = secret;
   if (!knownValueRequest(secret))
@@ -69,7 +71,21 @@ export function valueAskTitle(
     return t("cards.secretRequest.mcpServerTitle", { name });
   if (secret.kind === "discord-bot")
     return t("cards.secretRequest.discordBotTitle");
+  if (secret.kind === "pass-on")
+    return t("cards.secretRequest.passOnTitle", {
+      name,
+      member: memberNameOf(users, secret.toUserId),
+    });
   return t("cards.secretRequest.title", { name });
+}
+
+// A member's name by id (the users map is keyed by lowercase name), or the
+// id when the member is gone.
+function memberNameOf(
+  users: ReadonlyMap<string, { id: string; name: string }>,
+  userId: string,
+): string {
+  return [...users.values()].find((user) => user.id === userId)?.name ?? userId;
 }
 
 const hintStyle = {
@@ -145,6 +161,7 @@ export function SecretAskCard({
           }
         : null;
   const isMcp = secret.kind === "mcp-server";
+  const isPassOn = secret.kind === "pass-on";
   // Secrets that list the URL's host (all of them while it has none), as on
   // the Integrations page. The proposed one stays a choice.
   const usable = choices
@@ -208,6 +225,8 @@ export function SecretAskCard({
     const detail = caught.detail ?? {};
     if (caught.code === "forbidden") return t("cards.secretRequest.forbidden");
     if (caught.code === "app_gone") return t("cards.secretRequest.appGone");
+    if (caught.code === "secret_gone")
+      return t("cards.secretRequest.passOnGone");
     if (caught.code === "host_not_allowed")
       return rich("settings.secrets.error.neverListed", {
         host: <Data>{typeof detail.host === "string" ? detail.host : ""}</Data>,
@@ -222,6 +241,7 @@ export function SecretAskCard({
   }
 
   function saveBody(): Record<string, unknown> {
+    if (secret.kind === "pass-on") return {};
     if (secret.kind === "variable" || secret.kind === "discord-bot")
       return { value: value.trim() };
     if (secret.kind === "mcp-server")
@@ -317,7 +337,7 @@ export function SecretAskCard({
             overflowWrap: "break-word",
           }}
         >
-          {valueAskTitle(t, secret)}
+          {valueAskTitle(t, secret, users)}
         </div>
         {!isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
         {/* On mobile the id goes under the age, so the title keeps its
@@ -349,6 +369,15 @@ export function SecretAskCard({
       {!known ? (
         // A kind from a later release: only the decline is offered here.
         <p style={hintStyle}>{t("cards.secretRequest.unsupported")}</p>
+      ) : secret.kind === "pass-on" ? (
+        // The previous manager's consent (task 65bfe3a8): no value to type,
+        // the server copies theirs.
+        <p style={hintStyle}>
+          {rich("cards.secretRequest.passOnHint", {
+            member: <Data>{memberNameOf(users, secret.toUserId)}</Data>,
+            app: <Data>{secret.app.name}</Data>,
+          })}
+        </p>
       ) : secret.kind === "variable" ? (
         <>
           <p style={hintStyle}>
@@ -548,7 +577,7 @@ export function SecretAskCard({
               busy ||
               (isMcp
                 ? url.trim() === "" || (auth === "saved" && picked === "")
-                : value.trim() === "")
+                : !isPassOn && value.trim() === "")
             }
             onClick={() => void answer("save")}
           >
@@ -556,7 +585,9 @@ export function SecretAskCard({
               ? t("common.saving")
               : isMcp && auth === "oauth" && target
                 ? t("integrations.mcp.saveAndSignIn")
-                : t("cards.secretRequest.save")}
+                : isPassOn
+                  ? t("cards.secretRequest.passOn")
+                  : t("cards.secretRequest.save")}
           </button>
         )}
         <button

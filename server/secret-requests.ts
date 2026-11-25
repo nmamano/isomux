@@ -22,6 +22,7 @@
 import {
   knownValueRequest,
   type AskEntry,
+  type PassOnValueRequest,
   type SecretAskRequest,
 } from "../shared/types.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
@@ -122,6 +123,10 @@ export type SecretRequestFailure = {
 export type SecretRequestResult<T> = ({ ok: true } & T) | SecretRequestFailure;
 
 type SecretAsk = AskEntry & { secret: SecretAskRequest };
+type PassOnAsk = AskEntry & { secret: PassOnValueRequest };
+
+const isPassOn = (entry: SecretAsk): entry is PassOnAsk =>
+  entry.secret.kind === "pass-on";
 
 function fieldFailure(error: SecretFieldError): SecretRequestFailure {
   const message = secretFieldErrorMessage(error);
@@ -297,6 +302,8 @@ export interface ManagerMoveRequests {
   notReopened: { name: string; app?: string; code: string }[];
   // A Discord bot request of the old manager was withdrawn.
   withdrawnBot: boolean;
+  // The secrets the previous manager was asked to pass on (task 65bfe3a8).
+  passOn: { name: string; app: string }[];
 }
 
 // A Discord bot request's fixed name: one open request per member.
@@ -427,6 +434,179 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         `[secret-requests] ask ${entry.id} was saved but could not be closed`,
       );
     }
+    // A saved request needs no pass-on (task 65bfe3a8).
+    closePassOn([entry.secret.requestId]);
+  }
+
+  // The pass-on cards paired with these requests (task 65bfe3a8) close: a
+  // request that was saved or withdrawn. A decline of the request leaves
+  // its card, which is then the app's one way to get the value.
+  function closePassOn(pairRequestIds: readonly string[]): void {
+    if (pairRequestIds.length === 0) return;
+    try {
+      for (const entry of openRequests())
+        if (
+          isPassOn(entry) &&
+          pairRequestIds.includes(entry.secret.pairRequestId)
+        )
+          deps.asks.remove(entry.id, { outcome: "withdrawn" });
+    } catch {
+      console.error("[secret-requests] a pass-on card could not be closed");
+    }
+  }
+
+  // The card closes without a copy: what it would pass on cannot go now.
+  function closeCard(entry: PassOnAsk): void {
+    try {
+      deps.asks.remove(entry.id, { outcome: "withdrawn" });
+    } catch {
+      console.error(`[secret-requests] ask ${entry.id} could not be closed`);
+    }
+  }
+
+  // The previous manager's consent (task 65bfe3a8): one card per secret a
+  // moved app lost, paired with the new manager's request. Only when the
+  // previous manager is still a member and reaches the agent's room.
+  function openPassOn(
+    agentId: string,
+    fromUserId: string,
+    toUserId: string,
+    app: { name: string; createdAt: number },
+    name: string,
+    pairRequestId: string,
+    reason: string,
+  ): boolean {
+    if (deps.memberName(fromUserId) === null) return false;
+    const secret: PassOnValueRequest = {
+      requestId: crypto.randomUUID(),
+      scope: "personal",
+      kind: "pass-on",
+      name,
+      reason,
+      ownerUserId: fromUserId,
+      app: { name: app.name, createdAt: app.createdAt },
+      toUserId,
+      pairRequestId,
+      ...OLDER_LOADER_FIELDS,
+    };
+    const ask = {
+      id: "",
+      agentId,
+      memberUserId: fromUserId,
+      prompt: reason,
+      createdAt: 0,
+      updatedAt: 0,
+      secret,
+    };
+    if (!askVisibleTo(ask, fromUserId, deps.audience)) return false;
+    return deps.asks.create({
+      agentId,
+      memberUserId: fromUserId,
+      prompt: reason,
+      secret,
+    }).ok;
+  }
+
+  const forbidden: SecretRequestFailure = {
+    ok: false,
+    status: 403,
+    code: "forbidden",
+  };
+
+  // The previous manager's Approve of a pass-on card (task 65bfe3a8): a
+  // copy of their value goes into the new manager's secrets, with the app's
+  // grant, in one store write. Their own secret stays as it is. Only they
+  // answer, as a person: an office owner who made themselves the new
+  // manager could otherwise read a member's value. Nothing awaits before
+  // the closes, so the new manager's save cannot slip in between.
+  async function passOn(
+    entry: PassOnAsk,
+    userId: string | null,
+    human: boolean,
+    body: Record<string, unknown>,
+  ): Promise<SecretRequestResult<{ name: string }>> {
+    const request = entry.secret;
+    const fromUserId = request.ownerUserId;
+    if (!human || !userId || !fromUserId || userId !== fromUserId)
+      return forbidden;
+    if (Object.keys(body).length > 0)
+      return invalidRequest("the body takes no fields");
+    const { name, app, toUserId } = request;
+    const live = deps.appFor(app.name);
+    if (!live || live.createdAt !== app.createdAt || live.userId !== toUserId)
+      return {
+        ok: false,
+        status: 409,
+        code: "app_gone",
+        message:
+          "the app was removed, replaced or moved since the request; decline it",
+      };
+    if (deps.memberName(toUserId) === null)
+      return {
+        ok: false,
+        status: 409,
+        code: "member_removed",
+        message: "the new manager was removed",
+      };
+    const to: SecretScope = { kind: "user", userId: toUserId };
+    const source = deps.store
+      .readForProxy({ kind: "user", userId: fromUserId })
+      .find((secret) => secret.name === name);
+    if (!source) {
+      closeCard(entry);
+      return {
+        ok: false,
+        status: 409,
+        code: "secret_gone",
+        message: "the secret was removed since the request",
+      };
+    }
+    // The copy has no hosts, so it takes no token exchange (the store
+    // refuses one without hosts), and then no form that needs one: the
+    // app reads the value itself.
+    const change = deps.store.create(to, {
+      name,
+      value: source.value,
+      hosts: [],
+      form: source.exchange ? { kind: "authorization" } : source.form,
+      apps: [{ name: app.name, createdAt: app.createdAt }],
+    });
+    if (!change.ok) {
+      // Never over a value the new manager has: that one answers the app.
+      if (change.kind === "exists") closeCard(entry);
+      return changeFailure(change);
+    }
+    closeSaved(entry, userId);
+    // The pair, when the new manager has not declined it.
+    try {
+      const pair = openRequests().find(
+        (e) => e.secret.requestId === request.pairRequestId,
+      );
+      if (pair)
+        deps.asks.remove(pair.id, { outcome: "saved", byUserId: userId });
+    } catch {
+      console.error(
+        `[secret-requests] the request paired with ask ${entry.id} could not be closed`,
+      );
+    }
+    try {
+      await deps.onChanged?.();
+    } catch {
+      console.error("[secret-requests] the proxy did not take a change");
+    }
+    deps.settled(
+      entry.agentId,
+      request.requestId,
+      "saved",
+      msg("systemEntries.secretRequest.passedOn", {
+        previous: deps.memberName(fromUserId) ?? fromUserId,
+        name,
+        member: deps.memberName(toUserId) ?? toUserId,
+        app: app.name,
+      }),
+      userId,
+    );
+    return { ok: true, name };
   }
 
   // A Discord bot request's save: the token goes to the connect only. The
@@ -883,12 +1063,16 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         moved: { name: string; createdAt: number }[];
         released: { app: string; names: string[] }[];
         reasonFor: (app: string, name: string) => string;
+        // The reason of a pass-on card (task 65bfe3a8), in the previous
+        // manager's language. Absent: no card.
+        passOnReasonFor?: (app: string, name: string) => string;
       },
     ): ManagerMoveRequests {
       const result: ManagerMoveRequests = {
         reopened: [],
         notReopened: [],
         withdrawnBot: false,
+        passOn: [],
       };
       const movedApp = (app: { name: string; createdAt: number }) =>
         input.moved.some(
@@ -897,11 +1081,16 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       // What to ask again: each withdrawn request, then each lost secret
       // no withdrawn request names.
       const again: { name: string; app?: string; body: unknown }[] = [];
+      // The requests this move withdrew: their pass-on cards close.
+      const withdrawn: string[] = [];
       try {
         for (const entry of openRequests()) {
           const request = entry.secret;
           if (
             entry.agentId !== agentId ||
+            // A pass-on card is the previous manager's consent of an
+            // earlier move: it closes with its pair (task 65bfe3a8).
+            request.kind === "pass-on" ||
             request.scope !== "personal" ||
             (request.ownerUserId ?? entry.memberUserId) !== fromUserId ||
             !knownValueRequest(request)
@@ -918,6 +1107,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
           // An open connect of a Discord bot runs for the old manager.
           if (connecting.has(request.requestId)) continue;
           deps.asks.remove(entry.id, { outcome: "withdrawn" });
+          withdrawn.push(request.requestId);
           const body = openBodyOf(request);
           if (body === null) {
             result.withdrawnBot = true;
@@ -945,10 +1135,44 @@ export function createSecretRequests(deps: SecretRequestDeps) {
               app,
               body: { name, app, reason: input.reasonFor(app, name) },
             });
+      closePassOn(withdrawn);
+      // The new manager, set before this call.
+      const toUserId = deps.agentUserId(agentId);
       for (const { body, ...item } of again) {
         const outcome = guarded(() => open(agentId, body));
-        if (outcome.ok) result.reopened.push(item);
-        else result.notReopened.push({ ...item, code: outcome.code });
+        if (!outcome.ok) {
+          result.notReopened.push({ ...item, code: outcome.code });
+          continue;
+        }
+        result.reopened.push(item);
+        // A secret a moved app lost: the previous manager may pass theirs
+        // on (task 65bfe3a8). Not when the new manager's request did not
+        // open (they hold the name, a clash, ...): the card pairs with it.
+        const app = input.moved.find((m) => m.name === item.app);
+        if (
+          !app ||
+          !toUserId ||
+          !input.passOnReasonFor ||
+          !input.released.some(
+            (r) => r.app === app.name && r.names.includes(item.name),
+          )
+        )
+          continue;
+        let opened = false;
+        try {
+          opened = openPassOn(
+            agentId,
+            fromUserId,
+            toUserId,
+            app,
+            item.name,
+            outcome.requestId,
+            input.passOnReasonFor(app.name, item.name),
+          );
+        } catch (err) {
+          if (!(err instanceof AsksUnavailableError)) throw err;
+        }
+        if (opened) result.passOn.push({ name: item.name, app: app.name });
       }
       return result;
     },
@@ -963,6 +1187,9 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       // The caller's audience (askAudienceFor), when it differs from the
       // member's.
       audience?: AskAudienceDeps,
+      // Whether a person calls (a browser session or their API token), not
+      // an agent: only a person passes a secret on (task 65bfe3a8).
+      human = false,
     ): Promise<SecretRequestResult<{ name: string }>> {
       // From the check to the ask's removal nothing awaits, so a decline,
       // a second save or the agent's withdraw cannot slip in between. The
@@ -993,6 +1220,8 @@ export function createSecretRequests(deps: SecretRequestDeps) {
           code: "request_unsupported",
           message: "this server cannot save this request; decline it",
         };
+      if (request.kind === "pass-on")
+        return passOn({ ...entry, secret: request }, userId, human, body);
       if (request.kind === "discord-bot")
         return scope.kind === "user"
           ? connectBot(entry, userId as string, scope.userId, body)
@@ -1089,6 +1318,12 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       return { ok: true, name };
     },
 
+    // The agent withdrew one of its asks (its DELETE): a secret request's
+    // pass-on cards close with it (task 65bfe3a8).
+    withdrawn(entry: AskEntry): void {
+      if (entry.secret) closePassOn([entry.secret.requestId]);
+    },
+
     decline(
       userId: string | null,
       agentId: string,
@@ -1099,20 +1334,33 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         const found = answerable(userId, agentId, requestId, audience);
         if (!found.ok) return found;
         if (connecting.has(requestId)) return busy;
-        const { name } = found.entry.secret;
+        const { entry } = found;
+        const { name } = entry.secret;
         try {
-          deps.asks.remove(found.entry.id, {
+          deps.asks.remove(entry.id, {
             outcome: "declined",
             byUserId: userId as string,
           });
         } catch {
           return requestFailed;
         }
+        // A pass-on card's decline leaves its pair open (task 65bfe3a8);
+        // the new manager's decline leaves the card.
         deps.settled(
           agentId,
           requestId,
           "declined",
-          msg("systemEntries.secretRequest.declined", { name }),
+          isPassOn(entry)
+            ? msg("systemEntries.secretRequest.passOnDeclined", {
+                previous:
+                  deps.memberName(
+                    entry.secret.ownerUserId ?? (userId as string),
+                  ) ??
+                  entry.secret.ownerUserId ??
+                  (userId as string),
+                name,
+              })
+            : msg("systemEntries.secretRequest.declined", { name }),
           userId as string,
         );
         return { ok: true, name };

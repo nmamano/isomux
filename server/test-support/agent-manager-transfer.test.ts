@@ -775,7 +775,16 @@ describe("agents.setManager: what the agent made moves with it", () => {
       [agent.id, "FREE_KEY", "maker-app", idOf("Bea")],
       [agent.id, "HOSTED_KEY", "maker-app", idOf("Bea")],
     ]);
-    expect(await asksOf(alice.rawSessionId)).toEqual([]);
+    // Alice is asked to pass on the names Bea was asked for (task
+    // 65bfe3a8); not the one Bea holds.
+    expect(
+      (await asksOf(alice.rawSessionId))
+        .map((e) => [e.agentId, e.secret!.name, e.secret!.ownerUserId])
+        .sort(),
+    ).toEqual([
+      [agent.id, "FREE_KEY", idOf("Alice")],
+      [agent.id, "HOSTED_KEY", idOf("Alice")],
+    ]);
     // One note on the agent names the lost names, the held one included.
     const notes = systemLines(srv, agent.id, since).filter(
       (l) => l.includes("HELD_KEY") && l.includes("FREE_KEY"),
@@ -810,6 +819,174 @@ describe("agents.setManager: what the agent made moves with it", () => {
       [],
       ["maker-app"],
     ]);
+  });
+
+  // The previous manager is asked too (task 65bfe3a8): one pass-on card per
+  // secret the moved app lost, in their Inbox, paired with the new manager's
+  // request. Their Approve copies the value to the new manager with the
+  // app's grant, and the app reads it again; the agent's withdraw of a
+  // request closes its card.
+  it("asks the previous manager to pass each lost secret on; their Approve gives the app its value again", async () => {
+    const { srv, morgan, alice, bea } = await office();
+    const agent = await spawn(srv, "Maker", "Alice");
+    // Another agent of Alice's, privileged: it acts with her reach across
+    // the office, but is no person.
+    const helper = await spawn(srv, "Helper", "Alice");
+    await srv.agentManager.setPrivileged(helper.id, true);
+    const bearer = getAgentTokenRaw(agent.id)!;
+    const app = await api(
+      srv,
+      "POST",
+      "/api/apps",
+      { bearer },
+      { name: "maker-app", command: "bun run serve.ts", cwd: srv.workDir },
+    );
+    expect(app.status).toBe(201);
+    const OLD = "fake-old-manager-value-0002";
+    for (const name of ["FREE_KEY", "DROP_KEY"])
+      expect(
+        (
+          await api(
+            srv,
+            "POST",
+            "/api/users/Alice/secrets",
+            { rawSessionId: alice.rawSessionId },
+            {
+              name,
+              value: OLD,
+              hosts: [],
+              form: { kind: "authorization" },
+              apps: ["maker-app"],
+            },
+          )
+        ).status,
+      ).toBe(201);
+    const envFile = appSecretsPath(appSecretsDir(STATE_ROOT), "maker-app");
+    const env = () =>
+      existsSync(envFile) ? readFileSync(envFile, "utf8") : "";
+    await waitUntil(() => env().includes(OLD), "the app reads Alice's values");
+    type Asked = {
+      id: string;
+      agentId: string;
+      secret?: {
+        requestId: string;
+        kind?: string;
+        name: string;
+        toUserId?: string;
+        pairRequestId?: string;
+      };
+    };
+    const asksOf = async (session: string) =>
+      (
+        (await api(srv, "GET", "/api/asks", { rawSessionId: session }))
+          .body as Asked[]
+      ).filter((e) => e.secret);
+    const byName = (list: Asked[], name: string) =>
+      list.find((e) => e.secret!.name === name)!;
+    await sleep(2);
+    const since = Date.now();
+
+    expect(
+      (await setManager(srv, agent.id, idOf("Bea"), morgan.rawSessionId))
+        .status,
+    ).toBe(200);
+    await waitUntil(() => !env().includes(OLD), "the app lost Alice's values");
+
+    const pairs = await asksOf(bea.rawSessionId);
+    const cards = await asksOf(alice.rawSessionId);
+    expect(
+      cards
+        .map((e) => [
+          e.agentId,
+          e.secret!.kind,
+          e.secret!.name,
+          e.secret!.toUserId,
+          e.secret!.pairRequestId,
+        ])
+        .sort(),
+    ).toEqual(
+      ["DROP_KEY", "FREE_KEY"].map((name) => [
+        agent.id,
+        "pass-on",
+        name,
+        idOf("Bea"),
+        byName(pairs, name).secret!.requestId,
+      ]),
+    );
+    // The agent's note says the previous manager was asked, for both names.
+    const passOnNotes = srv.agentManager
+      .getAgentLogs(agent.id)
+      .filter((e) => e.kind === "system" && e.timestamp >= since)
+      .flatMap((e) => e.message ?? [])
+      .filter(
+        (part) =>
+          typeof part === "object" &&
+          part !== null &&
+          "key" in part &&
+          part.key === "systemEntries.managerMove.passOn",
+      ) as { params?: Record<string, unknown> }[];
+    expect(passOnNotes).toHaveLength(1);
+    expect(String(passOnNotes[0].params?.names).split(", ").sort()).toEqual([
+      "DROP_KEY",
+      "FREE_KEY",
+    ]);
+
+    const free = byName(cards, "FREE_KEY").secret!.requestId;
+    const approve = (auth: { rawSessionId: string } | { bearer: string }) =>
+      api(
+        srv,
+        "POST",
+        `/api/agents/${agent.id}/secret-requests/${free}/save`,
+        auth,
+        {},
+      );
+    // An agent with Alice's access is not Alice.
+    expect(
+      (await approve({ bearer: getAgentTokenRaw(helper.id)! })).status,
+    ).toBe(403);
+    expect((await approve({ rawSessionId: bea.rawSessionId })).status).toBe(
+      403,
+    );
+    expect((await approve({ rawSessionId: alice.rawSessionId })).status).toBe(
+      200,
+    );
+    await waitUntil(() => env().includes(OLD), "the app reads the copy");
+    const secretsOf = async (username: string, session: string) =>
+      Object.fromEntries(
+        (
+          (
+            await api(srv, "GET", `/api/users/${username}/secrets`, {
+              rawSessionId: session,
+            })
+          ).body as {
+            secrets: { name: string; hosts: string[]; apps: string[] }[];
+          }
+        ).secrets.map((s) => [s.name, [s.hosts, s.apps]]),
+      );
+    expect((await secretsOf("Bea", bea.rawSessionId)).FREE_KEY).toEqual([
+      [],
+      ["maker-app"],
+    ]);
+    expect((await secretsOf("Alice", alice.rawSessionId)).FREE_KEY).toEqual([
+      [],
+      [],
+    ]);
+    // Bea's request for FREE_KEY closed with the Approve.
+    expect((await asksOf(bea.rawSessionId)).map((e) => e.secret!.name)).toEqual(
+      ["DROP_KEY"],
+    );
+
+    // The agent withdraws its request for DROP_KEY: its card closes.
+    const drop = byName(pairs, "DROP_KEY");
+    expect(
+      (
+        await api(srv, "DELETE", `/api/agents/${agent.id}/asks/${drop.id}`, {
+          // The manager change gave the agent a new token.
+          bearer: getAgentTokenRaw(agent.id)!,
+        })
+      ).status,
+    ).toBe(204);
+    expect(await asksOf(alice.rawSessionId)).toEqual([]);
   });
 
   // The old manager could read the secret of every hook they owned, so a hook

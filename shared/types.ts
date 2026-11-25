@@ -1229,11 +1229,29 @@ export interface DiscordBotValueRequest
   applicationId?: string;
 }
 
+// The previous manager's consent to pass a secret on (task 65bfe3a8): the
+// agent's app moved with it to another member and lost this secret. A save
+// copies the value into the new manager's secrets with the app's grant; the
+// previous manager keeps theirs. Only the server opens one, at the manager
+// change. ownerUserId is the previous manager, who answers; the ask's
+// member too.
+export interface PassOnValueRequest
+  extends ValueAskRequestBase, OlderLoaderFields {
+  kind: "pass-on";
+  app: { name: string; createdAt: number };
+  // The new manager, whose secrets get the copy.
+  toUserId: string;
+  // The new manager's request for the same secret: the first answer of the
+  // two closes the other.
+  pairRequestId: string;
+}
+
 export type SecretAskRequest =
   | SecretValueRequest
   | VariableValueRequest
   | McpServerValueRequest
-  | DiscordBotValueRequest;
+  | DiscordBotValueRequest
+  | PassOnValueRequest;
 
 // A step ask (task c71cb60f): a step on the Integrations page that is not a
 // typed value. The member does it in the card (ui/log-view/AskStepBlock.tsx);
@@ -1291,9 +1309,13 @@ export interface SudoAskRequest {
 // Whether this release knows the request's kind. A kind from a later release
 // loads (server/asks.ts), but can only be declined here.
 export function knownValueRequest(request: SecretAskRequest): boolean {
-  return [undefined, "variable", "mcp-server", "discord-bot"].includes(
-    request.kind,
-  );
+  return [
+    undefined,
+    "variable",
+    "mcp-server",
+    "discord-bot",
+    "pass-on",
+  ].includes(request.kind);
 }
 
 // Structured payload attached to LogEntry when kind === "secret-request".

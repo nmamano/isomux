@@ -970,3 +970,71 @@ it("the hint sentences show the app, the header or parameter, and the token host
   ).toEqual(["auth.example.com"]);
   exchange.unmount();
 });
+
+// The previous manager's pass-on card (task 65bfe3a8): no value to type, the
+// server copies theirs. It names the new manager and the app; its save sends
+// an empty body.
+const PASS_ON_ASK: AskEntry = {
+  ...SECRET_ASK,
+  prompt: "game-video moved to nil with its agent.",
+  secret: {
+    requestId: "req-1",
+    kind: "pass-on",
+    scope: "personal",
+    name: "YOUTUBE_CLIENT_SECRET",
+    hosts: [],
+    form: { kind: "authorization" },
+    reason: "game-video moved to nil with its agent.",
+    ownerUserId: "u1",
+    app: { name: "game-video", createdAt: 1000 },
+    toUserId: "u2",
+    pairRequestId: "req-0",
+  },
+};
+const passOnButton = (view: ReturnType<typeof render>) =>
+  view.getByRole("button", {
+    name: t("cards.secretRequest.passOn"),
+  }) as HTMLButtonElement;
+
+it("a pass-on card: no field, names the new manager and the app, and Pass on sends an empty body", async () => {
+  answer = async () => ({ name: "YOUTUBE_CLIENT_SECRET" });
+  const view = await mount(false, PASS_ON_ASK);
+  expect(card(view)!.querySelectorAll("input, textarea, select").length).toBe(
+    0,
+  );
+  expect(dataChips(card(view)!)).toEqual(
+    expect.arrayContaining(["nil", "game-video"]),
+  );
+  expect(card(view)!.textContent).toContain(
+    t("cards.secretRequest.passOnTitle", {
+      name: "YOUTUBE_CLIENT_SECRET",
+      member: "nil",
+    }),
+  );
+  expect(
+    view.queryByRole("button", { name: t("cards.secretRequest.save") }),
+  ).toBeNull();
+  expect(passOnButton(view).disabled).toBe(false);
+  await act(async () => {
+    fireEvent.click(passOnButton(view));
+  });
+  expect(posts).toEqual([
+    { path: "/api/agents/a%201/secret-requests/req-1/save", body: {} },
+  ]);
+  expect(card(view)).toBeNull();
+  view.unmount();
+});
+
+it("a pass-on card whose secret is gone keeps the card and says why, not a bare failure", async () => {
+  answer = async () => {
+    throw new ApiError(409, "secret_gone", "gone");
+  };
+  const view = await mount(false, PASS_ON_ASK);
+  await act(async () => {
+    fireEvent.click(passOnButton(view));
+  });
+  const alert = view.getByRole("alert").textContent ?? "";
+  expect(alert.length).toBeGreaterThan(0);
+  expect(alert).not.toBe(t("settings.secrets.saveFailed"));
+  view.unmount();
+});

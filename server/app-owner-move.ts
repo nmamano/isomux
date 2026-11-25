@@ -125,6 +125,13 @@ export function managerMoveNote(
           ? msg("systemEntries.managerMove.usesOwn", { member, name })
           : msg("systemEntries.managerMove.notReopened", { name }),
     );
+  if (requests.passOn.length > 0)
+    note.push(
+      msg("systemEntries.managerMove.passOn", {
+        previous,
+        names: requests.passOn.map((r) => r.name).join(", "),
+      }),
+    );
   if (requests.withdrawnBot)
     note.push(msg("systemEntries.managerMove.botWithdrawn", { previous }));
   return note;
