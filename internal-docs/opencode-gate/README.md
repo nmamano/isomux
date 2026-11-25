@@ -47,3 +47,11 @@ permission, config and migration items: [`report-2.2.5.md`](report-2.2.5.md),
 evidence in `evidence/2.2.5/`. `harness-2.2.5/` holds the new probes and the
 copies of `harness-2.1.4/` scripts that 2.2.5 needed changed; the others run
 from `harness-2.1.4/` as they are.
+
+## OpenCode 2.2.7 re-run (2026-11-25)
+
+The move to `@opencode/cli` 2.2.7 (task `3cc9d863`) re-ran the items of the
+2.2.5 run and two new probes, flag-gated tools and the edited credential
+migration: [`report-2.2.7.md`](report-2.2.7.md), evidence in
+`evidence/2.2.7/`. The other probes ran from `harness-2.1.4/` and
+`harness-2.2.5/` as they are; `harness-2.2.7/` holds the two new ones.

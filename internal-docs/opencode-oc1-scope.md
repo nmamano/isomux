@@ -2,7 +2,7 @@
 
 Status: OC1 implementation in progress\
 Decision dates: 2026-08-27 to 2026-08-28\
-Runtime target: `@opencode/cli` 2.2.5 (since 2026-11-03; 2.1.4 from 2026-10-25, 1.18.35 before)
+Runtime target: `@opencode/cli` 2.2.7 (since 2026-11-25; 2.2.5 from 2026-11-03, 2.1.4 from 2026-10-25, 1.18.35 before)
 
 This is the master implementation document for OC1. Where it conflicts with
 `opencode-backend-scope.md`, this document controls. The feasibility report and
@@ -98,7 +98,7 @@ server emits `permission.asked` and accepts
 route. A small HTTP client with narrow runtime validators avoids a mixed
 contract. Validators accept unknown fields but never log them.
 
-Pin the CLI exactly (2.2.5; 2.1.4 before 2026-11-03). Any CLI version change requires the gate harness and
+Pin the CLI exactly (2.2.7; 2.2.5 before 2026-11-25, 2.1.4 before 2026-11-03). Any CLI version change requires the gate harness and
 event analysis to run again. Keep the historical 1.18.23 recordings as
 regression inputs; an upgrade does not require wholesale re-recording.
 
@@ -436,7 +436,9 @@ ran on 2.1.4 on 2026-10-25 and passed with conditions
 ([`opencode-gate/report-2.1.4.md`](opencode-gate/report-2.1.4.md)). The pin
 moved to 2.2.5 on 2026-11-03 after a re-run of the safety, permission,
 config and migration items
-([`opencode-gate/report-2.2.5.md`](opencode-gate/report-2.2.5.md)).
+([`opencode-gate/report-2.2.5.md`](opencode-gate/report-2.2.5.md)), and to
+2.2.7 on 2026-11-25 after a re-run of the same items
+([`opencode-gate/report-2.2.7.md`](opencode-gate/report-2.2.7.md)).
 
 The move is wider than the transport module. It also rewrites the safety plugin
 for the version 2 plugin API, the config layers and permission keys, the

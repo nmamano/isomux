@@ -1,0 +1,290 @@
+{
+  "date": "2026-11-25",
+  "task": "3cc9d863",
+  "script": "harness-2.2.7/flags.ts",
+  "markers": [
+    "todowrite",
+    "schedule_create",
+    "schedule_list",
+    "artifact_create",
+    "artifact_update",
+    "execute"
+  ],
+  "results": {
+    "2.2.5/base": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.5",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "execute"
+      ]
+    },
+    "2.2.5/envFlagsAll": "n/a: 2.2.5 has no OPENCODE_FLAGS",
+    "2.2.5/projectAllFlags": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.5",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "execute"
+      ]
+    },
+    "2.2.5/projectNamed": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.5",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "todowrite",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "todowrite",
+        "schedule_list",
+        "artifact_create",
+        "artifact_update",
+        "execute"
+      ]
+    },
+    "2.2.5/userDirAllFlags": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.5",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "execute"
+      ]
+    },
+    "2.2.5/projectAllFlagsProjectConfigOff": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.5",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "execute"
+      ]
+    },
+    "2.2.7/base": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.7",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "execute"
+      ]
+    },
+    "2.2.7/envFlagsAll": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.7",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "todowrite",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "todowrite",
+        "artifact_create",
+        "artifact_update",
+        "execute"
+      ]
+    },
+    "2.2.7/projectAllFlags": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.7",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "todowrite",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "todowrite",
+        "artifact_create",
+        "artifact_update",
+        "execute"
+      ]
+    },
+    "2.2.7/projectNamed": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.7",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "todowrite",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "todowrite",
+        "artifact_create",
+        "artifact_update",
+        "execute"
+      ]
+    },
+    "2.2.7/userDirAllFlags": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.7",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "todowrite",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "todowrite",
+        "artifact_create",
+        "artifact_update",
+        "execute"
+      ]
+    },
+    "2.2.7/projectAllFlagsProjectConfigOff": {
+      "end": "session.execution.succeeded",
+      "requests": 2,
+      "version": "2.2.7",
+      "offered": [
+        "edit",
+        "execute",
+        "experimental_image_generate",
+        "glob",
+        "grep",
+        "question",
+        "read",
+        "shell",
+        "skill",
+        "subagent",
+        "webfetch",
+        "websearch",
+        "write"
+      ],
+      "markersInToolDefinitions": [
+        "execute"
+      ]
+    }
+  }
+}

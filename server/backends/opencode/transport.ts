@@ -91,8 +91,8 @@ export {
 
 // The OpenCode 2 transport (task e47be82a): the /api routes and the
 // /api/event frames of @opencode/cli 2.1.4, as recorded on 2026-10-25 in
-// fixtures/v2 and internal-docs/opencode-gate/report-2.1.4.md. The pinned
-// 2.2.5 passed the same live tests (report-2.2.5.md).
+// fixtures/v2 and internal-docs/opencode-gate/report-2.1.4.md. 2.2.5 and the
+// pinned 2.2.7 passed the same live tests (report-2.2.5.md, report-2.2.7.md).
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +

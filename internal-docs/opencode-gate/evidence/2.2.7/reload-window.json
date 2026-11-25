@@ -1,0 +1,254 @@
+{
+ "date": "2026-11-25",
+ "task": "3cc9d863",
+ "script": "harness-2.2.5/reload.ts",
+ "note": "GATE_V2_BIN = 2.2.7",
+ "runs": [
+  {
+   "version": "2.2.7",
+   "tool": "read",
+   "run": "1",
+   "case": "control",
+   "touchedAfterPromptMs": null,
+   "reloadedSetupMs": null,
+   "hookCallsMs": [
+    1784
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "read",
+   "run": "1",
+   "case": "reload",
+   "touchedAfterPromptMs": 359,
+   "reloadedSetupMs": [
+    545,
+    3546
+   ],
+   "hookCallsMs": [
+    3742
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "read",
+   "run": "2",
+   "case": "control",
+   "touchedAfterPromptMs": null,
+   "reloadedSetupMs": null,
+   "hookCallsMs": [
+    1716
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "read",
+   "run": "2",
+   "case": "reload",
+   "touchedAfterPromptMs": 388,
+   "reloadedSetupMs": [
+    555,
+    3556
+   ],
+   "hookCallsMs": [
+    3720
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "read",
+   "run": "3",
+   "case": "control",
+   "touchedAfterPromptMs": null,
+   "reloadedSetupMs": null,
+   "hookCallsMs": [
+    1806
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "read",
+   "run": "3",
+   "case": "reload",
+   "touchedAfterPromptMs": 361,
+   "reloadedSetupMs": [
+    498,
+    3499
+   ],
+   "hookCallsMs": [
+    3662
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "shell",
+   "run": "1",
+   "case": "control",
+   "touchedAfterPromptMs": null,
+   "reloadedSetupMs": null,
+   "hookCallsMs": [
+    1820
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "shell",
+   "run": "1",
+   "case": "reload",
+   "touchedAfterPromptMs": 379,
+   "reloadedSetupMs": [
+    524,
+    3527
+   ],
+   "hookCallsMs": [
+    3714
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "shell",
+   "run": "2",
+   "case": "control",
+   "touchedAfterPromptMs": null,
+   "reloadedSetupMs": null,
+   "hookCallsMs": [
+    1716
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "shell",
+   "run": "2",
+   "case": "reload",
+   "touchedAfterPromptMs": 376,
+   "reloadedSetupMs": [
+    508,
+    3508
+   ],
+   "hookCallsMs": [
+    3671
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "shell",
+   "run": "3",
+   "case": "control",
+   "touchedAfterPromptMs": null,
+   "reloadedSetupMs": null,
+   "hookCallsMs": [
+    1734
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  },
+  {
+   "version": "2.2.7",
+   "tool": "shell",
+   "run": "3",
+   "case": "reload",
+   "touchedAfterPromptMs": 399,
+   "reloadedSetupMs": [
+    598,
+    3609
+   ],
+   "hookCallsMs": [
+    3754
+   ],
+   "hookDecisions": [
+    "deny"
+   ],
+   "toolFailedByIsomux": true,
+   "permissionAsks": 0,
+   "secretInEvents": false,
+   "sideFileExists": false,
+   "end": "session.execution.succeeded"
+  }
+ ]
+}

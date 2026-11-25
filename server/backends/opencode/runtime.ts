@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RUNTIME_ROOT } from "../../runtime-root.ts";
 
-export const OPENCODE_CLI_VERSION = "2.2.5";
+export const OPENCODE_CLI_VERSION = "2.2.7";
 
 // The supervisor's record lock, process identity and the office proxy's peer
 // credential check exist for Linux and macOS only, so OpenCode does too, even

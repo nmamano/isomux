@@ -1,0 +1,158 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p6-ancestry",
+  "runDir": "/tmp/t-3cc9d863/gate/run/sp-p6a-1795644143796",
+  "serverPid": 15863,
+  "serverHop": {
+    "pid": 15863,
+    "parentPid": 15815,
+    "startTicks": "74181"
+  },
+  "cases": {
+    "foreground": {
+      "turnEnd": "session.execution.succeeded",
+      "brokerStatus": "200",
+      "clientChain": [
+        {
+          "pid": 15937,
+          "ppid": 15863,
+          "comm": "bash",
+          "isServer": false
+        },
+        {
+          "pid": 15863,
+          "ppid": 15815,
+          "comm": "opencode",
+          "isServer": true
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=15960 ancestry=15960:74600,15937:74593,15863:74181,15815:74148,15814:74147,15813:74147,5632:41015,1413:34528 method=GET path=/agents"
+      ]
+    },
+    "background": {
+      "turnEnd": "session.execution.succeeded",
+      "brokerStatus": "200",
+      "clientChain": [
+        {
+          "pid": 15970,
+          "ppid": 15863,
+          "comm": "bash",
+          "isServer": false
+        },
+        {
+          "pid": 15863,
+          "ppid": 15815,
+          "comm": "opencode",
+          "isServer": true
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=16000 ancestry=16000:74783,15970:74676,15863:74181,15815:74148,15814:74147,15813:74147,5632:41015,1413:34528 method=GET path=/agents"
+      ]
+    },
+    "setsidOrphan": {
+      "turnEnd": "session.execution.succeeded",
+      "brokerStatus": "403",
+      "clientChain": [
+        {
+          "pid": 16013,
+          "ppid": 1413,
+          "comm": "sh",
+          "isServer": false
+        },
+        {
+          "pid": 1413,
+          "ppid": 1,
+          "comm": "systemd",
+          "isServer": false
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=16034 ancestry=16034:74941,16013:74838,1413:34528 method=GET path=/agents"
+      ]
+    },
+    "persistentTerminal": {
+      "createStatus": 200,
+      "brokerStatus": "200",
+      "clientChain": [
+        {
+          "pid": 16049,
+          "ppid": 16037,
+          "comm": "sh",
+          "isServer": false
+        },
+        {
+          "pid": 16037,
+          "ppid": 15863,
+          "comm": "opencode-pty",
+          "isServer": false
+        },
+        {
+          "pid": 15863,
+          "ppid": 15815,
+          "comm": "opencode",
+          "isServer": true
+        }
+      ],
+      "daemons": [
+        {
+          "pid": 16037,
+          "parentPid": 15863,
+          "parentIsServer": true,
+          "chainReachesServer": true,
+          "chainComms": [
+            "opencode-pty",
+            "opencode",
+            "bun",
+            "timeout",
+            "run-batch.sh",
+            "run-batch.sh",
+            "systemd"
+          ]
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=16078 ancestry=16078:74997,16049:74990,16037:74983,15863:74181,15815:74148,15814:74147,15813:74147,5632:41015,1413:34528 method=GET path=/agents"
+      ],
+      "list": [
+        {
+          "id": "pty_persistent_1949192850952255",
+          "pid": 16049,
+          "status": "running"
+        }
+      ]
+    },
+    "controlNotServerChild": {
+      "exit": 0,
+      "brokerStatus": "403",
+      "brokerLog": [
+        "[opencode-office-proxy] peer=16082 ancestry=16082:75004,16081:75004,15815:74148,15814:74147,15813:74147,5632:41015,1413:34528 method=GET path=/agents"
+      ]
+    },
+    "controlWrongHandle": {
+      "brokerStatus": "403",
+      "brokerLog": [
+        "[opencode-office-proxy] peer=16089 ancestry=16089:75018,16088:75018,15863:74181,15815:74148,15814:74147,15813:74147,5632:41015,1413:34528 method=GET path=/agents"
+      ]
+    }
+  },
+  "ptyDaemonsSeen": 1,
+  "ptyDaemonRuntimeDirUnderProfile": true,
+  "toolOutcomes": [
+    "called",
+    "success",
+    "called",
+    "success",
+    "called",
+    "success",
+    "called",
+    "success"
+  ],
+  "upstreamHits": 3,
+  "serverChildrenBeforeStop": [
+    "PID    PPID COMMAND",
+    "  16037   15863 opencode-pty"
+  ],
+  "leftAfterStop": []
+}

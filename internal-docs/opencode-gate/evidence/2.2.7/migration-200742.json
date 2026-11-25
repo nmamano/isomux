@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-25",
+  "task": "3cc9d863",
+  "script": "harness-2.2.7/migrate.ts",
+  "fresh": {
+    "2.2.5/authKey": {
+      "started": "2.2.5",
+      "migrationRow": 1795643945741,
+      "migrations": 59,
+      "credentials": 0
+    },
+    "2.2.7/authKey": {
+      "started": "2.2.7",
+      "migrationRow": 1795643946870,
+      "migrations": 59,
+      "credentials": 1
+    },
+    "2.2.5/authNotObject": {
+      "started": "2.2.5",
+      "migrationRow": 1795643947889,
+      "migrations": 59,
+      "credentials": 0
+    },
+    "2.2.7/authNotObject": {
+      "started": "2.2.7",
+      "migrationRow": 1795643948725,
+      "migrations": 59,
+      "credentials": 0
+    }
+  },
+  "upgrade": {
+    "made": {
+      "started": "2.2.5",
+      "migrationRow": 1795643949479,
+      "migrations": 59,
+      "credentials": 0
+    },
+    "on227WithAuthAdded": {
+      "started": "2.2.7",
+      "migrationRow": 1795643949479,
+      "migrations": 59,
+      "credentials": 0
+    },
+    "back225": {
+      "started": "2.2.5",
+      "migrationRow": 1795643949479,
+      "migrations": 59,
+      "credentials": 0
+    }
+  }
+}

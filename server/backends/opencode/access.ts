@@ -4,7 +4,7 @@
 // own profile. It runs as one of four Isomux agents whose rules deny every
 // tool and allow the stop's tools by exact name; the session gets the same
 // list at create and at every agent switch. The safety plugin refuses any
-// tool call not in the session's exact list. Measured on OpenCode 2.2.5; a
+// tool call not in the session's exact list. Measured on OpenCode 2.2.7; a
 // new version runs these stops only after a new probe
 // (server/backends/opencode-access.live.test.ts).
 
@@ -32,7 +32,7 @@ export {
 import { OPENCODE_OFFICE_MCP_SERVER } from "./stop-rules.ts";
 
 // The OpenCode version the probe ran on. OPENCODE_CLI_VERSION must equal it.
-export const OPENCODE_BELOW_STANDARD_PROVEN_VERSION = "2.2.5";
+export const OPENCODE_BELOW_STANDARD_PROVEN_VERSION = "2.2.7";
 
 // The variables the limited server starts with on top of the member's
 // launch env. 2.1.4 reads them once, at boot: per server, never per folder.

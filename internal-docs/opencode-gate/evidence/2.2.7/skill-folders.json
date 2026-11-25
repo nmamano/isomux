@@ -1,0 +1,29 @@
+{
+ "date": "2026-11-25",
+ "script": "harness-2.2.5/skills.ts",
+ "note": "GATE_V1_BIN = 2.2.5, GATE_V2_BIN = 2.2.7; the script's labels are relabelled to the real versions",
+ "skillIds": {
+  "2.2.5 DISABLE_CLAUDE_CODE=false": [
+   "cfg-skill",
+   "cfg-skills",
+   "home-agents",
+   "home-claude"
+  ],
+  "2.2.5 DISABLE_CLAUDE_CODE=true": [
+   "cfg-skill",
+   "cfg-skills",
+   "home-agents"
+  ],
+  "2.2.7 DISABLE_CLAUDE_CODE=false": [
+   "cfg-skill",
+   "cfg-skills",
+   "home-agents",
+   "home-claude"
+  ],
+  "2.2.7 DISABLE_CLAUDE_CODE=true": [
+   "cfg-skill",
+   "cfg-skills",
+   "home-agents"
+  ]
+ }
+}
