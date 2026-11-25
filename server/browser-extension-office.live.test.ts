@@ -971,6 +971,11 @@ async function runOfficeScenario(
       'document.querySelector("#status").dataset.state === "connected"',
     );
     await popup.screenshot(join(dir, "extension-all-control.png"));
+    // Unpair asks first: the first click arms it, the second sends it.
+    await popup.click("#unpair");
+    await popup.waitFor(
+      'document.querySelector("#unpair").hasAttribute("data-confirm-armed")',
+    );
     await popup.click("#unpair");
     await popup.waitFor(
       'document.querySelector("#status").dataset.state === "unpaired"',

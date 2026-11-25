@@ -11,6 +11,7 @@ export const CLICK_REASON = {
   covered: "another element covers it",
   moving: "the element does not stop moving",
   outside: "the element is outside the viewport",
+  inert: "the element is inert",
   missing: "no element matches the selector",
   unknown: "the element did not become clickable before the deadline",
 } as const;
@@ -20,6 +21,7 @@ const CLICK_LOG: [RegExp, string][] = [
   [/ intercepts pointer events$/, CLICK_REASON.covered],
   [/^\s*- element is not stable$/, CLICK_REASON.moving],
   [/^\s*- element is outside of the viewport$/, CLICK_REASON.outside],
+  [/^\s*- element is inert$/, CLICK_REASON.inert],
 ];
 
 // Playwright colors its call log when the process allows color.

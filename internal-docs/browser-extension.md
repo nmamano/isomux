@@ -227,7 +227,7 @@ during the metadata read triggers the same bounded selection check. Text, snapsh
 and screenshot payloads use that selected page. Other action or read errors remain
 failures.
 
-Pinned Playwright 1.64.1 runs inside the Bun office process. The public
+Pinned Playwright 1.65.1 runs inside the Bun office process. The public
 `chromium.connectOverCDP(transport, { noDefaults: true })` overload connects
 directly to an authorized assignment through `browser-extension-transport.ts`.
 There is no agent CDP HTTP/WS endpoint, private Playwright patch or Node child.
@@ -521,7 +521,7 @@ The bridge fixes both with no extension change. It resumes a waiting frame (`Run
 
 ### A tab activated from a prerender (task 69602671, 2026-10-27)
 
-Chrome prerenders a page it expects the member to open, for example a site they often type in the omnibox, or a link with a speculation rule. When the tab shows that page, its main frame id is no longer its target id. Playwright finds the main frame by the page's target id, so it never sets the page up: `url()` is empty and every read waits (microsoft/playwright#41397, closed as not planned; 1.64.1 still fails). An attached debugger turns prerendering off, so the id moves only before the offer and stays fixed while the extension holds the tab.
+Chrome prerenders a page it expects the member to open, for example a site they often type in the omnibox, or a link with a speculation rule. When the tab shows that page, its main frame id is no longer its target id. Playwright finds the main frame by the page's target id, so it never sets the page up: `url()` is empty and every read waits (microsoft/playwright#41397, closed as not planned; 1.65.1 still fails). An attached debugger turns prerendering off, so the id moves only before the offer and stays fixed while the extension holds the tab.
 
 The bridge shows the client the tab under its main frame id. When a client's browser-level `Target.setAutoAttach` arrives, the bridge reads the tab's `Page.getFrameTree` (its own command, outside the office gate), then announces the tab, then its popups, then answers. A popup that opens meanwhile goes out once, after the tab. The tab's main-frame `Page.frameNavigated` also gives the id; a failed frame tree keeps the id known so far. `Target.getTargets`, `Target.getTargetInfo` and the opener of a popup the tab opened use that id. The office gate's main-document check and the script-context diagnostics compare frame ids with it. Checks of Chrome's own target ids keep Chrome's ids.
 
@@ -690,7 +690,9 @@ action dispatched no input: it returns `action_failed` with a fixed reason
 (`browser-input.ts` picks it from the call log, which never leaves the module)
 and no settling fence. Scrolling or page scripts can still have changed the
 page. A timeout after an `Input` command keeps the unknown outcome and the
-fence. Playwright colors its call log when the process allows color, so the
+fence. Since Playwright 1.65, actionability also waits for the element to be
+not inert (no `inert` attribute on it or an ancestor); 1.64 reported such an
+element as covered. Playwright colors its call log when the process allows color, so the
 reason parser strips ANSI escapes first.
 
 **Settle.** Listeners on the main frame and the action's frame start before
@@ -706,7 +708,7 @@ run first: the element (first match on the main frame, strict in a frame),
 `isEnabled` (includes disabled fieldsets), then the option that `selectOption`
 picks, which is the first match in document order. Public utility-world reads
 find it: a candidate locator that holds every match in document order, then
-`getAttribute` and `textContent` per candidate, matched as Playwright 1.64
+`getAttribute` and `textContent` per candidate, matched as Playwright 1.65
 matches (value equal to `option.value`; label equal to `option.label` or equal
 after `normalizeWhiteSpace`; Chrome's `option.text` strips and collapses ASCII
 whitespace, and a `label=""` attribute gives an empty label). `isEnabled` on
@@ -740,9 +742,9 @@ with its popup or frame session. While one is listed on any page or frame of
 the grant, every action but `tabs` and `close` returns `action_failed` with
 the list in `error.dialogs`, after the office-page refusals and the fence
 checks, and sends nothing. Playwright 1.62 kept a dialog it did not answer
-and refused to evaluate on that page after it closed. 1.64 drops it on
-`Page.javascriptDialogClosed` and evaluates again (checked 2026-11-11 against
-real Chrome). The next action still retires a client that left one open
+and refused to evaluate on that page after it closed. 1.64 and 1.65 drop it
+on `Page.javascriptDialogClosed` and evaluate again (checked 2026-11-11 against
+real Chrome; 1.65.1 keeps the same handler). The next action still retires a client that left one open
 (cause `held_dialog`) and attaches a fresh one, as a guard: it costs one
 attach, and keeps the tab working if a later Playwright keeps the dialog
 again. Agents cannot answer such a dialog; the member does. Not tracked: a
@@ -897,4 +899,4 @@ Sites such as Amazon answer a scraper-like request pattern with a robot check. N
 - **Page-load gap.** Per offer handle (unique across browsers) and origin, the session keeps the end time of the last action during which a main-frame navigation request went to that origin, whatever the action's outcome (a goto, a click that loads a page, a 204). A `goto` to that origin waits until a gap of 2 to 5 s (random, drawn per goto) has passed. The wait runs before the action deadline starts and before every check, so the checks see the state after it. Records older than 60 s go at each write.
 - **In-page goto.** A `goto` within the current `httpOrigin` (an opaque origin never qualifies) on an open gate runs `location.assign` in the page, so the site gets `Sec-Fetch-Site: same-origin` and a `Referer`, as from a link click. A goto through `chrome.debugger` arrives as `cross-site` with no `Referer` whatever its `transitionType`. A change of the hash only stays with `page.goto`. The bridge gate checks only `Page.navigate` URLs; the session refuses an office URL before either path, and the target origin is the current, ungated one, so the in-page path reaches no origin that `Page.navigate` could not. Redirects close the gate at `requestWillBeSent` as before. Endings match `page.goto`: a failed load rejects with its `net::ERR_*` code, a download is a generic failure, a 204 or 205 is `net::ERR_ABORTED`, and an error page that commits is "The page did not load." When no navigation starts within 1 s (Chrome holds the script while another navigation is on its way, or the page cancels it), `page.goto` runs; a held script can run only in the old document.
 - **Click press.** `click` holds mouse-down to mouse-up for 50 to 120 ms (Playwright `delay`), at the element centre as before. `check` keeps Playwright's short press: `setChecked` has no delay option.
-- **Typing.** `fill` types key by key (`pressSequentially`, 80 ms apart) when the text is 1 to 40 characters of 0x20-0x7E and the field is a `textarea` or an `input` of type text, email, url, tel or password, not read-only, with no `list`, no `role=combobox` and `aria-autocomplete` absent or `none`, and it has the focus after Playwright's `focus` (a disabled or hidden field does not, and keys would go to the focused element), and the keys fit in what is left of the deadline (each key counted as its delay plus 50 ms). A filled value is selected first, so the keys replace it with no Delete key. When the value after the keys is not the text (an input mask), `fill` sets it. Everything else keeps one `fill`. No log line carries key text.
+- **Typing.** `fill` types key by key (`pressSequentially`, 80 ms apart) when the text is 1 to 40 characters of 0x20-0x7E and the field is a `textarea` or an `input` of type text, email, url, tel or password, not read-only, with no `list`, no `role=combobox` and `aria-autocomplete` absent or `none`, and it has the focus after Playwright's `focus` (a disabled or hidden field does not, and keys would go to the focused element), and the keys fit in what is left of the deadline (each key counted as its delay plus 50 ms). A filled value is selected first, so the keys replace it with no Delete key. When the value after the keys is not the text (an input mask), `fill` sets it. Everything else keeps one `fill`. An inert field takes no focus, and since Playwright 1.65 its `fill` waits to the deadline; 1.64 returned ok with no text. No log line carries key text.

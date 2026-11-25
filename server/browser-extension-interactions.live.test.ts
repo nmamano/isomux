@@ -323,6 +323,7 @@ const DNS_PAGE = `<!doctype html><title>Advanced DNS</title>
 <a href="javascript:void(0);" id="remove">Remove</a></td></tr></table>
 <p><button id="double">Remove twice</button>
 <span class="wrap"><button id="covered">Covered</button><span style="position:absolute;inset:0"></span></span>
+<button id="inert" inert>Inert</button>
 <span class="wrap"><button id="hover-target">Hover target</button><button id="hover-cover" hidden style="position:absolute;inset:0">Cover</button></span>
 <button id="busy">Busy</button>
 <a href="/next" id="next">Next</a> <a href="/heavy" id="heavy">Heavy</a> <a href="/first" id="chain">Chain</a></p>
@@ -355,6 +356,7 @@ $("double").addEventListener("click", () => {
   $("status").textContent = "first=" + first + " second=" + second;
 });
 $("covered").addEventListener("click", () => log("covered"));
+$("inert").addEventListener("click", () => log("inert"));
 $("hover-target").addEventListener("mouseover", () => ($("hover-cover").hidden = false));
 $("hover-target").addEventListener("click", () => log("target"));
 $("hover-cover").addEventListener("click", () => log("cover"));
@@ -504,6 +506,14 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         const next = await act({ action: "snapshot" });
         ok(next);
         expect(next.elapsed).toBeLessThan(DEADLINE_MS / 2);
+        expect(await read("#clicks")).toBe("");
+        // An inert element has its own reason, not the cover that Playwright's
+        // hit test saw before 1.65.
+        const inert = failed(
+          await act({ action: "click", selector: "#inert" }),
+        );
+        expect(inert.code).toBe("action_failed");
+        expect(inert.error).toContain(CLICK_REASON.inert);
         expect(await read("#clicks")).toBe("");
         const absent = failed(
           await act({ action: "click", selector: "#absent" }),

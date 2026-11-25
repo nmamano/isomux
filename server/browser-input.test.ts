@@ -6,9 +6,9 @@ import {
   clickNotPerformedReason,
 } from "./browser-input";
 
-// Call logs as Playwright 1.64.1 reports them for a click that timed out
+// Call logs as Playwright 1.65.1 reports them for a click that timed out
 // before it dispatched input (recorded 2026-10-08 on 1.62.1 against real
-// Chrome, the same on 1.64.1 on 2026-11-11).
+// Chrome, the same on 1.64.1 on 2026-11-11 and on 1.65.1 on 2026-11-25).
 const log = (...lines: string[]) =>
   ["TimeoutError: click: Timeout 3500ms exceeded.", "Call log:", ...lines].join(
     "\n",
@@ -49,6 +49,25 @@ test("a click that never became clickable names the last state it saw", () => {
       log(...resolved, "      - element is outside of the viewport"),
     ),
   ).toBe(CLICK_REASON.outside);
+  // Recorded 2026-11-25 on 1.65.1 against real Chrome, for a button with the
+  // inert attribute and for one inside an inert div.
+  expect(
+    clickNotPerformedReason(
+      log(
+        "  - waiting for locator('#x')",
+        '    - locator resolved to <button inert="" id="x">X</button>',
+        "  - attempting click action",
+        "    2 × waiting for element to be visible, enabled and stable",
+        "      - element is inert",
+        "    - retrying click action",
+        "    - waiting 20ms",
+        "    2 × waiting for element to be visible, enabled and stable",
+        "      - element is inert",
+        "    - retrying click action",
+        "      - waiting 100ms",
+      ),
+    ),
+  ).toBe(CLICK_REASON.inert);
   // The latest retry wins over an earlier state.
   expect(
     clickNotPerformedReason(
@@ -98,9 +117,9 @@ test("a colored call log gives the same reasons as a plain one", () => {
 });
 
 test("a known setChecked failure maps to a fixed reason, and any other error to none", () => {
-  // First message lines of isChecked and forced setChecked errors in Playwright 1.64.1
+  // First message lines of isChecked and forced setChecked errors in Playwright 1.65.1
   // against real Chrome (recorded 2026-10-15 on 1.62.1, the same on 1.64.1 on
-  // 2026-11-11). A call log follows them.
+  // 2026-11-11 and on 1.65.1 on 2026-11-25). A call log follows them.
   const failure = (first: string) =>
     [first, "Call log:", "  - waiting for locator('#x')"].join("\n");
   expect(

@@ -88,8 +88,8 @@ type Session = {
   dialogs?: ActionDialogs;
   // Playwright left a dialog open between actions. 1.62 kept one it did not
   // answer and refused to evaluate on that page after the member answered it;
-  // 1.64 drops it at Chrome's close event (checked 2026-11-11). The retire
-  // stays as a guard.
+  // 1.64 drops it at Chrome's close event (checked 2026-11-11), and 1.65.1
+  // keeps the same handler. The retire stays as a guard.
   heldDialog?: boolean;
 };
 const failure = (
