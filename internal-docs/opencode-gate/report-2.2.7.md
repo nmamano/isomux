@@ -137,7 +137,14 @@ two new probes. The evidence is in [`evidence/2.2.7/`](evidence/2.2.7/).
   server that the transport did not send. Its tool calls are checked. Isomux
   does not show that turn, and nobody measured the agent's Isomux state while
   it runs (busy or idle), or what a member message that comes in during it
-  does.
+  does. So every Isomux agent's rules deny `opencode_schedule_create` and
+  `opencode_schedule_resume` (task 7c765af8; the Code Mode tool id is
+  `<namespace>_<name>`), which takes them out of the catalog; a member's
+  allow does not win over the session's rules (measured,
+  `opencode-access.live.test.ts`; a project's allow is not measured). Agents
+  use Isomux schedules. Only a
+  schedule made before that rule can still fire; `schedule_list`, `_pause`
+  and `_delete` stay, so an agent can stop it.
 - A stored schedule does not fire while the flag is off for the session's
   folder: each due row checks the flag first and, when it is off, is marked
   `disabled` and checked again in an hour; it catches up once the flag is back

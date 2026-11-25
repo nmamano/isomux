@@ -97,11 +97,19 @@ const rule = (
 // OpenCode asks before shell and edit, so Isomux can apply the office policy
 // and the member's approval mode, and before a path outside the folder,
 // which 1.18.35 asked by default and a key-for-key rename loses (gate C1).
+// OpenCode's own schedules (an experimental flag) start turns on the OpenCode
+// server that Isomux does not show, so agents use Isomux schedules instead.
+// A deny takes the tool out of the catalog (Code Mode's
+// tools.opencode.schedule_create has the id opencode_schedule_create).
+// Resume would make a paused schedule fire again; list, pause and delete
+// stay, so an agent can stop a schedule made before this rule.
 const BASE_RULES: OpenCodeRule[] = [
   rule("shell", "ask"),
   rule("edit", "ask"),
   rule("question", "deny"),
   rule("external_directory", "ask"),
+  rule("opencode_schedule_create", "deny"),
+  rule("opencode_schedule_resume", "deny"),
 ];
 
 // The full rule list of an agent Isomux runs sessions with. The transport

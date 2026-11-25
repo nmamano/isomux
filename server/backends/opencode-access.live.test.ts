@@ -691,6 +691,103 @@ describe.skipIf(!LIVE)("OpenCode below Standard, live", () => {
   }, 120_000);
 });
 
+// OpenCode's own schedules (task 7c765af8): a scheduled turn runs on the
+// OpenCode server, and Isomux does not show it. A member's config turns them
+// on; Isomux's rules take schedule_create and schedule_resume away, and a
+// member's allow does not give them back. Its own member folder and key, so
+// the schedules flag reaches no other case.
+describe.skipIf(!LIVE)("OpenCode schedules, live", () => {
+  const key = "member-schedules-live";
+  let dir: string;
+  let cwd: string;
+  beforeAll(() => {
+    dir = join(root, "member-schedules");
+    cwd = join(root, "schedules-folder");
+    mkdirSync(dir);
+    mkdirSync(cwd);
+    writeFileSync(
+      join(dir, "opencode.json"),
+      JSON.stringify({
+        experimental: { schedules: true },
+        permissions: [
+          {
+            action: "opencode_schedule_create",
+            resource: "*",
+            effect: "allow",
+          },
+          {
+            action: "opencode_schedule_resume",
+            resource: "*",
+            effect: "allow",
+          },
+        ],
+      }),
+    );
+  });
+
+  // The output of each tool call of the turn, in order.
+  const outputs = (seen: Seen[]) => {
+    const last = seen.reduce((a, b) => (b.text.length > a.text.length ? b : a));
+    return (
+      JSON.parse(last.text) as Array<{ role?: string; content?: unknown }>
+    )
+      .filter((m) => m.role === "tool")
+      .map((m) => JSON.stringify(m.content));
+  };
+
+  it("takes schedule_create away at Standard, even when the member allows it", async () => {
+    const session = backend.createSession({
+      agentId: `opencode-live-schedules-${process.pid}`,
+      cwd,
+      systemPrompt: "Isomux live test.",
+      modelFamily: GATE,
+      effort: "high",
+      permissionMode: "bypassPermissions",
+      environmentKey: key,
+      environmentRevision: "rev",
+      env: { OPENCODE_CONFIG_DIR: dir },
+    });
+    const name = "isomux-hidden-turn";
+    // The names of the stored schedules, or "none".
+    const list = {
+      name: "execute",
+      args: {
+        code: 'const { schedules } = await tools.opencode.schedule_list({}); return "stored: " + (schedules.map((s) => s.name).join(",") || "none")',
+      },
+    };
+    const { events, seen } = await turn(session, [
+      list,
+      {
+        name: "execute",
+        args: {
+          code: `return JSON.stringify(await tools.opencode.schedule_create(${JSON.stringify(
+            { name, when: { in: "1 hour" }, prompt: "wake" },
+          )}))`,
+        },
+      },
+      {
+        name: "execute",
+        args: {
+          code: "return JSON.stringify(Object.keys(tools.opencode).sort())",
+        },
+      },
+      list,
+    ]);
+    expect(completed(events)).toBe(true);
+    const [before, create, catalog, after] = outputs(seen);
+    // The condition: the flag is on and the model reaches the namespace.
+    expect(before).toContain("stored: none");
+    expect(catalog).toContain("schedule_list");
+    expect(catalog).toContain("schedule_pause");
+    // MUTANT: no deny rule for opencode_schedule_create.
+    expect(after).toContain("stored: none");
+    expect(create).not.toContain(name);
+    expect(catalog).not.toContain("schedule_create");
+    // MUTANT: no deny rule for opencode_schedule_resume.
+    expect(catalog).not.toContain("schedule_resume");
+  }, 120_000);
+});
+
 // Refused cards (task fcfffe51): the safety plugin reports a refusal as an
 // RPC event before it throws. This pins what the transport builds on: the
 // real server registers the RPC per folder, puts the event on /api/event

@@ -144,6 +144,9 @@ const BASE = [
   rule("edit", "ask"),
   rule("question", "deny"),
   rule("external_directory", "ask"),
+  // MUTANT: OpenCode's own schedules start turns Isomux does not show.
+  rule("opencode_schedule_create", "deny"),
+  rule("opencode_schedule_resume", "deny"),
 ];
 // 2.1.4 takes the last matching rule; no action repeats here, so the order
 // of the list is free.
