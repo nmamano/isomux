@@ -36,6 +36,7 @@ export const AUDIT_OPERATIONS = [
   "agents.respondInteraction",
   "agents.resume",
   "agents.revive",
+  "agents.runCommand",
   "agents.runDeniedCommand",
   "agents.secretRequest",
   "agents.saveFile",

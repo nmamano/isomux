@@ -35,6 +35,38 @@ const COMMAND_TWINS: Record<string, readonly string[]> = {
   handoff: ["agents.handoff"],
 };
 
+// Command handler -> the route that does what the handler does, for a caller
+// of POST /api/agents/:id/command (which runs no handler). A handler not
+// listed (help, login, logout, isomuxAllHands, reloadPlugins) has no route.
+const HANDLER_ROUTES: Record<string, string> = {
+  clear: "agents.newConversation",
+  handoff: "agents.handoff",
+  resume: "agents.resume",
+  model: "agents.update",
+  effort: "agents.update",
+  plan: "agents.update",
+  rename: "agents.setTopic",
+  context: "agents.contextUsage",
+  usage: "agents.subscriptionUsage",
+  isomuxUsage: "usage.read",
+  isomuxStorage: "storage.usage",
+  isomuxSystemPrompt: "agents.readSystemPrompt",
+  isomuxCronjobSystemPrompt: "cron.readSystemPrompt",
+  isomuxDiff: "agents.diff",
+  isomuxEdit: "agents.editFile",
+};
+
+// "METHOD /path" of the route that does what `handler` does, or null.
+export function handlerRoute(handler: string): string | null {
+  const opId = Object.hasOwn(HANDLER_ROUTES, handler)
+    ? HANDLER_ROUTES[handler]
+    : undefined;
+  if (!opId) return null;
+  const route = API_ROUTES.find((r) => r.opId === opId);
+  if (!route) throw new Error(`${opId} is missing from API_ROUTES`);
+  return `${route.method} ${route.path}`;
+}
+
 // An answer to a picker needs the areas of the command that opened it.
 const INTERACTION_COMMANDS: Partial<
   Record<AgentChoiceInteractionKind, string>

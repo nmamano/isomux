@@ -132,6 +132,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.sendNow": "agent-management",
   "agents.newConversation": "conversation-lifecycle",
   "agents.handoff": "conversation-lifecycle",
+  "agents.runCommand": "conversation-lifecycle",
   "agents.resume": "agent-management",
   "agents.listSessions": "conversation-history",
   "agents.terminal": "conversation-history",

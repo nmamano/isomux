@@ -1341,6 +1341,12 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:converse", "self:affordance"],
     emits: ["clear_logs", "log_entry"],
   },
+  // runCommand: same conversationReset split (operator -> room access;
+  // ordinary agent -> self). Runs a skill or an engine command (log_entry).
+  "agents.runCommand": {
+    caps: ["agent:converse", "self:affordance"],
+    emits: ["log_entry"],
+  },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.listSessions": { caps: ["log:read"], emits: [] },
   "agents.terminal": { caps: ["log:read"], emits: [] },
@@ -2158,6 +2164,7 @@ const SPEC_PRECONDITIONS: Record<string, RoutePrecondition[]> = {
   // agent turn. Webhooks, schedules firing and queued messages stay out.
   "agents.editMessage": ["officeNotEnterpriseLocked"],
   "agents.handoff": ["officeNotEnterpriseLocked"],
+  "agents.runCommand": ["officeNotEnterpriseLocked"],
   "apps.sendMessage": ["officeNotEnterpriseLocked"],
   "asks.reply": ["officeNotEnterpriseLocked"],
   "asks.dismiss": ["officeNotEnterpriseLocked"],
@@ -2385,6 +2392,7 @@ const APP_REFUSED_OPIDS = [
   "agents.previewUrl",
   "agents.browser",
   "agents.handoff",
+  "agents.runCommand",
   "agents.listScheduledMessages",
   "agents.cancelScheduledMessage",
   "agentConnections.list",
@@ -2691,6 +2699,7 @@ const API_REACHABLE_OPIDS = [
   "agents.sendNow",
   "agents.newConversation",
   "agents.handoff",
+  "agents.runCommand",
   "agents.resume",
   "agents.listSessions",
   "agents.terminal",

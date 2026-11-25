@@ -133,6 +133,8 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
   "agents.sendNow": MESSAGE,
   "agents.newConversation": MESSAGE,
   "agents.handoff": MESSAGE,
+  // The same as a member typing the command in the chat (/messages).
+  "agents.runCommand": MESSAGE,
   "agents.resume": MESSAGE,
   // Agents: the panel of another agent.
   "agents.openFile": AGENT_ID,

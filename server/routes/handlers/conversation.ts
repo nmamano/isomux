@@ -51,6 +51,7 @@ import type {
   ResumeReq,
   NewConversationReq,
   HandoffReq,
+  RunCommandReq,
 } from "../../../shared/contract-shapes.ts";
 import type {
   SendNowResult,
@@ -109,6 +110,25 @@ export type HandoffResult =
   | {
       ok: false;
       status: 400 | 404 | 409 | 429 | 500;
+      code: string;
+      message: string;
+      detail?: Record<string, unknown>;
+    };
+
+// Who calls POST /api/agents/:id/command, from the token. The dependency
+// turns an agent id into the queue's agent sender (name and room from the
+// server, never the body).
+export type CommandCaller =
+  | { kind: "user"; username?: string; device?: string }
+  | { kind: "agent"; agentId: string };
+
+// The runCommand outcome (command-handlers RunCommandResult).
+export type RunCommandOutcome =
+  | { ok: true; ran: true }
+  | { ok: true; queued: true; messageId: string }
+  | {
+      ok: false;
+      status: 404 | 409 | 422 | 429 | 500;
       code: string;
       message: string;
       detail?: Record<string, unknown>;
@@ -249,6 +269,13 @@ export interface ConversationDeps {
   // fire-and-forget) so the brief's transactional enqueue failure surfaces as a
   // real HTTP error rather than a false success.
   handoff(agentId: string, text: string): Promise<HandoffResult>;
+  // Run "/<name> args" on the agent for `caller`: a skill or an engine
+  // command, never an Isomux command.
+  runCommand(
+    agentId: string,
+    text: string,
+    caller: CommandCaller,
+  ): Promise<RunCommandOutcome>;
   resume(agentId: string, sessionId: string): void;
   listSessions(agentId: string): {
     sessions: SessionInfo[];
@@ -770,6 +797,42 @@ export function conversationHandlers(
       const r = await deps.handoff(ctx.params.id, b.text);
       if (!r.ok) return fail(r.status, r.code, r.message, r.detail);
       return ok({ ok: true });
+    },
+
+    // Run a skill or an engine command on the agent. The guard
+    // (conversationReset) decided who may; the token decides who the sender
+    // is, never the body.
+    "agents.runCommand": async (ctx) => {
+      const b = (ctx.body ?? {}) as Partial<RunCommandReq>;
+      if (typeof b.text !== "string" || !/^\/\S/.test(b.text)) {
+        return fail(422, "invalid_text", "text must start with /<name>");
+      }
+      let caller: CommandCaller;
+      if (ctx.identity.scope === "agent") {
+        caller = { kind: "agent", agentId: ctx.identity.agentId ?? "" };
+      } else {
+        const username = deps.attributionFor(ctx.identity).username;
+        caller =
+          ctx.identity.scope === "api"
+            ? {
+                kind: "user",
+                username,
+                device: formatApiTokenDevice(
+                  ctx.identity.apiTokenName ?? "unknown",
+                  ctx.identity.apiTokenId ??
+                    "reply unavailable: missing token id",
+                  false,
+                ),
+              }
+            : { kind: "user", username };
+      }
+      const r = await deps.runCommand(ctx.params.id, b.text, caller);
+      if (!r.ok) return fail(r.status, r.code, r.message, r.detail);
+      return ok(
+        "queued" in r
+          ? { queued: true, messageId: r.messageId }
+          : { ran: true },
+      );
     },
 
     "agents.resume": (ctx) => {

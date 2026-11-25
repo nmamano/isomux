@@ -2600,6 +2600,8 @@ Cosas que puedes hacer por él:
   "apiCall.agents.remove": "Eliminar el agente {who}",
   "apiCall.agents.handoff": "Traspasar a una sesión nueva",
   "apiCall.agents.handoffFor": "Traspasar a {who} a una sesión nueva",
+  "apiCall.agents.runCommand": "Ejecutar un comando en un agente",
+  "apiCall.agents.runCommandOn": "Ejecutar {command} en {who}",
   "apiCall.agents.scheduledList": "Listar los mensajes programados",
   "apiCall.agents.scheduledListFor":
     "Listar los mensajes programados que {who} tiene por enviar",

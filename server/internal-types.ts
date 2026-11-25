@@ -752,6 +752,17 @@ export function inMultiStepFlow(managed: ManagedAgent): boolean {
   );
 }
 
+// Whether the agent waits for a member's answer (a picker, a multi-step flow
+// or a permission prompt). A sender that must not answer it is refused while
+// it is open (409 awaits_member_answer).
+export function awaitsMemberAnswer(managed: ManagedAgent): boolean {
+  return (
+    inMultiStepFlow(managed) ||
+    !!managed.pendingInteraction ||
+    managed.queuedPermissions.length > 0
+  );
+}
+
 // Which two-step prompt an agent is parked on, or null when it is not parked.
 // The same parked states inMultiStepFlow reduces to a boolean,
 // kept as a named value so the state can be SHOWN rather than only acted on: a

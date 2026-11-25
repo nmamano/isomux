@@ -2306,6 +2306,8 @@ export const zh: Catalog = {
   "apiCall.agents.remove": "移除智能体 {who}",
   "apiCall.agents.handoff": "交接到新会话",
   "apiCall.agents.handoffFor": "将 {who} 交接到新会话",
+  "apiCall.agents.runCommand": "在智能体上运行命令",
+  "apiCall.agents.runCommandOn": "在 {who} 上运行 {command}",
   "apiCall.agents.scheduledList": "列出定时消息",
   "apiCall.agents.scheduledListFor": "列出 {who} 待发出的定时消息",
   "apiCall.agents.scheduledCancel": "取消定时消息",

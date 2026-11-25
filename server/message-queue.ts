@@ -1193,6 +1193,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
 
   return {
     queuedItemText,
+    senderMeta,
     logDeliveredItems,
     drainQueueItems,
     liveClaimed,

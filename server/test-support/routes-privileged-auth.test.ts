@@ -120,6 +120,7 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
       "agents.sendNow",
       "agents.newConversation",
       "agents.handoff",
+      "agents.runCommand",
       "agents.editMessage",
     ];
     // A privileged agent reaches all of them on any reachable agent.
@@ -136,7 +137,11 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
     // newConversation and handoff are the TWO exceptions with a self path (both
     // ride conversationReset): a normal agent may reset/hand off ITS OWN session,
     // and nothing else.
-    for (const op of ["agents.newConversation", "agents.handoff"]) {
+    for (const op of [
+      "agents.newConversation",
+      "agents.handoff",
+      "agents.runCommand",
+    ]) {
       expect(can(op, normalAgent, { id: "a-1" })).toBe(true);
     }
     // The other three have no self path - a normal agent is blocked even on itself.

@@ -2603,6 +2603,8 @@ Coses que pots fer per ell:
   "apiCall.agents.remove": "Eliminar l'agent {who}",
   "apiCall.agents.handoff": "Traspassar a una sessió nova",
   "apiCall.agents.handoffFor": "Traspassar {who} a una sessió nova",
+  "apiCall.agents.runCommand": "Executar una ordre en un agent",
+  "apiCall.agents.runCommandOn": "Executar {command} a {who}",
   "apiCall.agents.scheduledList": "Llistar els missatges programats",
   "apiCall.agents.scheduledListFor":
     "Llistar els missatges programats que {who} té per enviar",

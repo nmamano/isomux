@@ -6224,6 +6224,25 @@ function buildExecutorDeps(
         if (r.ok) return { ok: true };
         return enqueueFailure(r);
       },
+      runCommand: async (agentId, text, caller) => {
+        if (caller.kind === "user")
+          return agentManager.runCommand(agentId, text, caller);
+        // Server-derived name and room, as for an agent's message.
+        const senderInfo = agentManager.getAgentDisplay(caller.agentId);
+        if (!senderInfo)
+          return {
+            ok: false,
+            status: 404,
+            code: "unknown_sender",
+            message: "Sender is not a known agent.",
+          };
+        return agentManager.runCommand(agentId, text, {
+          kind: "agent",
+          agentId: caller.agentId,
+          agentName: senderInfo.name,
+          roomName: senderInfo.roomName,
+        });
+      },
       resume: (agentId, sessionId) => {
         void agentManager.resume(agentId, sessionId).catch(() => {});
       },

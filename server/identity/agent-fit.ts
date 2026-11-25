@@ -66,6 +66,7 @@ export const AGENT_WRITE_FIT_TABLE: Readonly<Record<string, AgentWriteFit>> = {
   "agents.sendNow": ID,
   "agents.newConversation": ID,
   "agents.handoff": ID,
+  "agents.runCommand": ID,
   "agents.resume": ID,
   "agents.upload": ID,
   "chatFiles.upload": ID,

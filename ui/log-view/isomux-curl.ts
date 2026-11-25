@@ -973,6 +973,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/agent-reference", "apiCall.agentReference.read"],
   ["GET", "/api/agent-reference/*", "apiCall.agentReference.read"],
   ["POST", "/api/agents/*/handoff", "apiCall.agents.handoff"],
+  ["POST", "/api/agents/*/command", "apiCall.agents.runCommand"],
   ["GET", "/api/agents/*/scheduled-messages", "apiCall.agents.scheduledList"],
   [
     "DELETE",
@@ -1275,6 +1276,15 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.clearConversation", { who });
         if (sub === "handoff" && m === "POST")
           return t("apiCall.agents.handoffFor", { who });
+        if (sub === "command" && m === "POST") {
+          const command = field("text")?.trim().split(/\s+/)[0];
+          return command
+            ? t("apiCall.agents.runCommandOn", {
+                command: truncateLabel(command, 32),
+                who,
+              })
+            : t("apiCall.agents.runCommand");
+        }
         if (sub === "send-now" && m === "POST")
           return t("apiCall.agents.flushQueue", { who });
         if (sub === "abort" && m === "POST")

@@ -231,7 +231,11 @@ import {
   type TerminalDeps,
 } from "./terminal.ts";
 import { startAskRun, type AskRunResult } from "./ask-command-runner.ts";
-import { createCommandHandling } from "./command-handlers.ts";
+import {
+  createCommandHandling,
+  type CommandSender,
+  type RunCommandResult,
+} from "./command-handlers.ts";
 import { createUsageReadings } from "./usage-readings.ts";
 import { createAgentAuth, providerDisplayName } from "./agent-auth.ts";
 import { openCodeDefaultModel } from "../shared/opencode-model.ts";
@@ -284,6 +288,7 @@ import {
   SwappedBeforeSendError,
   TurnSupersededError,
   freshTurnFlags,
+  awaitsMemberAnswer,
   inMultiStepFlow,
   pendingPromptOf,
   type ManagedAgent,
@@ -861,6 +866,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // before the factories below that take its functions.
   const {
     queuedItemText,
+    senderMeta,
     logDeliveredItems,
     drainQueueItems,
     liveClaimed,
@@ -6448,94 +6454,102 @@ export function createAgentManager(deps: ManagerDeps) {
   // (emit, addLogEntry, replaceSession, …), so we instantiate via a deps object.
   // The factory call also runs a startup assertion that every supported command
   // in commands.ts has a matching handler.
-  const { handleSlashCommand } = createCommandHandling({
-    agents,
-    getRooms: () => officeState.rooms,
-    globalRoomIndexOf,
-    roomById,
-    canAccessRoom: deps.canAccess ?? (() => false),
-    isLobbyRoom: deps.isLobbyRoom ?? (() => false),
-    getOfficeConfig: () => officeState.office,
-    logCache,
-    emit,
-    addLogEntry,
-    emitEphemeralLog,
-    updateState,
-    updateAgent: (agentId, changes) =>
-      officeState.updateAgent(agentId, changes),
-    beginTurn,
-    openChoiceInteraction,
-    emitLoginInstructionsFor: (agentId, managed, username) => {
-      void agentLoginInstructions(managed).then((instructions) => {
-        if (managed && agents.get(agentId) !== managed) return;
-        if (instructions.kind === "already_authed") {
-          void emitAlreadySignedInAffordance(
+  const { handleSlashCommand, runCommand: runCommandOn } =
+    createCommandHandling({
+      agents,
+      getRooms: () => officeState.rooms,
+      globalRoomIndexOf,
+      roomById,
+      canAccessRoom: deps.canAccess ?? (() => false),
+      isLobbyRoom: deps.isLobbyRoom ?? (() => false),
+      getOfficeConfig: () => officeState.office,
+      logCache,
+      emit,
+      addLogEntry,
+      emitEphemeralLog,
+      updateState,
+      updateAgent: (agentId, changes) =>
+        officeState.updateAgent(agentId, changes),
+      beginTurn,
+      openChoiceInteraction,
+      emitLoginInstructionsFor: (agentId, managed, username) => {
+        void agentLoginInstructions(managed).then((instructions) => {
+          if (managed && agents.get(agentId) !== managed) return;
+          if (instructions.kind === "already_authed") {
+            void emitAlreadySignedInAffordance(
+              agentId,
+              managed,
+              instructions,
+              username,
+            );
+            return;
+          }
+          void emitLoginInstructions(
             agentId,
-            managed,
             instructions,
             username,
+            "login_command",
           );
-          return;
-        }
-        void emitLoginInstructions(
+        });
+      },
+      emitLogoutAffordanceFor: emitLogoutAffordance,
+      newConversation: (agentId) => newConversation(agentId),
+      requestHandoff,
+      persistAll,
+      requeueSwappedSend,
+      alignAccount,
+      modelUnset,
+      fillUnsetModel,
+      senderMeta,
+      commandItemText: (agentId, sender, rawText, sdkText) =>
+        queuedItemText(
+          { id: "", sender, text: rawText, sdkText, queuedAt: 0 },
           agentId,
-          instructions,
+        ),
+      wakeDormantSession: (agentId, managed, rawText, username, device, meta) =>
+        wakeSessionForSend(agentId, managed, {
+          ...(meta ? { meta } : {}),
+          // echoEarly:false - executeSkill echoes the user's command AFTER the
+          // wake, so the helper must not echo on success (it only re-adds in the
+          // rare clearedStale path, and echoes once on the error path before
+          // executeSkill bails).
+          echoEarly: false,
+          text: rawText,
           username,
-          "login_command",
-        );
-      });
-    },
-    emitLogoutAffordanceFor: emitLogoutAffordance,
-    newConversation: (agentId) => newConversation(agentId),
-    requestHandoff,
-    persistAll,
-    requeueSwappedSend,
-    alignAccount,
-    modelUnset,
-    fillUnsetModel,
-    wakeDormantSession: (agentId, managed, rawText, username, device) =>
-      wakeSessionForSend(agentId, managed, {
-        // echoEarly:false - executeSkill echoes the user's command AFTER the
-        // wake, so the helper must not echo on success (it only re-adds in the
-        // rare clearedStale path, and echoes once on the error path before
-        // executeSkill bails).
-        echoEarly: false,
-        text: rawText,
-        username,
-        device,
-      }),
-    turnFailure: ownedTurnFailure,
-    enqueueMessage,
-    // Same measurement, same roots, same 30s memo as GET /api/storage/usage:
-    // isomux-office passes the route's storage roots here.
-    getStorageUsage: () =>
-      measureStorageCached(
-        deps.storageRoots?.() ?? {
-          stateRoot: STATE_ROOT,
-          backupDir: null,
-          snapshotDir: null,
-        },
-      ),
-    userSkillRootsFor,
-    claudeConfigDirFor,
-    limitedClaudeFamiliesFor: (managed) =>
-      limitedClaudeFamiliesForUserId(managed.info.userId),
-    planModeAvailable: (managed) =>
-      getBackend(managed.info.agentType).planMode === true,
-    setPlanMode,
-    setTopic,
-    regenerateTopic: resetTopic,
-    refreshSkillMenu,
-    memberUserSkillInput,
-    reloadEnginePlugins: async (managed) => {
-      const backend = getBackend(managed.info.agentType);
-      if (!backend.reloadPlugins)
-        throw new Error("This engine has no plugin reload.");
-      return backend.reloadPlugins({
-        environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-      });
-    },
-  });
+          device,
+        }),
+      turnFailure: ownedTurnFailure,
+      enqueueMessage,
+      // Same measurement, same roots, same 30s memo as GET /api/storage/usage:
+      // isomux-office passes the route's storage roots here.
+      getStorageUsage: () =>
+        measureStorageCached(
+          deps.storageRoots?.() ?? {
+            stateRoot: STATE_ROOT,
+            backupDir: null,
+            snapshotDir: null,
+          },
+        ),
+      userSkillRootsFor,
+      claudeConfigDirFor,
+      limitedClaudeFamiliesFor: (managed) =>
+        limitedClaudeFamiliesForUserId(managed.info.userId),
+      planModeAvailable: (managed) =>
+        getBackend(managed.info.agentType).planMode === true,
+      setPlanMode,
+      setTopic,
+      regenerateTopic: resetTopic,
+      refreshSkillMenu,
+      memberUserSkillInput,
+      reloadEnginePlugins: async (managed) => {
+        const backend = getBackend(managed.info.agentType);
+        if (!backend.reloadPlugins)
+          throw new Error("This engine has no plugin reload.");
+        return backend.reloadPlugins({
+          environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+        });
+      },
+    });
 
   // === Message queue ===
   //
@@ -7391,9 +7405,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // answer waits behind the prompt instead.
     if (
       (opts.refusePromptAnswer || (!ask && isRepliesOnlyDevice(device))) &&
-      (inMultiStepFlow(managed) ||
-        managed.pendingInteraction ||
-        managed.queuedPermissions.length > 0)
+      awaitsMemberAnswer(managed)
     ) {
       refuse({
         ok: false,
@@ -8325,6 +8337,24 @@ export function createAgentManager(deps: ManagerDeps) {
         },
       });
     }
+  }
+
+  // POST /api/agents/:id/command: run a skill or an engine command on the
+  // agent for `sender` (command-handlers runCommand).
+  async function runCommand(
+    agentId: string,
+    text: string,
+    sender: CommandSender,
+  ): Promise<RunCommandResult> {
+    const managed = agents.get(agentId);
+    if (!managed)
+      return {
+        ok: false,
+        status: 404,
+        code: "agent_not_found",
+        message: "No such agent.",
+      };
+    return runCommandOn(agentId, managed, text, sender);
   }
 
   function respondToChoiceInteraction(
@@ -9552,12 +9582,18 @@ export function createAgentManager(deps: ManagerDeps) {
       username?: string;
       device?: string;
       ask?: AskRef;
+      // Who sent it, when not the member named above (an agent's command).
+      sender?: QueuedMessage["sender"];
     },
   ): boolean {
     if (!(err instanceof SwappedBeforeSendError)) return false;
     if (!agents.has(agentId)) return true;
     const result = enqueueMessage(agentId, {
-      sender: { kind: "user", username: send.username, device: send.device },
+      sender: send.sender ?? {
+        kind: "user",
+        username: send.username,
+        device: send.device,
+      },
       text: send.text,
       ...(send.sdkText ? { sdkText: send.sdkText } : {}),
       ...(send.native ? { native: true } : {}),
@@ -10982,6 +11018,7 @@ export function createAgentManager(deps: ManagerDeps) {
     readQueue,
     sendNow,
     sendMessage,
+    runCommand,
     respondToChoiceInteraction,
     abort,
     abortByAgent,

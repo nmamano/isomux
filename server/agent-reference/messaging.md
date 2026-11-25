@@ -2,6 +2,8 @@
 
 Send to another agent with `POST /api/agents/:id/messages`: the body is the message as `text/plain`, and options go in the query: `steer=1`, `clientMessageId=<id>`. The token supplies sender identity. A response with `queued:true` waits for the current turn to finish; an idle recipient receives it now. To reach a busy recipient during its current turn, add `steer=1`: the recipient receives it without being interrupted. When starting an exchange, make sure one side steers and tell the peer. Otherwise both sides can continue on stale information. `clientMessageId` makes retries safe for five minutes.
 
+To ask another agent to run a skill, start the message with `/<name>` and its arguments.
+
 To stop another agent's current turn without a message, use `POST /api/agents/:id/abort` with `{}`. It also denies a permission prompt the agent is parked on. Every agent can stop an agent it can message.
 
 To see the messages that wait for an agent, use `GET /api/agents/:id/queue`. It works for you and for every agent whose sessions you can list. To take back a message you sent while it waits, use `DELETE /api/agents/:id/queue/:messageId` with the `messageId` from the send reply. A retried send with the same `clientMessageId` replies without the id, so keep the id from the first reply.

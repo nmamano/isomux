@@ -3,6 +3,7 @@ import type {
   AgentInfo,
   AgentChoiceInteractionKind,
   AgentState,
+  AgentBackendType,
   LogEntry,
   OfficeSettings,
   QueuedMessage,
@@ -76,6 +77,7 @@ import {
 } from "./file-editor.ts";
 import {
   SessionSwappedError,
+  awaitsMemberAnswer,
   inMultiStepFlow,
   type ManagedAgent,
   type ManualHandoffRequest,
@@ -83,6 +85,7 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
+import { handlerRoute } from "./command-areas.ts";
 import { resendWaits } from "./unsaved-delivery.ts";
 import type { SessionPluginReload } from "./backends/types.ts";
 import { directInputCapped } from "./member-usage-cap.ts";
@@ -201,6 +204,51 @@ function formatAliasGroup(names: string[], description?: LogText): LogPart[] {
 // native item while the agent is busy.
 export type SlashCommandResult = boolean | "native";
 
+// Who runs a command: a member (or a member's API token) or an agent. A
+// handler only ever runs for a member; an agent sender reaches only a skill or
+// an engine command (POST /api/agents/:id/command).
+export type CommandSender = Extract<
+  QueuedMessage["sender"],
+  { kind: "user" } | { kind: "agent" }
+>;
+
+// What `/<cmd>` is on one agent, with no side effects. handleSlashCommand
+// dispatches on it for a member's typed command; runCommand for the route.
+export type SlashResolution =
+  // An Isomux command that Isomux runs itself (CommandConfig.handler).
+  | { kind: "handler"; handler: string }
+  // A skill, expanded to the prompt the engine reads.
+  | { kind: "skill"; prompt: string }
+  // A command the engine runs itself (CommandConfig.native on this engine,
+  // or a command the engine reports).
+  | { kind: "native" }
+  // A native command that this agent's engine does not run.
+  | { kind: "engine_unsupported"; engines: AgentBackendType[] }
+  // A command Isomux knows and does not support.
+  | { kind: "unsupported" }
+  | { kind: "unknown" }
+  // An isolated member's skill files could not be read.
+  | { kind: "unreadable" };
+
+// What runCommandTurn did with a command: ran it now, or queued it behind
+// the running turn, or could not queue it (the line is in the chat).
+type CommandTurnOutcome =
+  | { kind: "ran" }
+  | { kind: "queued"; messageId: string }
+  | { kind: "queue_failed"; status: number; error: string };
+
+// The outcome of POST /api/agents/:id/command.
+export type RunCommandResult =
+  | { ok: true; ran: true }
+  | { ok: true; queued: true; messageId: string }
+  | {
+      ok: false;
+      status: 404 | 409 | 422 | 429 | 500;
+      code: string;
+      message: string;
+      detail?: Record<string, unknown>;
+    };
+
 interface HandlerDeps {
   // State accessors are live references, read at call time.
   agents: Map<string, ManagedAgent>;
@@ -277,8 +325,26 @@ interface HandlerDeps {
   requeueSwappedSend: (
     agentId: string,
     err: unknown,
-    msg: { text: string; sdkText: string; username?: string; device?: string },
+    msg: {
+      text: string;
+      sdkText?: string;
+      native?: boolean;
+      attachments?: Attachment[];
+      sender: CommandSender;
+    },
   ) => boolean;
+  // The chat metadata of an agent sender (message-queue senderMeta).
+  senderMeta: (
+    sender: QueuedMessage["sender"],
+  ) => Record<string, unknown> | undefined;
+  // The text the model reads for a command an agent sent: the same bytes
+  // the queue delivers for it after a turn (message-queue queuedItemText).
+  commandItemText: (
+    agentId: string,
+    sender: CommandSender,
+    rawText: string,
+    sdkText: string,
+  ) => string;
   // Wake a DORMANT agent so a skill's turn has a live session to send on (lazy
   // restore). Returns true if a session is ready; false if starting one failed
   // (an error was already logged and the agent moved to "error"), in which case
@@ -295,6 +361,8 @@ interface HandlerDeps {
     rawText: string,
     username?: string,
     device?: string,
+    // The echo's metadata when it is not the member's (an agent sender).
+    meta?: Record<string, unknown>,
   ) => boolean;
   // The account check at a turn start (server/provider-fallback.ts): moves
   // the agent to the sign-in its member's fallback wants before the turn
@@ -953,16 +1021,16 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       if (!hasInput) return true;
-      return runCommandTurn(
+      await runCommandTurn(
         agentId,
         managed,
         text,
         rawText,
         "systemEntries.genericError",
-        username,
-        device,
+        { kind: "user", username, device },
         files,
       );
+      return true;
     },
 
     // `/rename <text>` sets the topic. Bare, it labels the conversation
@@ -1522,10 +1590,9 @@ export function createCommandHandling(deps: HandlerDeps) {
     skillPrompt: string,
     args: string[],
     rawText: string,
-    username?: string,
-    device?: string,
+    sender: CommandSender,
     attachments?: Attachment[],
-  ): Promise<boolean> {
+  ): Promise<CommandTurnOutcome> {
     const userArgs = args.join(" ");
     // An OpenCode agent has no bearer token: the skill's office calls go out
     // in its own form, as in its system prompt.
@@ -1540,24 +1607,36 @@ export function createCommandHandling(deps: HandlerDeps) {
       fullPrompt,
       rawText,
       "commands.skill.error",
-      username,
-      device,
+      sender,
       attachments,
     );
   }
 
-  // Runs `fullPrompt` as a turn on behalf of a typed command, logged as the
-  // command the member typed.
+  // The chat metadata of a command's echo: the member who typed it, or the
+  // agent that ran it.
+  function senderLogMeta(
+    sender: CommandSender,
+  ): Record<string, unknown> | undefined {
+    return sender.kind === "user"
+      ? buildMeta(sender.username, sender.device)
+      : deps.senderMeta(sender);
+  }
+
+  // Runs `fullPrompt` as a turn on behalf of a command, logged as the
+  // command `sender` typed or sent. `native`: the engine expands `rawText`
+  // itself, so it goes alone, as typed.
   async function runCommandTurn(
     agentId: string,
     managed: ManagedAgent,
     fullPrompt: string,
     rawText: string,
     errorKey: "commands.skill.error" | "systemEntries.genericError",
-    username?: string,
-    device?: string,
+    sender: CommandSender,
     attachments?: Attachment[],
-  ): Promise<boolean> {
+    native = false,
+  ): Promise<CommandTurnOutcome> {
+    const username = sender.kind === "user" ? sender.username : undefined;
+    const device = sender.kind === "user" ? sender.device : undefined;
     // Files go with the command only when there are any, so a command
     // without files queues and logs as before.
     const files = attachments?.length ? attachments : undefined;
@@ -1576,9 +1655,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       !inMultiStepFlow(managed)
     ) {
       const result = deps.enqueueMessage(agentId, {
-        sender: { kind: "user", username, device },
+        sender,
         text: rawText,
-        sdkText: fullPrompt,
+        ...(native ? { native: true } : { sdkText: fullPrompt }),
         ...(files ? { attachments: files } : {}),
       });
       if (!result.ok) {
@@ -1590,10 +1669,16 @@ export function createCommandHandling(deps: HandlerDeps) {
             error: result.error,
           }),
         );
+        return {
+          kind: "queue_failed",
+          status: result.status,
+          error: result.error,
+        };
       }
-      return true;
+      return { kind: "queued", messageId: result.messageId ?? "" };
     }
 
+    const echoMeta = senderLogMeta(sender);
     const accountCheck = deps.alignAccount(agentId, managed);
     if (accountCheck) await accountCheck;
     // The model before the wake below. With none, the command is kept in the
@@ -1604,11 +1689,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.modelUnset(managed) &&
       !(await deps.fillUnsetModel(agentId, managed))
     ) {
-      const userMeta: Record<string, unknown> = {};
-      if (username) userMeta.username = username;
-      if (device) userMeta.device = device;
-      deps.addLogEntry(agentId, "user_message", rawText, userMeta, files);
-      return true;
+      deps.addLogEntry(agentId, "user_message", rawText, echoMeta ?? {}, files);
+      return { kind: "ran" };
     }
     // A swap holds the slot (a /resume pick, an edit): the skill runs on what
     // it installs. No await between this wait and the check below.
@@ -1622,30 +1704,44 @@ export function createCommandHandling(deps: HandlerDeps) {
     // broken (non-dormant) session is left to surface its own error.
     if (!managed.sessionManager.session && managed.info.dormant) {
       if (
-        !deps.wakeDormantSession(agentId, managed, rawText, username, device)
+        !deps.wakeDormantSession(
+          agentId,
+          managed,
+          rawText,
+          username,
+          device,
+          echoMeta,
+        )
       ) {
-        return true; // wake failed; error already logged + state set to "error"
+        return { kind: "ran" }; // wake failed; error already logged + state set to "error"
       }
     }
 
     // sdkText captures the expanded prompt the SDK actually receives so editMessage
     // can match this log entry against the SDK session (content alone is the slash
     // command and won't match).
-    const userMeta: Record<string, unknown> = { sdkText: fullPrompt };
-    if (username) userMeta.username = username;
-    if (device) userMeta.device = device;
+    const userMeta: Record<string, unknown> = native
+      ? { ...(echoMeta ?? {}) }
+      : { ...(echoMeta ?? {}), sdkText: fullPrompt };
     deps.addLogEntry(agentId, "user_message", rawText, userMeta, files);
-    const prefix = formatPrefix({ username, device });
-    const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
+    // A native command goes as typed: the engine expands it only at the start
+    // of the message. An agent's command reads as the queue would deliver it
+    // (message-queue queuedItemText), so it is the same now or after a turn.
+    const sdkText = native
+      ? rawText
+      : sender.kind === "agent"
+        ? deps.commandItemText(agentId, sender, rawText, fullPrompt)
+        : `${formatPrefix({ username, device })}${fullPrompt}`;
     try {
       const typerId = getUserByName(username)?.id;
       await runAgentTurn({
         managed,
-        sdkText: prefixedSkillPrompt,
+        sdkText,
         attachments: files,
         memberIds: typerId ? [typerId] : [],
-        usageCapped: directInputCapped(username),
+        usageCapped: sender.kind === "user" && directInputCapped(username),
         usageCapUsername: username,
+        ...(native ? { nativeCommand: true } : {}),
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw and has
@@ -1654,21 +1750,98 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (
         deps.requeueSwappedSend(agentId, err, {
           text: rawText,
-          sdkText: fullPrompt,
+          ...(native ? { native: true } : { sdkText: fullPrompt }),
           ...(files ? { attachments: files } : {}),
-          username,
-          device,
+          sender,
         })
       )
-        return true;
-      if (err instanceof SessionSwappedError) return true;
+        return { kind: "ran" };
+      if (err instanceof SessionSwappedError) return { kind: "ran" };
       deps.turnFailure(agentId, managed, err, {
         username,
         label: "command",
         frame: (error) => msg(errorKey, { error }),
       });
     }
-    return true;
+    return { kind: "ran" };
+  }
+
+  // What `/<cmd>` is on this agent, with no side effects: the order a typed
+  // command has always taken (an Isomux command no skill may shadow, then a
+  // skill, then a command a skill may shadow, then one the engine reports).
+  async function resolveSlashCommand(
+    managed: ManagedAgent,
+    cmd: string,
+  ): Promise<SlashResolution> {
+    const cfg: CommandConfig | undefined = Object.hasOwn(commands, cmd)
+      ? commands[cmd]
+      : undefined;
+
+    if (cfg && !cfg.overridable) {
+      if (cfg.supported && cfg.handler && commandHandlers[cfg.handler])
+        return { kind: "handler", handler: cfg.handler };
+      return { kind: "unsupported" };
+    }
+
+    // An isolated member's skills are read now by their runner, so they run
+    // with their current files, as the office reads its own at invocation;
+    // the office reads none of the member's files (user-skill, then
+    // project-skill). A file it cannot give (over the bound, a failed or
+    // silent call) is one line, never a skill in the menu that does nothing.
+    let member: MemberSkillPrompts | undefined;
+    const memberHost = memberFolderHost(managed.info.userId);
+    if (memberHost) {
+      const input = deps.memberUserSkillInput(managed);
+      if (!input) return { kind: "unreadable" };
+      const user = await fetchUserSkillPrompt(memberHost, input, cmd);
+      if (user.kind === "failed") return { kind: "unreadable" };
+      const found =
+        user.kind === "ok" && user.from !== "synced" ? user.prompt : null;
+      const project =
+        found === null && SKILL_NAME.test(cmd)
+          ? await fetchProjectSkillPrompt(
+              memberHost,
+              managed.info.cwd,
+              managed.info.agentType,
+              cmd,
+            )
+          : ({ kind: "missing" } as const);
+      if (project.kind === "failed") return { kind: "unreadable" };
+      member = {
+        user: found,
+        project: project.kind === "ok" ? project.prompt : null,
+        synced:
+          user.kind === "ok" && user.from === "synced" ? user.prompt : null,
+      };
+    }
+    const skillPrompt = resolveSkillPrompt(
+      cmd,
+      managed.info.cwd,
+      managed.info.agentType,
+      deps.userSkillRootsFor(managed),
+      true,
+      deps.claudeConfigDirFor(managed),
+      managed.reportedPlugins,
+      managed.reportedSkills,
+      member,
+    );
+    if (skillPrompt) return { kind: "skill", prompt: skillPrompt };
+
+    if (cfg && cfg.overridable) {
+      if (cfg.supported && cfg.native) {
+        if (!runsOnEngine(cfg, managed.info.agentType))
+          return { kind: "engine_unsupported", engines: cfg.engines ?? [] };
+        return { kind: "native" };
+      }
+      if (cfg.supported && cfg.handler && commandHandlers[cfg.handler])
+        return { kind: "handler", handler: cfg.handler };
+      return { kind: "unsupported" };
+    }
+
+    // A command the engine reports and Isomux does not handle runs in the
+    // engine, as a native command does.
+    if (managed.sdkReportedCommands.includes(cmd)) return { kind: "native" };
+    return { kind: "unknown" };
   }
 
   async function handleSlashCommand(
@@ -1714,11 +1887,18 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (user) recordSkillUse(user.id, cmd);
     };
 
-    if (cfg && !cfg.overridable) {
-      if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+    const refuse = (line: LogText): true => {
+      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      deps.emitEphemeralLog(agentId, "system", line);
+      return true;
+    };
+
+    const resolved = await resolveSlashCommand(managed, cmd);
+    switch (resolved.kind) {
+      case "handler":
         if (refusesFiles()) return true;
-        if (cfg.autocomplete) countUse();
-        return commandHandlers[cfg.handler](
+        if (cfg?.autocomplete) countUse();
+        return commandHandlers[resolved.handler](
           agentId,
           managed,
           args,
@@ -1728,129 +1908,168 @@ export function createCommandHandling(deps: HandlerDeps) {
           files,
           limits,
         );
-      }
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
-      return true;
-    }
-
-    // An isolated member's skills are read now by their runner, so they run
-    // with their current files, as the office reads its own at invocation;
-    // the office reads none of the member's files (user-skill, then
-    // project-skill). A file it cannot give (over the bound, a failed or
-    // silent call) is one line, never a skill in the menu that does nothing.
-    let member: MemberSkillPrompts | undefined;
-    const memberHost = memberFolderHost(managed.info.userId);
-    if (memberHost) {
-      const unreadable = () => {
-        deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-        deps.emitEphemeralLog(
-          agentId,
-          "system",
-          msg("systemEntries.memberSkillUnreadable", { name: cmd }),
-        );
-        return true;
-      };
-      const input = deps.memberUserSkillInput(managed);
-      if (!input) return unreadable();
-      const user = await fetchUserSkillPrompt(memberHost, input, cmd);
-      if (user.kind === "failed") return unreadable();
-      const found =
-        user.kind === "ok" && user.from !== "synced" ? user.prompt : null;
-      const project =
-        found === null && SKILL_NAME.test(cmd)
-          ? await fetchProjectSkillPrompt(
-              memberHost,
-              managed.info.cwd,
-              managed.info.agentType,
-              cmd,
-            )
-          : ({ kind: "missing" } as const);
-      if (project.kind === "failed") return unreadable();
-      member = {
-        user: found,
-        project: project.kind === "ok" ? project.prompt : null,
-        synced:
-          user.kind === "ok" && user.from === "synced" ? user.prompt : null,
-      };
-    }
-    const skillPrompt = resolveSkillPrompt(
-      cmd,
-      managed.info.cwd,
-      managed.info.agentType,
-      deps.userSkillRootsFor(managed),
-      true,
-      deps.claudeConfigDirFor(managed),
-      managed.reportedPlugins,
-      managed.reportedSkills,
-      member,
-    );
-    if (skillPrompt) {
-      countUse();
-      return executeSkill(
-        agentId,
-        managed,
-        skillPrompt,
-        args,
-        rawText,
-        username,
-        device,
-        files,
-      );
-    }
-
-    if (cfg && cfg.overridable) {
-      if (cfg.supported && cfg.native) {
-        const engine = managed.info.agentType;
-        if (!runsOnEngine(cfg, engine)) {
-          deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-          deps.emitEphemeralLog(
-            agentId,
-            "system",
-            msg("commands.unsupported.engine", {
-              name: cmd,
-              engines: (cfg.engines ?? [])
-                .map((e) => ENGINE_NAMES[e])
-                .join(", "),
-            }),
-          );
-          return true;
-        }
-        if (refusesFiles()) return true;
-        if (cfg.autocomplete) countUse();
-        return "native";
-      }
-      if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
-        if (refusesFiles()) return true;
-        if (cfg.autocomplete) countUse();
-        return commandHandlers[cfg.handler](
+      case "skill":
+        countUse();
+        await executeSkill(
           agentId,
           managed,
+          resolved.prompt,
           args,
           rawText,
-          username,
-          device,
+          { kind: "user", username, device },
           files,
         );
-      }
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
-      return true;
+        return true;
+      case "native":
+        if (refusesFiles()) return true;
+        if (cfg?.autocomplete) countUse();
+        return "native";
+      case "engine_unsupported":
+        return refuse(
+          msg("commands.unsupported.engine", {
+            name: cmd,
+            engines: resolved.engines.map((e) => ENGINE_NAMES[e]).join(", "),
+          }),
+        );
+      case "unsupported":
+        return refuse(unsupportedMessage(cmd));
+      case "unreadable":
+        return refuse(
+          msg("systemEntries.memberSkillUnreadable", { name: cmd }),
+        );
+      case "unknown":
+        return refuse(
+          msg("commands.unsupported.unknownCommand", { name: cmd }),
+        );
     }
-
-    // A command the engine reports and Isomux does not handle runs in the
-    // engine, as a native command does.
-    if (managed.sdkReportedCommands.includes(cmd))
-      return refusesFiles() ? true : "native";
-
-    deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-    deps.emitEphemeralLog(
-      agentId,
-      "system",
-      msg("commands.unsupported.unknownCommand", { name: cmd }),
-    );
-    return true;
   }
 
-  return { commandHandlers, executeSkill, handleSlashCommand };
+  // Runs `text` ("/<name> args") on the agent for `sender`: a skill or an
+  // engine command, never an Isomux handler (each has its own route, or is a
+  // member's). The caller checked who may run it (POST /api/agents/:id/command).
+  async function runCommand(
+    agentId: string,
+    managed: ManagedAgent,
+    text: string,
+    sender: CommandSender,
+  ): Promise<RunCommandResult> {
+    const refused = (
+      status: 409 | 422,
+      code: string,
+      message: string,
+      detail?: Record<string, unknown>,
+    ): RunCommandResult => ({
+      ok: false,
+      status,
+      code,
+      message,
+      ...(detail ? { detail } : {}),
+    });
+    const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
+    // Before any await, so a picker cannot open between the check and the
+    // run. The command never answers it: the member does.
+    if (awaitsMemberAnswer(managed))
+      return refused(
+        409,
+        "awaits_member_answer",
+        "The agent waits for a member's answer. The member answers it in the office.",
+      );
+    // A member's run counts for their Skill menu, as a typed one does; an
+    // agent's counts for no one.
+    const countUse = () => {
+      if (sender.kind !== "user") return;
+      const user = getUserByName(sender.username);
+      if (user) recordSkillUse(user.id, cmd);
+    };
+    const resolved = await resolveSlashCommand(managed, cmd);
+    let outcome: CommandTurnOutcome;
+    switch (resolved.kind) {
+      case "handler": {
+        const route = handlerRoute(resolved.handler);
+        return route
+          ? refused(422, "has_route", `/${cmd} has its own route: ${route}`, {
+              route,
+            })
+          : refused(
+              422,
+              "has_route",
+              `/${cmd} is an Isomux command that only a member can run, in the chat.`,
+            );
+      }
+      case "unsupported":
+        return refused(
+          422,
+          "unsupported_command",
+          `Isomux does not support /${cmd}.`,
+        );
+      case "unknown":
+        return refused(
+          422,
+          "unknown_command",
+          `No skill or command /${cmd} on this agent.`,
+        );
+      case "engine_unsupported":
+        return refused(
+          422,
+          "engine_unsupported",
+          `This agent's engine does not run /${cmd}.`,
+          { engines: resolved.engines },
+        );
+      case "unreadable":
+        return refused(
+          422,
+          "skill_unreadable",
+          `The skill files for /${cmd} could not be read.`,
+        );
+      case "skill":
+        countUse();
+        outcome = await executeSkill(
+          agentId,
+          managed,
+          resolved.prompt,
+          args,
+          text,
+          sender,
+        );
+        break;
+      case "native":
+        if (commands[cmd]?.autocomplete) countUse();
+        outcome = await runCommandTurn(
+          agentId,
+          managed,
+          text,
+          text,
+          "systemEntries.genericError",
+          sender,
+          undefined,
+          true,
+        );
+        break;
+    }
+    if (outcome.kind === "queued")
+      return { ok: true, queued: true, messageId: outcome.messageId };
+    if (outcome.kind === "queue_failed") {
+      const status =
+        outcome.status === 404 ||
+        outcome.status === 409 ||
+        outcome.status === 429
+          ? outcome.status
+          : 500;
+      return {
+        ok: false,
+        status,
+        code: outcome.error,
+        message: `The command could not be queued: ${outcome.error}.`,
+      };
+    }
+    return { ok: true, ran: true };
+  }
+
+  return {
+    commandHandlers,
+    executeSkill,
+    handleSlashCommand,
+    resolveSlashCommand,
+    runCommand,
+  };
 }

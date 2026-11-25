@@ -407,6 +407,14 @@ export interface HandoffReq {
   text: string;
 }
 
+// POST /api/agents/:id/command: run "/<name> args" (a skill or an engine
+// command) on the agent. ran: it started now; queued: it waits behind the
+// agent's turn, and DELETE /api/agents/:id/queue/:messageId takes it back.
+export interface RunCommandReq {
+  text: string;
+}
+export type RunCommandRes = { ran: true } | { queued: true; messageId: string };
+
 // GET /api/agents/:id/terminal. open is false when the agent has no terminal
 // running; truncated is true when older output left the in-memory buffer.
 export interface TerminalReadRes {

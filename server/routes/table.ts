@@ -154,6 +154,8 @@ import type {
   ResumeReq,
   NewConversationReq,
   HandoffReq,
+  RunCommandReq,
+  RunCommandRes,
   TopicReq,
   AffordanceReadFileReq,
   AffordanceEditFileReq,
@@ -987,6 +989,23 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     tokenArea: { area: "agents", level: "write" },
     emits: ["clear_logs", "log_entry"],
+    preconditions: ["officeNotEnterpriseLocked"],
+  }),
+  // Run a skill or an engine command on an agent ("/<name> args"), as if a
+  // member typed it. An Isomux command (one with its own route, or none) is
+  // refused. Same auth split as new-conversation (conversationReset): an
+  // operator runs one on any reachable agent, an ordinary agent only on itself.
+  defineRoute<RunCommandReq, RunCommandRes>({
+    opId: "agents.runCommand",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/command",
+    auth: cap(
+      ["agent:converse", "self:affordance"],
+      and(notApp, conversationReset),
+    ),
+    tokenArea: { area: "agents", level: "write" },
+    emits: ["log_entry"],
     preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<ResumeReq, NoContent>({

@@ -2537,6 +2537,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.agents.remove": "Remove agent {who}",
   "apiCall.agents.handoff": "Hand off to fresh session",
   "apiCall.agents.handoffFor": "Hand off {who} to a fresh session",
+  "apiCall.agents.runCommand": "Run a command on an agent",
+  "apiCall.agents.runCommandOn": "Run {command} on {who}",
   "apiCall.agents.scheduledList": "List scheduled messages",
   "apiCall.agents.scheduledListFor": "List {who}'s outgoing scheduled messages",
   "apiCall.agents.scheduledCancel": "Cancel scheduled message",
