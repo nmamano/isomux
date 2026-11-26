@@ -31,6 +31,7 @@ import {
   type InstructionsLineStep,
   type InstructionsLineStepRun,
   type InstructionsScope,
+  type MemberOsUserStep,
   type MemberViewList,
   type ProviderAccountProvider,
   type ProviderAccountScope,
@@ -38,6 +39,7 @@ import {
 } from "../shared/types.ts";
 import {
   ASK_PREFERENCE_KEYS,
+  OS_USER_NAME_PATTERN,
   type OfficeSettingsRes,
 } from "../shared/contract-shapes.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
@@ -106,7 +108,10 @@ import {
   type DiscordRouteTrigger,
 } from "../shared/discord.ts";
 import type { UpdateStatusWire } from "../shared/types.ts";
-import type { PruneTarget } from "../shared/contract-shapes.ts";
+import type {
+  MemberOsUserWire,
+  PruneTarget,
+} from "../shared/contract-shapes.ts";
 
 export interface StepAskDeps {
   asks: AskStore;
@@ -269,6 +274,17 @@ export interface StepRunDeps {
     routes(userId: string): DiscordRoute[];
     agentProblem(userId: string, agentId: string): DiscordRouteDead | null;
   };
+  // Task 4088f164. The member's OS user as the owner's Members page reads it
+  // (memberOsUserView, without the candidates), or null when the member is
+  // gone.
+  memberOsUser(userId: string): MemberOsUserWire | null;
+  // How the office can run the member's root command itself (the GET's run
+  // field): null where it cannot.
+  osUserRunMode(): Promise<MemberOsUserWire["run"]>;
+  // The existing OS users an owner can give a member, and the names a new
+  // user cannot take. Each null when it could not be read in full: the
+  // create then accepts the name, and the root command checks it at run.
+  osUserNames(): Promise<{ existing: string[] | null; taken: string[] | null }>;
   // Whether the member passes the route's own authorization, as from the
   // page: the refusal, or null. Runs nothing.
   authorizeAs(
@@ -381,6 +397,7 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "storage-retention": ["kind", "set"],
   // The server fills targetId (task 33891b5b).
   "instructions-line": ["kind", "scope", "line"],
+  "member-os-user": ["kind", "username", "on", "osUser", "existing"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -452,6 +469,10 @@ function mcpScope(
 // member an action step changes.
 function doneLine(step: AskStep, target: string): LogMessage {
   switch (step.kind) {
+    case "member-os-user":
+      return step.on
+        ? msg("systemEntries.stepAsk.memberOsUserOn", { member: target })
+        : msg("systemEntries.stepAsk.memberOsUserOff", { member: target });
     case "sign-in-link-extend":
       return msg("systemEntries.stepAsk.signInLinkExtended", {
         member: target,
@@ -831,6 +852,17 @@ export function createStepAsks(deps: StepAskDeps) {
   ): Promise<boolean> {
     if (!isKnownKind(step.kind)) return false;
     switch (step.kind) {
+      // On (as the named user, when the step names one), or off. Not ready,
+      // moving and broken are never done.
+      case "member-os-user": {
+        const now = deps.runs?.memberOsUser(step.userId);
+        if (!now) return false;
+        if (!step.on) return now.state === "off";
+        return (
+          now.state === "on" &&
+          (step.osUser === undefined || now.osUser?.name === step.osUser)
+        );
+      }
       // The link's expiry passed the one stored at the create, by the card or
       // by hand. A link used, replaced or taken back is not extended: the ask
       // stays open, and Apply answers the route's refusal.
@@ -1306,6 +1338,110 @@ export function createStepAsks(deps: StepAskDeps) {
     };
   }
 
+  // The Members page's Run of a member-os-user step, under the member's
+  // name now, or null when they are gone. The target comes from the step;
+  // the card gives only the password, sent only when it is a string.
+  function osUserRoute(
+    step: MemberOsUserStep,
+    pick: unknown,
+  ): StepRoute | null {
+    const name = deps.runs?.member(step.userId)?.name;
+    if (name === undefined) return null;
+    const password =
+      isObject(pick) && typeof pick.password === "string"
+        ? pick.password
+        : undefined;
+    return {
+      method: "POST",
+      path: `/api/users/${encodeURIComponent(name)}/os-user/run`,
+      body: {
+        action: step.on ? "enable" : "disable",
+        ...(step.osUser === undefined ? {} : { osUser: step.osUser }),
+        ...(step.existing ? { existing: true } : {}),
+        ...(password === undefined ? {} : { password }),
+      },
+    };
+  }
+
+  // Why a member-os-user step cannot run on the member's OS user now, or
+  // null: what the root command refuses since the state changed, and a run
+  // or a move that goes on (the Run route knows only its own runs).
+  function osUserRunRefusal(
+    step: MemberOsUserStep,
+    checkBusy = true,
+  ): StepFailure | null {
+    const now = deps.runs?.memberOsUser(step.userId);
+    if (!now) return null;
+    if (step.osUser !== undefined && now.state !== "off")
+      return {
+        ok: false,
+        status: 409,
+        code: "os_user_on",
+        message:
+          "the member has an OS user: leave out osUser to finish or run the enable again, or turn the OS user off first",
+      };
+    if (!step.on && now.movedIn)
+      return {
+        ok: false,
+        status: 409,
+        code: "moved_in",
+        message:
+          "the member came with an office move, and turning their OS user off deletes the files it moved: the office owner runs the disable command from GET /api/users/:username/os-user (commands.disable) by hand",
+      };
+    if (
+      checkBusy &&
+      (now.attempt?.status === "running" || now.state === "moving")
+    )
+      return {
+        ok: false,
+        status: 409,
+        code: "run_in_progress",
+        message:
+          "the member's root command runs, or their files move: try again when it ends",
+      };
+    return null;
+  }
+
+  // The create's checks of a member-os-user step after the done check: the
+  // office can run the command, the state lets it run, and the name the step
+  // gives is one the box has (existing) or one it does not (new), where the
+  // box's names were read in full.
+  async function osUserCreateRefusal(
+    step: MemberOsUserStep,
+  ): Promise<StepFailure | null> {
+    const runs = deps.runs;
+    if (!runs) return invalid("this office runs no action steps");
+    const name = runs.member(step.userId)?.name ?? ":username";
+    if ((await runs.osUserRunMode()) === null)
+      return {
+        ok: false,
+        status: 409,
+        code: "run_unavailable",
+        message: `this office cannot run the member's root command itself: give the office owner the command in commands of GET /api/users/${encodeURIComponent(name)}/os-user to run as root`,
+      };
+    const refused = osUserRunRefusal(step, false);
+    if (refused) return refused;
+    if (step.osUser === undefined) return null;
+    const names = await runs.osUserNames();
+    if (step.existing) {
+      if (names.existing && !names.existing.includes(step.osUser))
+        return {
+          ok: false,
+          status: 422,
+          code: "unknown_os_user",
+          message: `no existing OS user of this name that a member can get: candidates of GET /api/users/${encodeURIComponent(name)}/os-user lists them`,
+        };
+    } else if (names.taken?.includes(step.osUser))
+      return {
+        ok: false,
+        status: 422,
+        code: "os_user_taken",
+        message:
+          "an OS user or group of this name exists: name another new user, or send existing: true for an existing user from candidates",
+      };
+    return null;
+  }
+
   function routeOf(
     step: AskStep,
     memberUserId: string,
@@ -1313,6 +1449,12 @@ export function createStepAsks(deps: StepAskDeps) {
     pick?: unknown,
   ): StepRun | null {
     switch (step.kind) {
+      case "member-os-user": {
+        const route = osUserRoute(step, pick);
+        if (!route) return unknownMember();
+        const refused = osUserRunRefusal(step);
+        return refused ?? { ok: true, routes: [route] };
+      }
       case "agent-access":
         return {
           ok: true,
@@ -1789,6 +1931,41 @@ export function createStepAsks(deps: StepAskDeps) {
         return invalid("step.scope is personal or office");
     const owner = deps.isOfficeOwner(memberUserId);
     switch (kind) {
+      case "member-os-user": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        if (typeof body.on !== "boolean")
+          return invalid(
+            "step.on is true (turn the OS user on) or false (turn it off)",
+          );
+        const { osUser, existing } = body;
+        if (!body.on && (osUser !== undefined || existing !== undefined))
+          return invalid("step.osUser and step.existing are for on: true");
+        if (
+          osUser !== undefined &&
+          (typeof osUser !== "string" || !OS_USER_NAME_PATTERN.test(osUser))
+        )
+          return invalid(
+            "step.osUser is an OS user name: lowercase letters, digits, _ and -, at most 32",
+          );
+        if (existing !== undefined && typeof existing !== "boolean")
+          return invalid("step.existing is true or false");
+        if (existing !== undefined && osUser === undefined)
+          return invalid("step.existing needs step.osUser");
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        return {
+          ok: true,
+          step: {
+            kind,
+            userId,
+            on: body.on,
+            ...(typeof osUser === "string" ? { osUser } : {}),
+            ...(existing === true ? { existing: true } : {}),
+          },
+        };
+      }
       // The member's one link an owner can extend, stored with its expiry
       // now. Only an office owner applies it: that refusal comes before any
       // answer about the member's links.
@@ -2382,6 +2559,7 @@ export function createStepAsks(deps: StepAskDeps) {
       case "member-sessions":
       case "session-revoke":
       case "sign-in-links-revoke":
+      case "member-os-user":
       case "sign-in-link-extend":
       case "member-avatar":
         return deps.runs?.member(step.userId)?.name ?? step.userId;
@@ -2412,6 +2590,16 @@ export function createStepAsks(deps: StepAskDeps) {
     const runs = deps.runs;
     if (!runs) return invalid("this office runs no action steps");
     switch (step.kind) {
+      // The rest is osUserCreateRefusal's, after the done check.
+      case "member-os-user": {
+        const route = osUserRoute(step, undefined);
+        if (!route) return unknownMember();
+        return runs.authorizeAs(memberUserId, route)
+          ? notAllowed(
+              "only an office owner can turn a member's OS user on or off",
+            )
+          : null;
+      }
       case "sign-in-link-extend":
         return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
           ? notAllowed("only an office owner can extend a sign-in link")
@@ -2901,6 +3089,10 @@ export function createStepAsks(deps: StepAskDeps) {
           code: "step_done",
           message: "this step is done",
         };
+      if (step.kind === "member-os-user") {
+        const refused = await osUserCreateRefusal(step);
+        if (refused) return refused;
+      }
       // The ask's age splits the links, sessions and tokens into those from
       // before it and those made since, by the millisecond: so none from
       // before shares the ask's, the create waits past the newest. A stamp

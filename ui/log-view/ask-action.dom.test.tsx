@@ -463,16 +463,24 @@ const BUTTON_CASES: Record<
     sets: false,
     steps: [step({ kind: "storage-compress" })],
   },
+  // Task 4088f164: turning a member's OS user on and off differ.
+  "member-os-user": {
+    sets: false,
+    steps: [
+      step({ kind: "member-os-user", on: true }),
+      step({ kind: "member-os-user", on: false }),
+    ],
+  },
 };
 const label = (s: ActionStepRequest) =>
-  `${s.kind}${"grant" in s ? `:${s.grant}` : ""}${"role" in s ? `:${s.role}` : ""}`;
+  `${s.kind}${"grant" in s ? `:${s.grant}` : ""}${"role" in s ? `:${s.role}` : ""}${"on" in s ? `:${s.on}` : ""}`;
 
 it("a step that sets values keeps Apply; each step that makes or ends something has a label of its own", () => {
   const cases = Object.values(BUTTON_CASES);
   const setters = cases.filter((c) => c.sets).flatMap((c) => c.steps);
   const actions = cases.filter((c) => !c.sets).flatMap((c) => c.steps);
   // The enabling condition: both sides hold steps.
-  expect([setters.length, actions.length]).toEqual([12, 18]);
+  expect([setters.length, actions.length]).toEqual([12, 20]);
   expect(
     setters
       .filter((s) => actionButtonKey(s) !== "asks.action.apply")

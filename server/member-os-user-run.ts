@@ -69,6 +69,9 @@ export interface MemberOsUserRunDeps {
   // runs (member-user-admin.ts memberPlaceRunning): it goes on after the run
   // ends.
   placeRunning?: (userId: string) => boolean;
+  // Task 4088f164: after each end of a run, as it may be the change a
+  // member-os-user ask waits for.
+  ended?: (userId: string) => void;
 }
 
 export type MemberOsUserRunResult =
@@ -188,7 +191,7 @@ export function createMemberOsUserRun(
   // The end: exit 0 clears what the verbs left; another end fails the
   // attempt with the output's tail, unless a verb failed it after the start
   // (the start wrote "running", so a "failed" now is the verb's).
-  const finish = (
+  const settle = (
     id: string,
     action: "enable" | "disable",
     result: SudoRunResult | null,
@@ -209,6 +212,18 @@ export function createMemberOsUserRun(
     if (memberUserAttemptStage(id) === "failed") return;
     const tail = result ? outputTail(result.output) : "";
     noteMemberUserAttempt(id, action, "failed", tail || undefined, deps.now());
+  };
+  // Then the office hears of the end (task 4088f164).
+  const finish = (
+    id: string,
+    action: "enable" | "disable",
+    result: SudoRunResult | null,
+  ) => {
+    try {
+      settle(id, action, result);
+    } finally {
+      deps.ended?.(id);
+    }
   };
 
   return {

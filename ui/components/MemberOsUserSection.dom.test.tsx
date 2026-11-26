@@ -493,7 +493,9 @@ it("shows a password field and Run beside each command where sudo asks for a pas
   const buttons = runButtons(m);
   expect([fields.length, buttons.length]).toEqual([2, 2]);
   for (const field of fields) {
-    expect(field.type).toBe("password");
+    // The sudo card's masked field (MaskedInput), which password managers
+    // skip.
+    expect(field.hasAttribute("data-masked-credential")).toBe(true);
     expect(field.autocomplete).toBe("off");
   }
   // Copy stays beside Run.

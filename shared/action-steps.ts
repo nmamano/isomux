@@ -152,7 +152,29 @@ export type ActionStepRequest =
   // answer. The agent sends scope and line; the server stores the target at
   // create (the asking agent, its room or its manager), so the step does
   // not move with the agent. The one step an agent's edit may replace.
-  | InstructionsLineStep;
+  | InstructionsLineStep
+  // A member's own OS user turned on or off (task 4088f164), as the Run on
+  // Settings › Members › OS user does it: the server runs the member's root
+  // command with the box account's password the owner types on the card.
+  // osUser names the user to make (or, with existing, an account to give
+  // them); without it the command makes its default user.
+  | MemberOsUserStep;
+
+// The member-os-user step (task 4088f164).
+export interface MemberOsUserStep {
+  kind: "member-os-user";
+  userId: string;
+  on: boolean;
+  osUser?: string;
+  existing?: boolean;
+}
+
+// The body of POST /api/asks/:askId/action for a member-os-user step: the
+// box account's password, where sudo asks for one. It goes only to the run
+// route; nothing keeps it.
+export interface MemberOsUserStepRun {
+  password?: string;
+}
 
 export type InstructionsScope = "agent" | "room" | "member";
 
@@ -243,6 +265,7 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "messaging-route",
   "storage-retention",
   "instructions-line",
+  "member-os-user",
 ]);
 
 // Whether a step is one the member runs from the card.

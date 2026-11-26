@@ -257,8 +257,24 @@ function recordedOsUserNames(): string[] {
 export async function readMemberUserCandidates(): Promise<
   { name: string; uid: number; members?: MemberOsUserMemberWire[] }[]
 > {
+  return (await readCandidates()) ?? [];
+}
+
+// Task 4088f164: the names of the candidates, or null when the list is not
+// the whole of them: passwd could not be read, or the list stops at
+// MEMBER_USER_CANDIDATES_MAX.
+export async function readMemberUserCandidateNames(): Promise<string[] | null> {
+  const list = await readCandidates();
+  return list && list.length < MEMBER_USER_CANDIDATES_MAX
+    ? list.map((c) => c.name)
+    : null;
+}
+
+async function readCandidates(): Promise<
+  { name: string; uid: number; members?: MemberOsUserMemberWire[] }[] | null
+> {
   const passwd = await readGetent("passwd");
-  if (passwd === null) return [];
+  if (passwd === null) return null;
   let loginDefs = "";
   try {
     loginDefs = readFileSync("/etc/login.defs", "utf8");

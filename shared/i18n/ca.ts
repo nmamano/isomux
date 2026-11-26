@@ -2448,6 +2448,8 @@ Coses que pots fer per ell:
   "asks.action.button.memberRemove": "Treu el membre",
   "asks.action.button.memberRestore": "Restaura el membre",
   "asks.action.button.memberPurge": "Esborra el membre",
+  "asks.action.button.osUserOn": "Activa l'usuari del sistema",
+  "asks.action.button.osUserOff": "Desactiva l'usuari del sistema",
   "asks.action.button.instructionsLine": "Afegeix la línia",
   "asks.step.others": "Només {member} pot fer aquest pas.",
   "asks.step.othersUnknown":
@@ -2473,6 +2475,15 @@ Coses que pots fer per ell:
   "asks.action.routeGone": "Aquesta ruta ja no existeix.",
   "asks.action.routeOtherMember": "Només {member} pot aplicar.",
   "asks.action.memberGone": "Aquest membre ja no és a l'oficina.",
+  "asks.action.osUser.noRun":
+    "Aquesta oficina no pot fer aquest canvi des de la targeta.",
+  "asks.action.osUser.hasOne":
+    "Aquest membre té un usuari del sistema. Desactiva'l primer.",
+  "asks.action.osUser.movedIn":
+    "Aquest membre va venir amb un trasllat d'oficina. Desactivar el seu usuari del sistema esborra els fitxers traslladats, així que la targeta no ho pot fer.",
+  "asks.action.osUser.offHint":
+    "Els seus agents tornaran a executar-se com l'usuari del sistema de l'oficina. Els xats i els inicis de sessió dels seus agents tornen.",
+  "asks.action.osUser.offShared": "{name} es queda com està per a {members}.",
   "asks.action.roomGranted": "Accés",
   "asks.action.roomRemoved": "Sense accés",
   "asks.action.roomGrantHint": "Pot veure aquesta sala i treballar-hi.",
@@ -4343,6 +4354,10 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.memberRoomSet":
     "Accés a sales canviat per a {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Rol canviat per a {member}.",
+  "systemEntries.stepAsk.memberOsUserOn":
+    "Usuari del sistema activat per a {member}.",
+  "systemEntries.stepAsk.memberOsUserOff":
+    "Usuari del sistema desactivat per a {member}.",
   "systemEntries.stepAsk.signInLinkExtended":
     "Enllaç d'inici de sessió de {member} allargat.",
   "systemEntries.stepAsk.memberAvatarSet": "Avatar canviat per a {member}.",

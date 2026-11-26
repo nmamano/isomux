@@ -1,0 +1,5 @@
+# OS user asks
+
+Part of the `action-asks` page: open this step as an action ask. Only an office owner can apply it.
+
+A member's own OS user (`GET /api/users/:username/os-user` on the `members` page): `step` is `{"kind": "member-os-user", "username": "<member>", "on": true}`, or `"on": false` to turn it off. With `on` true, `"osUser": "<name>"` names a new user, and `"existing": true` with it an existing user from `candidates`; without `osUser` the command makes a user named `newUserName`. The office owner types the box account's password on the card, and you never see it. The ask closes when the OS user is on (as that user) or off. The create refuses 409 `run_unavailable` where the office cannot run the command itself (`run` is null), 409 `os_user_on` for an `osUser` while the member has an OS user, 409 `moved_in` to turn off a member who came with an office move, 422 `unknown_os_user` for an existing user that is not a candidate and 422 `os_user_taken` for a new name that is taken. An Apply refuses 409 `run_in_progress` while a run or a move goes on.

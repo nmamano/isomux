@@ -13,6 +13,7 @@ import {
   type MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { MaskedInput } from "./MaskedInput.tsx";
 import { Data, nameValues } from "./Data.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
@@ -506,7 +507,8 @@ export function MemberOsUserSection({
   );
 }
 
-// Run beside a command: a password field where sudo asks for one. The
+// Run beside a command: a password field where sudo asks for one, masked as
+// the sudo card's (MaskedInput), so no browser offers to save it. The
 // password is sent once and never kept: the field is cleared after a start.
 function RunControl({
   withPassword,
@@ -533,10 +535,8 @@ function RunControl({
       style={{ display: "flex", gap: 6, marginTop: 6 }}
     >
       {withPassword && (
-        <input
+        <MaskedInput
           data-testid="member-os-user-password"
-          type="password"
-          autoComplete="off"
           aria-label={t("cards.sudoRequest.password")}
           placeholder={t("cards.sudoRequest.password")}
           value={password}
@@ -557,8 +557,8 @@ function RunControl({
 }
 
 // A Run refusal in words: a wrong password says sudo's line and the tries
-// left; a lock says when to try again.
-function runErrorLine(err: unknown, t: T): string {
+// left; a lock says when to try again. Also the member-os-user ask card's.
+export function runErrorLine(err: unknown, t: T): string {
   if (!(err instanceof ApiError)) return t("cards.sudoRequest.runFailed");
   const detail = err.detail ?? {};
   switch (err.code) {
@@ -736,8 +736,8 @@ function StatusRow({
 }
 
 // A failed or stopped command: the first reason, the whole message folded
-// when it says more.
-function FailureRow({
+// when it says more. Also on the member-os-user ask card.
+export function FailureRow({
   attempt,
 }: {
   attempt: NonNullable<MemberOsUserWire["attempt"]>;

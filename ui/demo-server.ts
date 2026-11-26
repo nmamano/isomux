@@ -71,6 +71,7 @@ import type {
   AccountUsageRowWire,
   EnterpriseViewRes,
   FloorNameRes,
+  MemberOsUserWire,
 } from "../shared/contract-shapes.ts";
 import type { Floor } from "../shared/floors.ts";
 import {
@@ -1925,6 +1926,23 @@ function demoAskEntries(): AskMemberWire[] {
         agentId: "demo-dwight",
       },
     },
+    // An action ask (task 4088f164): Stephen's own OS user turned on. The
+    // card reads it from GET /api/users/Stephen/os-user and asks for the
+    // box account's password.
+    {
+      id: "dea0ac0b",
+      agentId: "demo-michael",
+      memberUserId: member,
+      prompt:
+        "Can you give Stephen his own OS user? His agents then cannot read the office's files.",
+      createdAt: now - 30_000,
+      updatedAt: now - 30_000,
+      step: {
+        kind: "member-os-user",
+        userId: users.get("stephen")?.id ?? "demo-stephen",
+        on: true,
+      },
+    },
     // One from the back room, so its plate shows the count dot too.
     {
       id: "dea0ac04",
@@ -3527,6 +3545,20 @@ export async function demoApi(
     // The demo keeps no removed members.
     case "GET /api/removed-members":
       return { members: [] };
+    // Stephen's own OS user (task 4088f164), off: the member-os-user ask's
+    // card reads it. The demo's office could run the command with a password.
+    case "GET /api/users/Stephen/os-user":
+      return {
+        state: "off",
+        commands: {
+          enable: "sudo /usr/local/sbin/isomux-member-user enable 5e7e0a11",
+          disable: "sudo /usr/local/sbin/isomux-member-user disable 5e7e0a11",
+        },
+        run: "password",
+        support: { ok: true },
+        officeOsUser: "isomux",
+        newUserName: "stephen",
+      } satisfies MemberOsUserWire;
     case "POST /api/invites":
     case "POST /api/invites/self":
     case "POST /api/invites/recovery":
@@ -5047,6 +5079,12 @@ export async function demoApi(
     if (step?.kind === "instructions-line") {
       demoRemoveAsk(found.entry.id, found.other !== null);
       return undefined;
+    }
+    // A member-os-user step (task 4088f164): the demo has no root command;
+    // the run "ends" at once and the ask closes.
+    if (step?.kind === "member-os-user") {
+      demoRemoveAsk(found.entry.id, found.other !== null);
+      return { action: step.on ? "enable" : "disable" };
     }
     if (step?.kind === "discord-route") {
       const pick = (body ?? {}) as Partial<DiscordRoute>;

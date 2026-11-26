@@ -64,6 +64,7 @@ export const AGENT_REFERENCE_TOPICS = {
     "You set up a Discord bot for your manager, or route its places to agents",
   "ask-links":
     "Your ask's button opens an office page or a page outside the office",
+  "os-user-asks": "You need a member's own OS user turned on or off",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -91,6 +92,7 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "secret-exchange": "connections",
   "discord-setup": "messaging",
   "ask-links": "asks",
+  "os-user-asks": "asks",
 };
 
 // Pages only a privileged agent sees.

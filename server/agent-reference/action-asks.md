@@ -38,4 +38,6 @@ Adding one line to your instructions, your room's or your manager's: the `instru
 
 Routing one of the member's WhatsApp chats or Discord places to an agent, or changing the settings of one of their routes: fetch the `route-asks` page.
 
+Turning a member's own OS user on or off: fetch the `os-user-asks` page.
+
 There is an action step for each setting that no agent can change. For a setting a privileged agent can change, ask for the privileged level with `agent-access` instead.

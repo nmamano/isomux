@@ -2443,6 +2443,8 @@ Cosas que puedes hacer por él:
   "asks.action.button.memberRemove": "Quitar el miembro",
   "asks.action.button.memberRestore": "Restaurar el miembro",
   "asks.action.button.memberPurge": "Borrar el miembro",
+  "asks.action.button.osUserOn": "Activar el usuario del sistema",
+  "asks.action.button.osUserOff": "Desactivar el usuario del sistema",
   "asks.action.button.instructionsLine": "Añadir la línea",
   "asks.step.others": "Solo {member} puede hacer este paso.",
   "asks.step.othersUnknown":
@@ -2470,6 +2472,15 @@ Cosas que puedes hacer por él:
   "asks.action.routeGone": "Esta ruta ya no existe.",
   "asks.action.routeOtherMember": "Solo {member} puede aplicar.",
   "asks.action.memberGone": "Este miembro ya no está en la oficina.",
+  "asks.action.osUser.noRun":
+    "Esta oficina no puede hacer este cambio desde la tarjeta.",
+  "asks.action.osUser.hasOne":
+    "Este miembro tiene un usuario del sistema. Desactívalo primero.",
+  "asks.action.osUser.movedIn":
+    "Este miembro llegó con un traslado de oficina. Desactivar su usuario del sistema borra los archivos trasladados, así que la tarjeta no puede hacerlo.",
+  "asks.action.osUser.offHint":
+    "Sus agentes volverán a ejecutarse como el usuario del sistema de la oficina. Los chats y los inicios de sesión de sus agentes vuelven.",
+  "asks.action.osUser.offShared": "{name} se queda como está para {members}.",
   "asks.action.roomGranted": "Acceso",
   "asks.action.roomRemoved": "Sin acceso",
   "asks.action.roomGrantHint": "Puede ver esta sala y trabajar en ella.",
@@ -4343,6 +4354,10 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.memberRoomSet":
     "Acceso a salas cambiado para {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Rol cambiado para {member}.",
+  "systemEntries.stepAsk.memberOsUserOn":
+    "Usuario del sistema activado para {member}.",
+  "systemEntries.stepAsk.memberOsUserOff":
+    "Usuario del sistema desactivado para {member}.",
   "systemEntries.stepAsk.signInLinkExtended":
     "Enlace de inicio de sesión de {member} ampliado.",
   "systemEntries.stepAsk.memberAvatarSet": "Avatar cambiado para {member}.",

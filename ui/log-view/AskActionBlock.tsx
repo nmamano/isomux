@@ -66,12 +66,22 @@ import type {
   BackupStatusWire,
   LogRetentionWire,
   CompressResultWire,
+  MemberOsUserWire,
   PrunePlanWire,
   PruneResultWire,
   RemovedMemberListRes,
 } from "../../shared/contract-shapes.ts";
 import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
 import { formatSince } from "../components/access-shared.tsx";
+import {
+  FailureRow,
+  OS_USER_POLL_CAP_MS,
+  OS_USER_POLL_MS,
+  runErrorLine,
+} from "../components/MemberOsUserSection.tsx";
+import { nameValues } from "../components/Data.tsx";
+import { MaskedInput } from "../components/MaskedInput.tsx";
+import { dialogInput } from "../components/dialog-styles.ts";
 import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
@@ -151,6 +161,10 @@ export function actionButtonKey(step: ActionStepRequest): PlainMessageKey {
       return "settings.storage.deletePermanently";
     case "storage-compress":
       return "settings.storage.compress";
+    case "member-os-user":
+      return step.on
+        ? "asks.action.button.osUserOn"
+        : "asks.action.button.osUserOff";
     // The Invites page's own label.
     case "sign-in-link-extend":
       return "settings.invites.extend";
@@ -527,6 +541,72 @@ export function AskActionBlock({
     if (phase === "confirming")
       applyButton.current?.focus({ preventScroll: true });
   }, [phase]);
+
+  // A member-os-user step (task 4088f164) reads the member's OS user as the
+  // Members page does, and again every OS_USER_POLL_MS after its Apply and
+  // while a run or a move goes on, up to OS_USER_POLL_CAP_MS. The password
+  // stays in this card's state only, cleared at the start of a run.
+  const osUserPath =
+    step.kind === "member-os-user"
+      ? (() => {
+          const name = [...users.values()].find(
+            (u) => u.id === step.userId,
+          )?.name;
+          return name ? `/api/users/${encodeURIComponent(name)}/os-user` : null;
+        })()
+      : null;
+  const [osView, setOsView] = useState<MemberOsUserWire | null>(null);
+  const [osPassword, setOsPassword] = useState("");
+  // The attempt's stamp at Apply: a failure with another stamp is this run's.
+  const osAttemptAtApply = useRef<number | undefined>(undefined);
+  const readOsUser = (path: string, live: () => boolean = () => true) =>
+    apiFetch<MemberOsUserWire>("GET", path)
+      .then((next) => {
+        if (live()) setOsView(next);
+      })
+      .catch(() => {});
+  useEffect(() => {
+    if (!osUserPath) return;
+    let live = true;
+    void readOsUser(osUserPath, () => live);
+    return () => {
+      live = false;
+    };
+  }, [osUserPath]);
+  const osBusy =
+    osView?.attempt?.status === "running" || osView?.state === "moving";
+  const osPolling = !!osUserPath && (phase === "ran" || osBusy);
+  useEffect(() => {
+    if (!osPolling || !osUserPath) return;
+    let live = true;
+    let ticks = 0;
+    const timer = setInterval(() => {
+      ticks++;
+      if (ticks * OS_USER_POLL_MS > OS_USER_POLL_CAP_MS) {
+        clearInterval(timer);
+        return;
+      }
+      void readOsUser(osUserPath, () => live);
+    }, OS_USER_POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [osPolling, osUserPath]);
+  // This card's run failed or stopped: the failure shows, and the password
+  // field and Apply come back.
+  const osAttempt = osView?.attempt;
+  useEffect(() => {
+    if (
+      phase === "ran" &&
+      step.kind === "member-os-user" &&
+      (osAttempt?.status === "failed" || osAttempt?.status === "stopped") &&
+      osAttempt.at !== osAttemptAtApply.current
+    ) {
+      running.current = false;
+      setPhase("idle");
+    }
+  }, [phase, step.kind, osAttempt?.status, osAttempt?.at]);
   const fontSize = isMobile ? 13 : 12;
   const small = isMobile ? 12 : 11;
   const muted = { color: "var(--text-muted)", fontSize: small };
@@ -578,34 +658,50 @@ export function AskActionBlock({
     running.current = true;
     setPhase("running");
     setError(null);
+    if (step.kind === "member-os-user")
+      osAttemptAtApply.current = osView?.attempt?.at;
     try {
       const body = await apiFetch<unknown>(
         "POST",
         `/api/asks/${askId}/action`,
-        step.kind === "whatsapp-route"
-          ? { chat: waChosen }
-          : step.kind === "instructions-line"
-            ? // The line as the card shows it: a changed rule is refused.
-              { scope: step.scope, line: step.line }
-            : step.kind === "discord-route" && dcChosen
-              ? {
-                  botId: dcChosen.botId,
-                  guildId: dcChosen.guildId,
-                  scope: dcChosen.scope,
-                  targetId: dcChosen.targetId,
-                }
-              : undefined,
+        step.kind === "member-os-user"
+          ? osView?.run === "password"
+            ? { password: osPassword }
+            : undefined
+          : step.kind === "whatsapp-route"
+            ? { chat: waChosen }
+            : step.kind === "instructions-line"
+              ? // The line as the card shows it: a changed rule is refused.
+                { scope: step.scope, line: step.line }
+              : step.kind === "discord-route" && dcChosen
+                ? {
+                    botId: dcChosen.botId,
+                    guildId: dcChosen.guildId,
+                    scope: dcChosen.scope,
+                    targetId: dcChosen.targetId,
+                  }
+                : undefined,
       );
       // Through the store, as this card may be gone: the ask closed as the
       // link or token was made.
       const result = resultOf(body);
       if (result) dispatch({ type: "ask_result_shown", askId, result });
+      if (step.kind === "member-os-user") {
+        setOsPassword("");
+        if (osUserPath) void readOsUser(osUserPath);
+      }
       setPhase("ran");
     } catch (err) {
       running.current = false;
       setPhase("idle");
       setPreview(null);
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(
+        step.kind === "member-os-user"
+          ? runErrorLine(err, t)
+          : err instanceof ApiError
+            ? err.message
+            : String(err),
+      );
     }
   }
 
@@ -1471,6 +1567,138 @@ export function AskActionBlock({
     };
   }
 
+  // A member's own OS user on or off (task 4088f164): the user now and the
+  // one asked for, what the change does, the other members on that user,
+  // the last run's failure, and the box account's password where sudo asks
+  // for one. A run or a move that goes on, or a state the root command must
+  // refuse, is a blocker.
+  function memberOsUserView(s: Step<"member-os-user">): ActionView {
+    const member = memberById(s.userId);
+    const now = osView;
+    const name = member?.name ?? s.userId;
+    const off: Value = { value: "off", label: t("asks.action.off") };
+    const target = s.osUser ?? now?.newUserName;
+    const requested: Value = s.on
+      ? target
+        ? { value: target, label: target }
+        : { value: "on", label: t("asks.action.on") }
+      : off;
+    const current: Value | undefined = !now
+      ? undefined
+      : now.osUser
+        ? { value: now.osUser.name, label: now.osUser.name }
+        : now.state === "off"
+          ? off
+          : undefined;
+    const ownRun = phase === "ran";
+    const gone = !member
+      ? t("asks.action.memberGone")
+      : !now || ownRun
+        ? null
+        : !now.support.ok || now.run === null
+          ? t("asks.action.osUser.noRun")
+          : now.state === "moving"
+            ? t("settings.osUser.moving")
+            : now.attempt?.status === "running"
+              ? t("settings.osUser.runInProgress")
+              : s.osUser !== undefined && now.state !== "off"
+                ? t("asks.action.osUser.hasOne")
+                : !s.on && now.movedIn
+                  ? t("asks.action.osUser.movedIn")
+                  : null;
+    // The other members on the user: the existing user the step names, or
+    // the member's own user that an off leaves to them.
+    const sharedWith = s.on
+      ? s.existing
+        ? (now?.candidates?.find((c) => c.name === s.osUser)?.members ?? [])
+        : []
+      : (now?.sharedWith ?? []);
+    const sharedName = s.on ? s.osUser : now?.osUser?.name;
+    const failed =
+      now &&
+      !ownRun &&
+      (now.attempt?.status === "failed" || now.attempt?.status === "stopped")
+        ? now.attempt
+        : null;
+    // While the read is out, the field holds its place (most offices ask
+    // for a password), so the card does not jump when it comes.
+    const askPassword =
+      gone === null && !ownRun && (!now || now.run === "password");
+    return {
+      name,
+      loading: !now,
+      rows: [
+        {
+          key: "osUser",
+          label: t("settings.osUser.title"),
+          ...(current ? { current } : {}),
+          requested,
+        },
+      ],
+      lines: [
+        // An existing user may be one that can become root: the line that
+        // says their agents cannot read the office's files is for a new one.
+        !(s.on && s.existing) && (
+          <div key="hint" style={muted}>
+            {s.on ? t("settings.osUser.hint") : t("asks.action.osUser.offHint")}
+          </div>
+        ),
+        sharedWith.length > 0 && sharedName && (
+          <div key="shared" role="note" style={muted}>
+            {s.on
+              ? rich("settings.osUser.shared", {
+                  members: nameValues(
+                    sharedWith.map((m) => m.name),
+                    language,
+                  ),
+                  name: <Data>{sharedName}</Data>,
+                })
+              : rich("asks.action.osUser.offShared", {
+                  members: nameValues(
+                    sharedWith.map((m) => m.name),
+                    language,
+                  ),
+                  name: <Data>{sharedName}</Data>,
+                })}
+          </div>
+        ),
+        failed && <FailureRow key="failed" attempt={failed} />,
+        ownRun && (
+          <div key="running" role="status" style={{ fontSize: small }}>
+            {t(
+              s.on ? "settings.osUser.turningOn" : "settings.osUser.turningOff",
+            )}
+          </div>
+        ),
+        askPassword && (
+          <MaskedInput
+            key="password"
+            aria-label={t("cards.sudoRequest.password")}
+            placeholder={t("cards.sudoRequest.password")}
+            value={osPassword}
+            disabled={!now}
+            onChange={(e) => setOsPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && osPassword !== "") void apply();
+            }}
+            style={{
+              ...dialogInput,
+              display: "block",
+              marginTop: 6,
+              maxWidth: 280,
+              // A field the member cannot use yet looks disabled.
+              ...(now ? {} : { opacity: 0.6 }),
+            }}
+          />
+        ),
+      ],
+      marks: ownRun ? { "data-ask-action-started": "" } : {},
+      gone,
+      noApply: ownRun,
+      waiting: !now || (askPassword && osPassword === ""),
+    };
+  }
+
   function officeUpdateView(s: Step<"office-update">): ActionView {
     const running = updateInfo
       ? (updateInfo.current.release ??
@@ -2260,6 +2488,8 @@ export function AskActionBlock({
         return storageRetentionView(step);
       case "instructions-line":
         return instructionsLineView(step);
+      case "member-os-user":
+        return memberOsUserView(step);
       case "sign-in-link-extend":
         return linkExtendView(step);
       case "member-avatar":

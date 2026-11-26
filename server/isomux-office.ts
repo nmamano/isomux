@@ -703,7 +703,16 @@ import { createEditorRoutes } from "./office-editor-routes.ts";
 import { createAgentsRoutes } from "./office-agents-routes.ts";
 import { createUsersRoutes } from "./office-users-routes.ts";
 import { createMemberOsUserRun } from "./member-os-user-run.ts";
-import { memberPlaceRunning, memberUsersSupport } from "./member-user-admin.ts";
+import {
+  memberPlaceRunning,
+  memberUsersSupport,
+  setMemberUserVerbEnded,
+  takenOsUserNames,
+} from "./member-user-admin.ts";
+import {
+  memberOsUserView,
+  readMemberUserCandidateNames,
+} from "./member-os-user-view.ts";
 import { sweepMovedHomes } from "./office-move-members-in.ts";
 import {
   createInvitesRoutes,
@@ -3134,6 +3143,7 @@ function appOwnerReachable(app: AppRecord): boolean {
 const appsWaitLogged = new Set<string>();
 let stopMemberAppReconcile: (() => void) | null = null;
 let stopMemberUnitsRestore: (() => void) | null = null;
+let stopMemberOsUserAsks: (() => void) | null = null;
 
 // A member's runner connected: their apps get the boot passes now. The
 // starts come last, after their tokens, URLs and secrets. Nothing while the
@@ -3944,6 +3954,18 @@ function buildExecutorDeps(
   // The storage planners and appliers, shared by the storage routes and the
   // action asks. An apply may be the change a step ask waits for.
   const storage = createStorageOps(stepsChanged);
+  // The owner's Run of a member's root command (server/member-os-user-run.ts),
+  // shared by the Members page and the member-os-user action step.
+  const memberOsUserRun = createMemberOsUserRun({
+    support: memberUsersSupport,
+    hosted: () => isHostedAccess(installKind, loadServerConfig().publicOrigin),
+    probe: () => probeSudo({ sudoPath }),
+    start: (opts) => startSudo({ ...opts, sudoPath }),
+    now: Date.now,
+    placeRunning: memberPlaceRunning,
+    // The end of a Run may be the change a member-os-user ask waits for.
+    ended: stepsChanged,
+  });
   // The daily automatic cleanup of logs/, run by the backup scheduler's tick
   // before each backup check (server/storage-retention.ts).
   const retention = createLogRetention({
@@ -4231,6 +4253,20 @@ function buildExecutorDeps(
       officeAccess: () => computeAccessSettings(installKind),
       tokenLimitableRoomIds,
       storage,
+      memberOsUser: (userId) => {
+        const user = getUserById(userId);
+        return user
+          ? memberOsUserView(user, { support: memberUsersSupport() })
+          : null;
+      },
+      osUserRunMode: () => memberOsUserRun.mode(),
+      osUserNames: async () => {
+        const [existing, taken] = await Promise.all([
+          readMemberUserCandidateNames(),
+          takenOsUserNames(),
+        ]);
+        return { existing, taken };
+      },
     }),
   });
   // The terminal panel's gate (terminalAllowed), then the agent's access:
@@ -5659,15 +5695,7 @@ function buildExecutorDeps(
       transferAgentManager,
       agentsThatCannotMoveDown: memberCeiling.agentsThatCannotMoveDown,
       afterMemberPackSaved,
-      memberOsUserRun: createMemberOsUserRun({
-        support: memberUsersSupport,
-        hosted: () =>
-          isHostedAccess(installKind, loadServerConfig().publicOrigin),
-        probe: () => probeSudo({ sudoPath }),
-        start: (opts) => startSudo({ ...opts, sudoPath }),
-        now: Date.now,
-        placeRunning: memberPlaceRunning,
-      }),
+      memberOsUserRun,
     }),
   );
 
@@ -7671,6 +7699,11 @@ export async function startServer(
   // server, also when a test boots several).
   stopMemberUnitsRestore?.();
   stopMemberUnitsRestore = onMemberConnected(restoreMemberUnitsAtConnect);
+  // Task 4088f164: a member's runner that connects, and the end of a verb of
+  // the root command, may be the change a member-os-user ask waits for.
+  stopMemberOsUserAsks?.();
+  stopMemberOsUserAsks = onMemberConnected(() => stepsChanged());
+  setMemberUserVerbEnded(stepsChanged);
   // A member renamed before renames reached the hooks (task 3278f29c): each
   // hook takes its owner's name now. No record keeps the name.
   webhookRegistry.syncOwnerNames((userId) => getUserById(userId)?.name);

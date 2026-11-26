@@ -1293,6 +1293,8 @@ export type {
   OfficeSettingsSet,
   WhatsAppRouteStepRun,
   DiscordRouteStepRun,
+  MemberOsUserStep,
+  MemberOsUserStepRun,
 } from "./action-steps.ts";
 export { isActionStep } from "./action-steps.ts";
 

@@ -376,6 +376,22 @@ export async function handleMemberUserAdmin(
   pathname: string,
   body: unknown,
 ): Promise<Response> {
+  try {
+    return await handleAdmin(pathname, body);
+  } finally {
+    verbEnded?.();
+  }
+}
+
+// Task 4088f164: called at the end of each call, also a refused or failed
+// one, as a verb of the root command may be the change a member-os-user ask
+// waits for (the office sets its step reconcile).
+let verbEnded: (() => void) | null = null;
+export function setMemberUserVerbEnded(next: (() => void) | null): void {
+  verbEnded = next;
+}
+
+async function handleAdmin(pathname: string, body: unknown): Promise<Response> {
   const verb = pathname.slice(MEMBER_USER_PATH_PREFIX.length);
   const action =
     verb === "disable"

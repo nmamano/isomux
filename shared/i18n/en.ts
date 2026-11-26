@@ -2394,6 +2394,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.button.memberRemove": "Remove member",
   "asks.action.button.memberRestore": "Restore member",
   "asks.action.button.memberPurge": "Delete member",
+  "asks.action.button.osUserOn": "Turn on OS user",
+  "asks.action.button.osUserOff": "Turn off OS user",
   "asks.action.button.instructionsLine": "Add line",
   "asks.step.others": "Only {member} can do this step.",
   "asks.step.othersUnknown":
@@ -2419,6 +2421,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.routeGone": "This route no longer exists.",
   "asks.action.routeOtherMember": "Only {member} can apply.",
   "asks.action.memberGone": "This member is no longer in the office.",
+  "asks.action.osUser.noRun":
+    "This office cannot make this change from the card.",
+  "asks.action.osUser.hasOne": "This member has an OS user. Turn it off first.",
+  "asks.action.osUser.movedIn":
+    "This member came with an office move. Turning off their OS user deletes their moved files, so the card cannot do it.",
+  "asks.action.osUser.offHint":
+    "Their agents will run as the office's OS user again. Their agent chats and sign-ins move back.",
+  "asks.action.osUser.offShared": "{name} stays as it is for {members}.",
   "asks.action.roomGranted": "Access",
   "asks.action.roomRemoved": "No access",
   "asks.action.roomGrantHint": "They can see and work in this room.",
@@ -4255,6 +4265,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.agentAccessSet": "Access set for {agent}.",
   "systemEntries.stepAsk.memberRoomSet": "Room access set for {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Role set for {member}.",
+  "systemEntries.stepAsk.memberOsUserOn": "OS user turned on for {member}.",
+  "systemEntries.stepAsk.memberOsUserOff": "OS user turned off for {member}.",
   "systemEntries.stepAsk.signInLinkExtended":
     "Sign-in link of {member} extended.",
   "systemEntries.stepAsk.memberAvatarSet": "Avatar set for {member}.",

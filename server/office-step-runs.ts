@@ -95,6 +95,10 @@ export function officeStepRuns(deps: {
   officeAccess: StepRunDeps["officeAccess"];
   tokenLimitableRoomIds: StepRunDeps["tokenLimitableRoomIds"];
   storage: StorageOps;
+  // Task 4088f164: the member's OS user, the Run's mode and the names.
+  memberOsUser: StepRunDeps["memberOsUser"];
+  osUserRunMode: StepRunDeps["osUserRunMode"];
+  osUserNames: StepRunDeps["osUserNames"];
 }): StepRunDeps {
   // The asking agent's reach, as its token has it: its manager's rooms.
   function agentReachesRoom(askingAgentId: string, roomId: string): boolean {
@@ -248,6 +252,9 @@ export function officeStepRuns(deps: {
       deps.storage.planCompress(olderThanDays).candidates.length,
     lastPrune: (target) => deps.storage.lastPrune(target),
     lastCompress: () => deps.storage.lastCompress(),
+    memberOsUser: deps.memberOsUser,
+    osUserRunMode: deps.osUserRunMode,
+    osUserNames: deps.osUserNames,
     // A verdict at the create; the revoke checks again inside the auth mutex.
     signOutStrandsOffice: wouldRemovingOwnerStrandOffice,
     sessionRevokeStrandsOffice: wouldRevokeMemberSessionStrandOffice,
