@@ -13,7 +13,7 @@ import type { SpawnAccessRefusal } from "./agent-manager.ts";
 import {
   buildPublicOrigin,
   listActiveSessionsForUserId,
-  listInvitesForUser,
+  listOwnerInvitesForUserId,
   sessionPrefixOfHash,
   wouldRevokeMemberSessionStrandOffice,
   wouldRemovingOwnerStrandOffice,
@@ -124,7 +124,13 @@ export function officeStepRuns(deps: {
     member: (userId) => {
       const user = getUserById(userId);
       return user
-        ? { name: user.name, role: user.role, allowedRooms: user.allowedRooms }
+        ? {
+            name: user.name,
+            role: user.role,
+            allowedRooms: user.allowedRooms,
+            avatarColor: user.avatarColor,
+            avatarVariant: user.avatarVariant,
+          }
         : null;
     },
     memberSettings: (userId) => {
@@ -206,15 +212,15 @@ export function officeStepRuns(deps: {
         current: v.sessionPrefix === current,
       }));
     },
-    memberInvites: (userId) => {
-      const user = getUserById(userId);
-      return user
-        ? listInvitesForUser(user).map((i) => ({
+    memberInvites: (userId) =>
+      getUserById(userId)
+        ? listOwnerInvitesForUserId(userId).map((i) => ({
             prefix: i.tokenPrefix,
             createdAt: i.createdAt,
+            expiresAt: i.expiresAt,
+            extendable: i.extendable === true,
           }))
-        : [];
-    },
+        : [],
     memberApiTokens: (userId) => {
       const now = Date.now();
       return listApiTokens(userId)

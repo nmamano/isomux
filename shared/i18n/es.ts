@@ -2514,6 +2514,12 @@ Cosas que puedes hacer por él:
   "asks.action.unusedLinks.other":
     "{count} enlaces de inicio de sesión sin usar",
   "asks.action.linksTakenBack": "Ningún enlace sin usar",
+  "asks.action.linkExpiresAt": "Caduca el {time}",
+  "asks.action.linkExpiredAt": "Caducó el {time}",
+  "asks.action.linkExtended": "Caduca dentro de 3 días",
+  "asks.action.linkExtendHint": "El enlace no cambia.",
+  "asks.action.linkGone":
+    "Este enlace de inicio de sesión se usó, se sustituyó o se retiró.",
   "asks.action.tokenExpires": "Caduca a los {days} días",
   "asks.action.tokenNeverExpires": "No caduca",
   "asks.action.tokenHint": "El token aparece aquí una vez.",
@@ -2698,6 +2704,8 @@ Cosas que puedes hacer por él:
   "apiCall.users.readOsUser": "Leer el usuario del sistema propio del miembro",
   "apiCall.users.readInstructions": "Leer las instrucciones del miembro",
   "apiCall.users.readSessions": "Leer las sesiones del miembro",
+  "apiCall.users.readSignInLinks":
+    "Leer los enlaces de inicio de sesión del miembro",
   "apiCall.users.saveInstructions": "Cambiar las instrucciones del miembro",
   "apiCall.users.readPinned": "Leer la lista de fijados del miembro",
   "apiCall.users.savePinned": "Cambiar la lista de fijados del miembro",
@@ -4335,6 +4343,9 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.memberRoomSet":
     "Acceso a salas cambiado para {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Rol cambiado para {member}.",
+  "systemEntries.stepAsk.signInLinkExtended":
+    "Enlace de inicio de sesión de {member} ampliado.",
+  "systemEntries.stepAsk.memberAvatarSet": "Avatar cambiado para {member}.",
   "systemEntries.stepAsk.memberPackSet":
     "Paquete de permisos cambiado para {member}.",
   "systemEntries.stepAsk.preferencesSet": "Preferencias cambiadas.",

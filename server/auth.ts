@@ -1545,17 +1545,34 @@ export function noteSessionDeviceByHash(
   return true;
 }
 
+// Whether an office owner sees the link: unused, and live or expired but
+// still extendable (task 1492af52). The one row set of the owners' list, an
+// agent's read of a member's links and the sign-in-link steps (task
+// 8852553c).
+function ownerSees(v: StoredInvite, now: number): boolean {
+  if (v.consumed) return false;
+  return v.expiresAt >= now || extendRefusal(v) === null;
+}
+
 export function listInvites(): InviteWire[] {
   ensureLoaded();
   const now = Date.now();
-  // Outstanding invites, plus expired ones an owner can still extend (task
-  // 1492af52), marked on the wire.
   const result: InviteWire[] = [];
-  for (const v of invites!.values()) {
-    if (v.consumed) continue;
-    if (v.expiresAt < now && extendRefusal(v) !== null) continue;
-    result.push(ownerInviteWire(v, now));
-  }
+  for (const v of invites!.values())
+    if (ownerSees(v, now)) result.push(ownerInviteWire(v, now));
+  return result.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+// A member's links an office owner sees (task 8852553c): unused, and live
+// or expired but still extendable. The one row set of the agent read route,
+// the sign-in-link-extend step and the sign-in-links-revoke step.
+export function listOwnerInvitesForUserId(userId: string): InviteWire[] {
+  ensureLoaded();
+  const now = Date.now();
+  const result: InviteWire[] = [];
+  for (const v of invites!.values())
+    if (inviteBelongsTo(v, { id: userId }) && ownerSees(v, now))
+      result.push(ownerInviteWire(v, now));
   return result.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -1628,8 +1645,9 @@ export async function revokeOutstandingInviteByPrefixForUser(
     const matches: string[] = [];
     for (const [k, v] of invites!) {
       if (v.tokenPrefix !== prefix) continue;
-      if (v.consumed) continue;
-      if (v.expiresAt < now) continue;
+      // An expired link an owner can still extend is the member's to take
+      // back too (task 8852553c).
+      if (!ownerSees(v, now)) continue;
       matches.push(k);
       if (matches.length > 1) break;
     }

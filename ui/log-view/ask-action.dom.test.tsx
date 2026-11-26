@@ -427,6 +427,11 @@ const BUTTON_CASES: Record<
     sets: false,
     steps: [step({ kind: "sign-in-links-revoke" })],
   },
+  "sign-in-link-extend": {
+    sets: false,
+    steps: [step({ kind: "sign-in-link-extend" })],
+  },
+  "member-avatar": { sets: true, steps: [step({ kind: "member-avatar" })] },
   "api-token-revoke": {
     sets: false,
     steps: [step({ kind: "api-token-revoke" })],
@@ -467,7 +472,7 @@ it("a step that sets values keeps Apply; each step that makes or ends something 
   const setters = cases.filter((c) => c.sets).flatMap((c) => c.steps);
   const actions = cases.filter((c) => !c.sets).flatMap((c) => c.steps);
   // The enabling condition: both sides hold steps.
-  expect([setters.length, actions.length]).toEqual([11, 17]);
+  expect([setters.length, actions.length]).toEqual([12, 18]);
   expect(
     setters
       .filter((s) => actionButtonKey(s) !== "asks.action.apply")
@@ -487,18 +492,20 @@ it("a step that sets values keeps Apply; each step that makes or ends something 
   // Each action its own label: grant and remove, owner and member differ.
   const texts = actions.map((s) => en[actionButtonKey(s)]);
   expect(new Set(texts).size).toBe(actions.length);
-  // The office update and the storage steps say what their settings page
-  // says for the same action.
+  // The office update, the storage steps and the link extend say what their
+  // settings page says for the same action.
   expect(
     [
       { kind: "office-update" },
       { kind: "storage-prune" },
       { kind: "storage-compress" },
+      { kind: "sign-in-link-extend" },
     ].map((s) => actionButtonKey(step(s))),
   ).toEqual([
     "settings.update.updateNow",
     "settings.storage.deletePermanently",
     "settings.storage.compress",
+    "settings.invites.extend",
   ]);
 });
 
@@ -515,5 +522,56 @@ it("the card's button shows the step's label: a sign-in link's is not Apply, an 
     apply("btn00001")!.textContent,
     apply("btn00002")!.textContent,
   ]).toEqual([en["asks.action.apply"], en[actionButtonKey(signIn)]]);
+  view.unmount();
+});
+
+// Task 8852553c: an extend card reads its link from the owners' invite list,
+// live, and the extend is not destructive: Apply runs on the first click.
+it("a sign-in-link-extend card names the member, shows the link's expiry now from the live invite list, and runs on the first click", async () => {
+  const DAY = 86_400_000;
+  const row = (expiresAt: number) => ({
+    tokenPrefix: "AbCd1234",
+    username: "Casey",
+    role: "member",
+    createdBy: "Morgan",
+    createdAt: NOW - 4 * DAY,
+    expiresAt,
+    ...(expiresAt < NOW ? { expired: true } : {}),
+    extendable: true,
+  });
+  read = (p) =>
+    p === "/api/invites" ? { invites: [row(NOW - DAY)] } : undefined;
+  const { view, block, apply } = await mount([
+    credAsk("ext00001", {
+      kind: "sign-in-link-extend",
+      userId: "u2",
+      tokenPrefix: "AbCd1234",
+      expiresAt: NOW - DAY,
+    }),
+  ]);
+  await waitFor(() =>
+    expect(block("ext00001")!.dataset.askActionCurrent).toBeDefined(),
+  );
+  const expiredNow = block("ext00001")!.dataset.askActionCurrent;
+  expect(block("ext00001")!.textContent).toContain("Casey");
+  await act(async () => {
+    seeded({ type: "invites_list", invites: [row(NOW + 3 * DAY)] } as never);
+  });
+  const extendedNow = block("ext00001")!.dataset.askActionCurrent;
+  expect(extendedNow).toBeDefined();
+  expect(extendedNow).not.toBe(expiredNow);
+  await act(async () => {
+    fireEvent.click(apply("ext00001")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual(["/api/asks/ext00001/action"]);
+  // The link used, replaced or taken back: gone from the list, so the card
+  // has nothing to extend and no button.
+  expect(block("ext00001")!.hasAttribute("data-ask-action-gone")).toBe(false);
+  await act(async () => {
+    seeded({ type: "invites_list", invites: [] } as never);
+  });
+  expect(block("ext00001")!.hasAttribute("data-ask-action-gone")).toBe(true);
+  expect(apply("ext00001")).toBe(null);
   view.unmount();
 });

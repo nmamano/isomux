@@ -19,6 +19,7 @@ import type {
   EnterpriseSecretReq,
   EnterpriseViewRes,
   MemberSessionWire,
+  MemberSignInLinkWire,
 } from "../../shared/contract-shapes.ts";
 import {
   resourceTargets,
@@ -3365,6 +3366,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/invites/:tokenPrefix/extend",
     auth: cap("invite:manage", officeOwner),
     emits: ["invites_list"],
+  }),
+  // An agent reads a member's sign-in links, to see a link's expiry and
+  // name it in a sign-in-link-extend ask (task 8852553c). The same reach as
+  // sessions.listForMember.
+  defineRoute<void, { links: MemberSignInLinkWire[] }>({
+    opId: "invites.listForMember",
+    method: "GET",
+    path: "/api/users/:username/sign-in-links",
+    auth: authn(memberSessionsReader("username")),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
   }),
   defineRoute<void, { sessions: SessionWire[] }>({
     opId: "sessions.list",

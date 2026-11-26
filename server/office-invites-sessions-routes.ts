@@ -8,6 +8,7 @@ import {
   INVITE_TTL_MS,
   SELF_INVITE_TTL_MS,
   listActiveSessionsForUserId,
+  listOwnerInvitesForUserId,
   logoutBySessionHash,
   mintInvite,
   revokeActiveSessionByPrefixForUserId,
@@ -154,6 +155,20 @@ export function createInvitesRoutes(
       };
     },
     listScoped: (identity) => scopedInvitesFor(identity.userId),
+    // The table's guard already ran: the member is the agent's manager, or
+    // any member while the manager is an office owner.
+    listForMember: (username) => {
+      const u = getUserByName(username);
+      return u
+        ? listOwnerInvitesForUserId(u.id).map((i) => ({
+            tokenPrefix: i.tokenPrefix,
+            createdAt: i.createdAt,
+            expiresAt: i.expiresAt,
+            ...(i.expired ? { expired: true as const } : {}),
+            ...(i.extendable ? { extendable: true as const } : {}),
+          }))
+        : [];
+    },
     // Another 3 days for an owner-made link (task 1492af52). The owners see
     // the new expiry, and an open renewal page for it closes (reconcile in
     // emitInvitesList).

@@ -1900,6 +1900,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "sessions.list": { caps: ["session:manage"], emits: [] },
   "sessions.listForMember": { caps: [], emits: [] },
+  "invites.listForMember": { caps: [], emits: [] },
   "sessions.revoke": {
     caps: ["session:manage"],
     emits: ["session_revoked", "sessions_active_list", "session_expired"],

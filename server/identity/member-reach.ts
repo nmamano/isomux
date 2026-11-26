@@ -303,6 +303,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "invites.revoke",
       "sessions.list",
       "sessions.listForMember",
+      "invites.listForMember",
       "sessions.revoke",
       "sessions.logout",
       "whatsapp.status",

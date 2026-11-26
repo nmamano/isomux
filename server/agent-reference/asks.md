@@ -14,7 +14,7 @@ The card shows bold, italics, `code` and links. `:green[text]` draws text in gre
 
 A JSON body (`Content-Type: application/json`) takes `text` (or `prompt`), `member` (a name or a list), `room: true`, `link`, `step`, `page` (`pager` page), `options`, `recommended`, `recommendedTag`, `recommendedText`, `automateText`, `priority`, `commands`, `editFiles` and `readFiles`. Query parameters work only with a text/plain body, and take one `option`, `command`, `editFile` or `readFile` per item.
 
-For an Integrations step (`ask-steps` page) or a change only a member can make (`action-asks` page; routing a member's chat to an agent: `route-asks` page), send `step`, not `link`: the ask closes when it is done. To open a page, add `link=<page>` (or `link` in JSON): the card gets a button for it. Which pages it takes: the `ask-links` page.
+For an Integrations step (`ask-steps` page) or a change only a member can make (`action-asks`, `route-asks` and `sign-in-asks` pages), send `step`, not `link`: the ask closes when it is done. To open a page, add `link=<page>` (or `link` in JSON): the card gets a button for it. Which pages it takes: the `ask-links` page.
 
 For a few choices, or an answer you recommend, add 1 to 10 options: `option=<text>` each in the query, or `options`. Each is at most 80 characters, and they must differ. A tap puts the option in the reply field, which the member can edit; a tap on the option the field holds sends it. `recommended=<option text>` marks your pick and starts the field with it. A lone option starts there too: give one, such as `Done`, for a step the member does and then reports.
 

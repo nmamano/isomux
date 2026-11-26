@@ -2517,6 +2517,12 @@ Coses que pots fer per ell:
   "asks.action.unusedLinks.other":
     "{count} enllaços d'inici de sessió sense fer servir",
   "asks.action.linksTakenBack": "Cap enllaç sense fer servir",
+  "asks.action.linkExpiresAt": "Caduca el {time}",
+  "asks.action.linkExpiredAt": "Ha caducat el {time}",
+  "asks.action.linkExtended": "Caduca d'aquí a 3 dies",
+  "asks.action.linkExtendHint": "L'enllaç no canvia.",
+  "asks.action.linkGone":
+    "Aquest enllaç d'inici de sessió s'ha fet servir, s'ha substituït o s'ha retirat.",
   "asks.action.tokenExpires": "Caduca als {days} dies",
   "asks.action.tokenNeverExpires": "No caduca",
   "asks.action.tokenHint": "El token apareix aquí una vegada.",
@@ -2700,6 +2706,8 @@ Coses que pots fer per ell:
   "apiCall.users.readOsUser": "Llegir l'usuari del sistema propi del membre",
   "apiCall.users.readInstructions": "Llegir les instruccions del membre",
   "apiCall.users.readSessions": "Llegir les sessions del membre",
+  "apiCall.users.readSignInLinks":
+    "Llegir els enllaços d'inici de sessió del membre",
   "apiCall.users.saveInstructions": "Canviar les instruccions del membre",
   "apiCall.users.readPinned": "Llegir la llista de fixats del membre",
   "apiCall.users.savePinned": "Canviar la llista de fixats del membre",
@@ -4335,6 +4343,9 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.memberRoomSet":
     "Accés a sales canviat per a {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Rol canviat per a {member}.",
+  "systemEntries.stepAsk.signInLinkExtended":
+    "Enllaç d'inici de sessió de {member} allargat.",
+  "systemEntries.stepAsk.memberAvatarSet": "Avatar canviat per a {member}.",
   "systemEntries.stepAsk.memberPackSet":
     "Paquet de permisos canviat per a {member}.",
   "systemEntries.stepAsk.preferencesSet": "Preferències canviades.",

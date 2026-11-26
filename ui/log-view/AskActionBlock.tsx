@@ -30,6 +30,8 @@
 // Task 2ff2729f: some settings of one existing route of the member, in
 // either app (messaging-route), read from the same held route data; and the
 // ages of the daily automatic cleanup (storage-retention).
+// Task 8852553c: a member's sign-in link given another 3 days
+// (sign-in-link-extend) and a member's avatar (member-avatar).
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -72,6 +74,7 @@ import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
 import { formatSince } from "../components/access-shared.tsx";
 import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
+import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { formatNumber } from "../../shared/i18n/number.ts";
 import { accessSummary, roomsSummary } from "../components/ApiTokensPane.tsx";
 import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
@@ -148,6 +151,11 @@ export function actionButtonKey(step: ActionStepRequest): PlainMessageKey {
       return "settings.storage.deletePermanently";
     case "storage-compress":
       return "settings.storage.compress";
+    // The Invites page's own label.
+    case "sign-in-link-extend":
+      return "settings.invites.extend";
+    case "member-avatar":
+      return "asks.action.apply";
     default: {
       const unknown: never = step;
       return unknown;
@@ -468,7 +476,8 @@ export function AskActionBlock({
   const needs =
     step.kind === "member-sessions" || step.kind === "session-revoke"
       ? "sessions"
-      : step.kind === "sign-in-links-revoke"
+      : step.kind === "sign-in-links-revoke" ||
+          step.kind === "sign-in-link-extend"
         ? "invites"
         : null;
   useEffect(() => {
@@ -1155,6 +1164,9 @@ export function AskActionBlock({
     };
   }
 
+  // A member's own list holds only their live links, so for a member who
+  // takes back their own, an expired link an owner could extend is not
+  // counted, though Apply removes it too.
   function linksRevokeView(s: Step<"sign-in-links-revoke">): ActionView {
     const member = memberById(s.userId);
     const pending = member
@@ -1176,6 +1188,97 @@ export function AskActionBlock({
       marks: {},
       gone: member ? null : t("asks.action.memberGone"),
       goneDone: true,
+    };
+  }
+
+  // The link's expiry now, from the owners' live invite list (task
+  // 8852553c). A link used, replaced or taken back is gone: nothing to
+  // extend.
+  function linkExtendView(s: Step<"sign-in-link-extend">): ActionView {
+    const member = memberById(s.userId);
+    const link = invitesList.find((i) => i.tokenPrefix === s.tokenPrefix);
+    const time = (at: number) => formatDateTime(language, at, "dateTime");
+    return {
+      name: member?.name ?? s.userId,
+      ...(invitesLoaded && link
+        ? {
+            current: {
+              value: String(link.expiresAt),
+              label: link.expired
+                ? t("asks.action.linkExpiredAt", {
+                    time: time(link.expiresAt),
+                  })
+                : t("asks.action.linkExpiresAt", {
+                    time: time(link.expiresAt),
+                  }),
+            },
+          }
+        : {}),
+      loading: !invitesLoaded,
+      requested: { value: "extended", label: t("asks.action.linkExtended") },
+      lines: [
+        <div key="hint" style={muted}>
+          {t("asks.action.linkExtendHint")}
+        </div>,
+      ],
+      marks: {},
+      gone: !member
+        ? t("asks.action.memberGone")
+        : invitesLoaded && !link
+          ? t("asks.action.linkGone")
+          : null,
+    };
+  }
+
+  // The fields the step names, as the member has them now and as asked: the
+  // colour and the ghost shape's name, as the avatar picker titles them.
+  function memberAvatarView(s: Step<"member-avatar">): ActionView {
+    const member = memberById(s.userId);
+    const asked = (color: string, variant: string): Value => {
+      const parts = [
+        ...(s.avatarColor !== undefined ? [color] : []),
+        ...(s.avatarVariant !== undefined ? [variant] : []),
+      ];
+      return { value: parts.join(" "), label: parts.join(" · ") };
+    };
+    const now = member
+      ? { color: member.avatarColor, variant: member.avatarVariant }
+      : null;
+    const want = now
+      ? {
+          color: s.avatarColor ?? now.color,
+          variant: s.avatarVariant ?? now.variant,
+        }
+      : null;
+    return {
+      name: member?.name ?? s.userId,
+      ...(now ? { current: asked(now.color, now.variant) } : {}),
+      requested: asked(s.avatarColor ?? "", s.avatarVariant ?? ""),
+      lines: [
+        now && want && (
+          <div
+            key="ghosts"
+            aria-hidden="true"
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <GhostGraphic
+              variant={now.variant}
+              color={now.color}
+              size={22}
+              animated={false}
+            />
+            <span>→</span>
+            <GhostGraphic
+              variant={want.variant}
+              color={want.color}
+              size={22}
+              animated={false}
+            />
+          </div>
+        ),
+      ],
+      marks: {},
+      gone: member ? null : t("asks.action.memberGone"),
     };
   }
 
@@ -2157,6 +2260,10 @@ export function AskActionBlock({
         return storageRetentionView(step);
       case "instructions-line":
         return instructionsLineView(step);
+      case "sign-in-link-extend":
+        return linkExtendView(step);
+      case "member-avatar":
+        return memberAvatarView(step);
     }
   })();
 

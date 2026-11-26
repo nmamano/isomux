@@ -1,6 +1,6 @@
 // Invites resource handlers. The auth invite surface on
 // the unified REST surface (opIds invites.{mint,mintRecovery,mintSelf,list,
-// revoke}). An invite is a sign-in link for an EXISTING member; members are
+// listForMember,extend,revoke}). An invite is a sign-in link for an EXISTING member; members are
 // created by users.create. The handlers delegate to the auth core ops
 // (mintInvite / revokeInviteByPrefix / revokeOutstandingInviteByPrefixForUser)
 // and the recipient-scoped emit (emitInvitesList / liveEmit("invite_revoked")).
@@ -29,7 +29,10 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { InviteWire } from "../../../shared/types.ts";
-import type { InviteMintReq } from "../../../shared/contract-shapes.ts";
+import type {
+  InviteMintReq,
+  MemberSignInLinkWire,
+} from "../../../shared/contract-shapes.ts";
 
 // Mint outcome: the {url, invite} the caller renders, or a status-mapped failure
 // (the seam maps the auth MintErr code: a missing member → 404).
@@ -68,6 +71,9 @@ export interface InvitesDeps {
   // Extend (officeOwner guard already enforced); on ok the seam fans out
   // emitInvitesList().
   extend(tokenPrefix: string): Promise<ExtendOutcome>;
+  // A member's links an owner sees, by username, for an agent (task
+  // 8852553c). The table's guard already ran.
+  listForMember(username: string): MemberSignInLinkWire[];
 }
 
 // Fields of the retired new-member invite body. A caller that still sends
@@ -118,6 +124,9 @@ export function invitesHandlers(
     },
 
     "invites.list": (ctx) => ok({ invites: deps.listScoped(ctx.identity) }),
+
+    "invites.listForMember": (ctx) =>
+      ok({ links: deps.listForMember(ctx.params.username) }),
 
     "invites.extend": async (ctx) => {
       const r = await deps.extend(ctx.params.tokenPrefix);

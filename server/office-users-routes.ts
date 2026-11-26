@@ -129,6 +129,8 @@ export interface UsersRoutesDeps
   // view.setPinned's store and fan-out for one member (isomux-office.ts
   // applyPinnedAgents). false: the record is gone.
   applyPinnedAgents: (userId: string, pinned: string[]) => boolean;
+  // A member's avatar may be the change a step ask waits for.
+  stepsChanged: () => void;
 }
 
 // A refused seat as the users routes' error shape.
@@ -263,6 +265,7 @@ export function createUsersRoutes(
   const {
     accessibleRoomIdsFor,
     applyPinnedAgents,
+    stepsChanged,
     announceAppAudienceChanges,
     announceWebhookAudienceChanges,
     attributionFor,
@@ -788,6 +791,11 @@ export function createUsersRoutes(
         }
       }
       if (presenceTouched || audienceMayChange) pushPresenceListToEachWs();
+      if (
+        user.avatarColor !== pre.avatarColor ||
+        user.avatarVariant !== pre.avatarVariant
+      )
+        stepsChanged();
       // As setAccess: the member's agents move down, their apps stop and
       // their pages reload.
       if (changes.pack !== undefined) afterMemberPackSaved(user.id);

@@ -9,6 +9,7 @@ import type {
   PruneTarget,
 } from "./contract-shapes.ts";
 import type { AgentAccess } from "./agent-access.ts";
+import type { GhostVariant } from "./avatar.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AskStep } from "./types.ts";
@@ -55,6 +56,23 @@ export type ActionStepRequest =
   | { kind: "session-revoke"; userId: string; sessionPrefix: string }
   // Every pending sign-in link of a member taken back.
   | { kind: "sign-in-links-revoke"; userId: string }
+  // A member's sign-in link given another 3 days (task 8852553c), live or
+  // expired. The agent names the member; the server stores the link's
+  // prefix and its expiry at the create.
+  | {
+      kind: "sign-in-link-extend";
+      userId: string;
+      tokenPrefix: string;
+      expiresAt: number;
+    }
+  // A member's avatar: its colour ("#rrggbb"), its ghost shape, or both
+  // (task 8852553c).
+  | {
+      kind: "member-avatar";
+      userId: string;
+      avatarColor?: string;
+      avatarVariant?: GhostVariant;
+    }
   // A personal API token for the member the ask is for, as
   // POST /api/me/api-tokens takes it. The card shows the token.
   | {
@@ -209,6 +227,8 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "member-sessions",
   "session-revoke",
   "sign-in-links-revoke",
+  "sign-in-link-extend",
+  "member-avatar",
   "api-token",
   "api-token-revoke",
   "office-access",

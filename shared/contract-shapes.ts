@@ -68,6 +68,17 @@ export type MemberSessionWire = Pick<
   "sessionPrefix" | "device" | "userAgent" | "createdAt" | "lastSeenAt"
 >;
 
+// One sign-in link of a member, as GET /api/users/:username/sign-in-links
+// gives it to an agent (task 8852553c): an unused link that is live, or
+// expired and still extendable by an office owner. Never the link itself.
+export interface MemberSignInLinkWire {
+  tokenPrefix: string;
+  createdAt: number;
+  expiresAt: number;
+  expired?: true;
+  extendable?: true;
+}
+
 // The caller's own full record (env/access/prompt/view prefs); delivered ONLY
 // to that user. Same shape as UserAdminWire, kept as a distinct name so the
 // audience contract is explicit at every use site.

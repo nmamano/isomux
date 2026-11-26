@@ -287,3 +287,57 @@ it("a member-view card on a hidden room keeps it tucked when shown again and sho
   );
   m.view.unmount();
 });
+
+// Task 8852553c: a member-avatar card compares the member's avatar now with
+// the one asked, on the fields the step names, live; Apply runs on the first
+// click. Casey (u2) starts at #336699, classic.
+it("a member-avatar card shows the avatar now and the one asked, on the fields asked, read live, and runs on the first click", async () => {
+  const both = memberAsk("ava00001", {
+    kind: "member-avatar",
+    userId: "u2",
+    avatarColor: "#aabbcc",
+    avatarVariant: "sleepy",
+  });
+  const colorOnly = memberAsk("ava00002", {
+    kind: "member-avatar",
+    userId: "u2",
+    avatarColor: "#aabbcc",
+  });
+  const { view, block, apply } = await mount([both, colorOnly]);
+  const same = (id: string) => {
+    const f = flags(block(id)!);
+    expect([id, f.current === undefined, f.requested === undefined]).toEqual([
+      id,
+      false,
+      false,
+    ]);
+    return f.current === f.requested;
+  };
+  expect([same("ava00001"), same("ava00002")]).toEqual([false, false]);
+  await act(async () => {
+    fireEvent.click(apply("ava00001")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual(["/api/asks/ava00001/action"]);
+  const casey = (avatar: Record<string, string>) =>
+    ({
+      ...(member("u2", "Casey", "member", ["r1"]) as object),
+      ...avatar,
+    }) as never;
+  await act(async () => {
+    seeded({
+      type: "user_admin_updated",
+      user: casey({ avatarColor: "#aabbcc" }),
+    } as never);
+  });
+  // The colour is as asked; the shape is not, which only the first asks.
+  expect([same("ava00001"), same("ava00002")]).toEqual([false, true]);
+  await act(async () => {
+    seeded({
+      type: "user_admin_updated",
+      user: casey({ avatarColor: "#aabbcc", avatarVariant: "sleepy" }),
+    } as never);
+  });
+  expect([same("ava00001"), same("ava00002")]).toEqual([true, true]);
+  view.unmount();
+});

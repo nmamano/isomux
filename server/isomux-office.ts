@@ -237,6 +237,7 @@ import {
   listActiveSessionsForUserId,
   listInvites,
   listInvitesForUser,
+  listOwnerInvitesForUserId,
   mintInvite,
   noteSessionDeviceByHash,
   sessionContextFor,
@@ -5244,7 +5245,8 @@ function buildExecutorDeps(
       : undefined;
     if (!u) return fail(403, "forbidden");
     if (u.role === "owner") return null;
-    const owns = listInvitesForUser(u).some(
+    // Their expired links an owner could still extend too (task 8852553c).
+    const owns = listOwnerInvitesForUserId(u.id).some(
       (i) => i.tokenPrefix === ctx.params.tokenPrefix,
     );
     return owns ? null : fail(403, "forbidden");
@@ -5620,6 +5622,7 @@ function buildExecutorDeps(
     createUsersRoutes({
       accessibleRoomIdsFor,
       applyPinnedAgents,
+      stepsChanged,
       enterpriseSeats: () => {
         if (!enterpriseSeats) throw new Error("enterprise seats not started");
         return enterpriseSeats;

@@ -42,6 +42,13 @@ import {
 } from "../shared/contract-shapes.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import {
+  GHOST_VARIANTS,
+  isGhostVariant,
+  isHexColor,
+  normalizeHexColor,
+  type GhostVariant,
+} from "../shared/avatar.ts";
+import {
   parseMemberPack,
   samePack,
   type MemberPack,
@@ -148,6 +155,8 @@ export interface StepRunDeps {
     name: string;
     role: "owner" | "member";
     allowedRooms: readonly string[];
+    avatarColor: string;
+    avatarVariant: GhostVariant;
   } | null;
   // The member's pack, preferences and room lists now, or null when they
   // are gone (task e3d1bc63, part 3).
@@ -194,7 +203,15 @@ export interface StepRunDeps {
     userId: string,
     callerSessionIdHash?: string,
   ): { prefix: string; createdAt: number; current: boolean }[];
-  memberInvites(userId: string): { prefix: string; createdAt: number }[];
+  // The links are the ones an office owner sees: unused, live or expired but
+  // still extendable (task 8852553c), with the expiry and whether an owner
+  // can extend the link.
+  memberInvites(userId: string): {
+    prefix: string;
+    createdAt: number;
+    expiresAt: number;
+    extendable: boolean;
+  }[];
   // The member's live API tokens.
   memberApiTokens(
     userId: string,
@@ -327,6 +344,8 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "sign-in-link": ["kind", "username"],
   "member-sessions": ["kind", "username"],
   "sign-in-links-revoke": ["kind", "username"],
+  "sign-in-link-extend": ["kind", "username"],
+  "member-avatar": ["kind", "username", "avatarColor", "avatarVariant"],
   "session-revoke": ["kind", "username", "sessionPrefix"],
   "api-token": ["kind", "name", "expiresInDays", "limits"],
   "api-token-revoke": ["kind", "tokenId"],
@@ -433,6 +452,12 @@ function mcpScope(
 // member an action step changes.
 function doneLine(step: AskStep, target: string): LogMessage {
   switch (step.kind) {
+    case "sign-in-link-extend":
+      return msg("systemEntries.stepAsk.signInLinkExtended", {
+        member: target,
+      });
+    case "member-avatar":
+      return msg("systemEntries.stepAsk.memberAvatarSet", { member: target });
     case "provider-sign-in":
       return step.scope === "office"
         ? msg("systemEntries.stepAsk.providerSignedInOffice", {
@@ -806,6 +831,27 @@ export function createStepAsks(deps: StepAskDeps) {
   ): Promise<boolean> {
     if (!isKnownKind(step.kind)) return false;
     switch (step.kind) {
+      // The link's expiry passed the one stored at the create, by the card or
+      // by hand. A link used, replaced or taken back is not extended: the ask
+      // stays open, and Apply answers the route's refusal.
+      case "sign-in-link-extend":
+        return !!deps.runs
+          ?.memberInvites(step.userId)
+          .some(
+            (i) =>
+              i.prefix === step.tokenPrefix && i.expiresAt > step.expiresAt,
+          );
+      // Each field the step names has its value.
+      case "member-avatar": {
+        const member = deps.runs?.member(step.userId);
+        return (
+          !!member &&
+          (step.avatarColor === undefined ||
+            member.avatarColor === step.avatarColor) &&
+          (step.avatarVariant === undefined ||
+            member.avatarVariant === step.avatarVariant)
+        );
+      }
       case "provider-sign-in":
         return deps.providerConnected(memberUserId, step.provider, step.scope);
       case "mcp-sign-in": {
@@ -1393,6 +1439,39 @@ export function createStepAsks(deps: StepAskDeps) {
           ],
         };
       }
+      case "sign-in-link-extend":
+        if (!deps.runs?.member(step.userId)) return unknownMember();
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "POST",
+              path: `/api/invites/${encodeURIComponent(step.tokenPrefix)}/extend`,
+            },
+          ],
+        };
+      // Only the fields asked: a field changed by hand since stays.
+      case "member-avatar": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return unknownMember();
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "PATCH",
+              path: `/api/users/${encodeURIComponent(member.name)}`,
+              body: {
+                ...(step.avatarColor !== undefined
+                  ? { avatarColor: step.avatarColor }
+                  : {}),
+                ...(step.avatarVariant !== undefined
+                  ? { avatarVariant: step.avatarVariant }
+                  : {}),
+              },
+            },
+          ],
+        };
+      }
       case "sign-in-link": {
         const member = deps.runs?.member(step.userId);
         if (!member) return unknownMember();
@@ -1710,6 +1789,66 @@ export function createStepAsks(deps: StepAskDeps) {
         return invalid("step.scope is personal or office");
     const owner = deps.isOfficeOwner(memberUserId);
     switch (kind) {
+      // The member's one link an owner can extend, stored with its expiry
+      // now. Only an office owner applies it: that refusal comes before any
+      // answer about the member's links.
+      case "sign-in-link-extend": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        if (!owner)
+          return notAllowed("only an office owner can extend a sign-in link");
+        const link = deps.runs.memberInvites(userId).find((i) => i.extendable);
+        if (!link)
+          return {
+            ok: false,
+            status: 409,
+            code: "no_extendable_link",
+            message:
+              "this member has no sign-in link to extend; a sign-in-link step makes a new one",
+          };
+        return {
+          ok: true,
+          step: {
+            kind,
+            userId,
+            tokenPrefix: link.prefix,
+            expiresAt: link.expiresAt,
+          },
+        };
+      }
+      // A colour as the record stores it, a shape it takes, or both.
+      case "member-avatar": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        const { avatarColor, avatarVariant } = body;
+        if (avatarColor === undefined && avatarVariant === undefined)
+          return invalid(
+            "a member-avatar step sets avatarColor, avatarVariant or both",
+          );
+        if (avatarColor !== undefined && !isHexColor(avatarColor))
+          return invalid("step.avatarColor is a colour as #rrggbb");
+        if (avatarVariant !== undefined && !isGhostVariant(avatarVariant))
+          return invalid(
+            `step.avatarVariant is one of ${GHOST_VARIANTS.join(", ")}`,
+          );
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        return {
+          ok: true,
+          step: {
+            kind,
+            userId,
+            ...(avatarColor !== undefined
+              ? { avatarColor: normalizeHexColor(avatarColor) }
+              : {}),
+            ...(avatarVariant !== undefined ? { avatarVariant } : {}),
+          },
+        };
+      }
       case "provider-sign-in": {
         const provider = body.provider;
         if (provider !== "claude" && provider !== "codex")
@@ -2243,6 +2382,8 @@ export function createStepAsks(deps: StepAskDeps) {
       case "member-sessions":
       case "session-revoke":
       case "sign-in-links-revoke":
+      case "sign-in-link-extend":
+      case "member-avatar":
         return deps.runs?.member(step.userId)?.name ?? step.userId;
       case "member-view":
         return deps.runs?.roomName(step.roomId) ?? step.roomId;
@@ -2271,6 +2412,17 @@ export function createStepAsks(deps: StepAskDeps) {
     const runs = deps.runs;
     if (!runs) return invalid("this office runs no action steps");
     switch (step.kind) {
+      case "sign-in-link-extend":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("only an office owner can extend a sign-in link")
+          : null;
+      // An owner for anyone, a member for themself.
+      case "member-avatar":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed(
+              "only an office owner can change another member's avatar",
+            )
+          : null;
       case "agent-access": {
         if (
           !askingAgentId ||

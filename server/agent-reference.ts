@@ -56,6 +56,8 @@ export const AGENT_REFERENCE_TOPICS = {
     "A member must sign in to Claude, Codex or an MCP server, pair Chrome, or set the room's GitHub issue link",
   "route-asks":
     "Only a member can route one of their WhatsApp chats or Discord places to an agent",
+  "sign-in-asks":
+    "Only a member can make, extend or take back a member's sign-in link, or sign a member out",
   "secret-exchange":
     "You use or ask for a secret that the proxy trades for a token (`exchange`)",
   "discord-setup":
@@ -85,6 +87,7 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "ask-replies": "asks",
   "ask-steps": "asks",
   "route-asks": "asks",
+  "sign-in-asks": "asks",
   "secret-exchange": "connections",
   "discord-setup": "messaging",
   "ask-links": "asks",
@@ -180,7 +183,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "users.readPinned": "members",
   "users.setPinned": "members",
   "users.update": "members",
-  "sessions.listForMember": "action-asks",
+  "sessions.listForMember": "sign-in-asks",
+  "invites.listForMember": "sign-in-asks",
   "office.getSettings": "office-settings",
   "office.getMemberUsageStatus": "office-settings",
   "office.setSettings": "office-settings",
