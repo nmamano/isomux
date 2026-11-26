@@ -30,6 +30,7 @@ import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import type { PersistedAgent } from "../persistence.ts";
 import { ISOMUX_CODEX_HOME } from "../backends/codex/native-bin.ts";
 import { officeAgentHost, setOfficeAgentHost } from "../agent-host.ts";
+import { clearTestManagedOfficeEnv } from "./managed-office-env.ts";
 
 type Engine = "claude" | "codex" | "opencode";
 const BUNDLED = ["figure-it-out", "grill-me", "loose-ends", "wrap-session"];
@@ -590,6 +591,9 @@ describe("Skill menu and /name per engine", () => {
 // ~/.codex. A skill, plugin and synced skill in the run's homes must appear.
 describe("provider homes of a test run", () => {
   it("reads skills, plugins and synced skills from the run's Claude and Codex homes, with and without a merged env, at spawn, refresh and restore", async () => {
+    // An office variable left by an earlier file of this run (a harness
+    // server does not clear its state at stop) would merge every member's env.
+    clearTestManagedOfficeEnv();
     const claudeHome = process.env.CLAUDE_CONFIG_DIR;
     const codexHome = process.env.CODEX_HOME;
     for (const [name, dir] of [

@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { clearTestManagedOfficeEnv } from "./managed-office-env.ts";
 import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import {
@@ -815,6 +816,8 @@ describe("members on one OS user, and an owner with their own OS user", () => {
   const recorded: string[] = [];
   afterEach(() => {
     for (const id of recorded.splice(0)) forgetMemberOsUser(id);
+    // The owner case sets an office variable: the next file must not see it.
+    clearTestManagedOfficeEnv();
   });
   // Bob's agent, and Carol's on another OS user, are spawned before their
   // records: the rule reads the records, not where the agent runs.
