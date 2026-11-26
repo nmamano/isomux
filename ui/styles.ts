@@ -418,7 +418,8 @@ ${emitThemesCss()}
 
   /* The phone's sidebar drawer (task 3cced5be; App.tsx): the sidebar slides
      in from the left over a dimmed view, at most 85% of the width. Its rows
-     and the room actions are 44 px touch targets. */
+     and the room actions are 44 px touch targets, the page rows at the top
+     32 px. */
   .phone-sidebar { position: fixed; inset: 0; z-index: 800; }
   .phone-sidebar-backdrop {
     position: absolute;
@@ -453,6 +454,10 @@ ${emitThemesCss()}
     .os-user-status-dot[data-pulse] { animation: none; }
   }
   .phone-sidebar .chat-sidebar-row { min-height: 44px; }
+  /* Task 25c4f64b: the page rows above the room list and the Office row's
+     sliders are 32 px, so the rows take a third of a phone screen, not half. */
+  .phone-sidebar [data-sidebar-block="top"] { --row-action-size: 32px; }
+  .phone-sidebar [data-sidebar-block="top"] .chat-sidebar-row { min-height: 32px; }
   .phone-sidebar [data-sidebar-collapse] {
     min-width: 44px;
     min-height: 44px;
