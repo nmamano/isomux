@@ -1,5 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
   CLAUDE_CLOUD_MODEL_DEFAULTS,
   FAMILY_TO_MODEL,
 } from "../../shared/types.ts";
@@ -9,6 +19,37 @@ import {
   withCloudModelDefaults,
 } from "./claude-install-check.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+
+// The ids in `ids` that do not occur in the file at `path`. The CLI binary is
+// hundreds of MB, so this reads it in chunks and stops at the first match of
+// the last id instead of scanning the whole file. Each chunk keeps the tail of
+// the one before it, so an id that spans two chunks is still found.
+function idsMissingFrom(
+  path: string,
+  ids: string[],
+  chunkBytes = 8 << 20,
+): string[] {
+  const missing = new Set(ids);
+  const carryMax = Math.max(0, ...ids.map((id) => Buffer.byteLength(id) - 1));
+  const buf = Buffer.alloc(carryMax + chunkBytes);
+  const fd = openSync(path, "r");
+  try {
+    let pos = 0;
+    let carry = 0;
+    while (missing.size > 0) {
+      const n = readSync(fd, buf, carry, chunkBytes, pos);
+      if (n === 0) break;
+      pos += n;
+      const view = buf.subarray(0, carry + n);
+      for (const id of missing) if (view.includes(id)) missing.delete(id);
+      carry = Math.min(carryMax, view.length);
+      view.copy(buf, 0, view.length - carry);
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return [...missing];
+}
 
 describe("Claude cloud defaults", () => {
   it("keeps each cloud row aligned with the picker model", () => {
@@ -24,17 +65,25 @@ describe("Claude cloud defaults", () => {
   // old model (internal-docs/model-discovery-design.md).
   it("repoints only to ids the bundled CLI knows", () => {
     const ids = [...new Set(Object.values(FAMILY_TO_MODEL))];
-    const found = Bun.spawnSync([
-      "grep",
-      "-a",
-      "-o",
-      "-F",
-      ...ids.flatMap((id) => ["-e", id]),
-      CLAUDE_NATIVE_BIN,
-    ]);
-    expect(found.exitCode).toBeLessThan(2);
-    const known = new Set(found.stdout.toString().split("\n"));
-    expect(ids.filter((id) => !known.has(id))).toEqual([]);
+    expect(idsMissingFrom(CLAUDE_NATIVE_BIN, ids)).toEqual([]);
+  });
+
+  // The case above is green for a helper that always returns [], so this one
+  // proves the helper can report a miss and finds an id across chunk ends.
+  it("reports only the ids a chunked scan cannot find", () => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-ids-missing-"));
+    try {
+      const path = join(dir, "bin");
+      // With 8-byte chunks, the 16-byte id spans three chunks and its last
+      // byte is the first byte of a chunk, so a carry one byte short misses it.
+      const long = "0123456789abcdef";
+      writeFileSync(path, `x${long}yyyyyyyshortzzzzzzzz`);
+      expect(idsMissingFrom(path, ["short", long, "absent"], 8)).toEqual([
+        "absent",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   for (const [region, sonnet, haiku] of [
