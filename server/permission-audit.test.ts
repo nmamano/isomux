@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { permissionInputSummary } from "./permission-audit.ts";
+import {
+  permissionAuditText,
+  permissionInputSummary,
+} from "./permission-audit.ts";
 
 describe("permission audit input summaries", () => {
   it("keeps only supported fields and redacts common credential shapes", () => {
@@ -46,5 +49,14 @@ describe("permission audit input summaries", () => {
     });
     expect(summary.command).toHaveLength(240);
     expect(summary.command?.endsWith("…")).toBe(true);
+  });
+
+  it("redacts and caps free audit text the same way", () => {
+    const text = permissionAuditText(
+      `check failed for API_KEY=reason-secret ${"y".repeat(500)}`,
+    );
+    expect(text).not.toContain("reason-secret");
+    expect(text).toHaveLength(240);
+    expect(text.endsWith("…")).toBe(true);
   });
 });

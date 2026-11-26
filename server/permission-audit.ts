@@ -25,6 +25,14 @@ function bounded(value: string): string {
   return `${redacted.slice(0, SUMMARY_LIMIT - 1)}…`;
 }
 
+/**
+ * Free text for a permission audit record (for example the CLI's reason for a
+ * permission request), with the input summary's redaction and length cap.
+ */
+export function permissionAuditText(value: string): string {
+  return bounded(value);
+}
+
 export function permissionInputSummary(
   toolName: string,
   input: Record<string, unknown>,

@@ -103,7 +103,10 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 
 import type { Attachment, ReportedBackgroundTask } from "../../shared/types.ts";
 import { errMessage } from "../../shared/errors.ts";
-import { permissionInputSummary } from "../permission-audit.ts";
+import {
+  permissionAuditText,
+  permissionInputSummary,
+} from "../permission-audit.ts";
 import {
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
@@ -1324,14 +1327,27 @@ export class ClaudeSession implements BackendSession {
     // the plan unseen.
     const memberApproval =
       toolName === EXIT_PLAN_MODE_TOOL && this.memberPlanMode;
-    if (this.bypassPermissions && !memberApproval) {
-      this.enqueue({
-        kind: "system_text",
-        text:
-          "Isomux allowed an unexpected SDK permission request because this " +
-          `agent uses bypassPermissions. Tool: ${toolName}. Input: ` +
-          `${JSON.stringify(permissionInputSummary(toolName, input))}.`,
-      });
+    // A permissions.ask rule in the member's or the project's settings is
+    // their own request for a prompt, so bypass does not answer it. The CLI
+    // marks a plain ask rule with decisionReasonType "rule", which SDK
+    // 0.3.322 passes at run time but leaves out of the CanUseTool type.
+    const askRule =
+      callOpts.matchedAskRule !== undefined ||
+      (callOpts as { decisionReasonType?: unknown }).decisionReasonType ===
+        "rule";
+    if (this.bypassPermissions && !memberApproval && !askRule) {
+      // The CLI still asks under bypassPermissions for checks it treats as
+      // bypass-immune, for example a Bash command its parser cannot read
+      // ("Dangerous rm operation not ruled out"). Isomux's own safety hooks
+      // already ran, so allow it and keep a record for maintainers only.
+      const reason = callOpts.decisionReason
+        ? ` (${JSON.stringify(permissionAuditText(callOpts.decisionReason))})`
+        : "";
+      console.warn(
+        `[permission] ${this.agentId}: allowed a ${toolName} request that ` +
+          `the Claude CLI asked about under bypassPermissions${reason}: ` +
+          JSON.stringify(permissionInputSummary(toolName, input)),
+      );
       return Promise.resolve({ behavior: "allow", updatedInput: input });
     }
     return new Promise<PermissionResult>((resolve) => {

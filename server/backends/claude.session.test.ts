@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it, spyOn } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
@@ -98,10 +98,14 @@ function fakeCallOpts(
     title?: string;
     description?: string;
     decisionReason?: string;
+    // Not in the public CanUseTool type: sdk.mjs copies it from the control
+    // request (SDK 0.3.322), e.g. "safetyCheck" or "rule".
+    decisionReasonType?: string;
+    matchedAskRule?: Parameters<CanUseTool>[2]["matchedAskRule"];
     signal?: AbortSignal;
   } = {},
 ): Parameters<CanUseTool>[2] {
-  return {
+  const opts: Parameters<CanUseTool>[2] = {
     toolUseID,
     // Required since SDK 0.3.219: the control_request envelope's request_id.
     // Derived from toolUseID so the fixture stays deterministic and each
@@ -112,7 +116,11 @@ function fakeCallOpts(
     title: extras.title,
     description: extras.description,
     decisionReason: extras.decisionReason,
+    matchedAskRule: extras.matchedAskRule,
   };
+  return extras.decisionReasonType === undefined
+    ? opts
+    : Object.assign(opts, { decisionReasonType: extras.decisionReasonType });
 }
 
 // ---------------------------------------------------------------------------
@@ -436,30 +444,122 @@ describe("ClaudeSession send", () => {
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession approval flow", () => {
-  it("allows and records an unexpected canUseTool call in bypass mode", async () => {
-    const fake = new FakeSdkClient();
+  function bypassSession(fake: FakeSdkClient) {
     const session = new ClaudeSession("test-agent", fake, {
       ...minimalSdkOpts(),
       permissionMode: "bypassPermissions",
     });
-    const canUseTool = fake.createCalls[0].opts.canUseTool!;
-    const stream = session.stream()[Symbol.asyncIterator]();
-    const result = canUseTool(
-      "Bash",
-      { command: "API_TOKEN=very-secret-value printf ok" },
-      fakeCallOpts("bypass-1"),
-    );
-    // An audit line naming the tool, with the secret redacted.
-    const audit = (await nextEvent(stream)) as { kind: string; text: string };
-    expect(audit.kind).toBe("system_text");
-    expect(audit.text).toContain("Bash");
-    expect(audit.text).toContain("API_TOKEN=[REDACTED]");
-    expect(audit.text).not.toContain("very-secret-value");
-    expect(await result).toEqual({
-      behavior: "allow",
-      updatedInput: { command: "API_TOKEN=very-secret-value printf ok" },
-    });
+    return {
+      session,
+      conv: fake.conversations.at(-1)!,
+      canUseTool: fake.createCalls.at(-1)!.opts.canUseTool!,
+      stream: session.stream()[Symbol.asyncIterator](),
+    };
+  }
+
+  it("bypass allows a CLI safety-check ask with no chat event, recorded in the server log", async () => {
+    const fake = new FakeSdkClient();
+    const { conv, canUseTool, stream } = bypassSession(fake);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const input = { command: "API_TOKEN=very-secret-value printf ok" };
+      expect(
+        await canUseTool(
+          "Bash",
+          input,
+          fakeCallOpts("bypass-1", {
+            decisionReason: "shell parse\nAPI_KEY=reason-secret differs",
+            decisionReasonType: "safetyCheck",
+          }),
+        ),
+      ).toEqual({
+        behavior: "allow",
+        updatedInput: { command: "API_TOKEN=very-secret-value printf ok" },
+      });
+      // Nothing reached the chat: the next event is the one emitted after.
+      conv.emit({
+        type: "assistant",
+        message: { content: [{ type: "text", text: "after" }] },
+      });
+      expect(await nextEvent(stream)).toEqual({
+        kind: "assistant_text",
+        text: "after",
+      });
+      // One server-log line: agent, tool, reason and command, no secret,
+      // no line break from the reason.
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = warn.mock.calls[0].map(String).join(" ");
+      expect(line).toContain("test-agent");
+      expect(line).toContain("Bash");
+      expect(line).toContain("shell parse");
+      expect(line).toContain("printf ok");
+      expect(line).not.toContain("very-secret-value");
+      expect(line).not.toContain("reason-secret");
+      expect(line).not.toContain("\n");
+      // An ask with no reason text leaves the reason out.
+      await canUseTool(
+        "Bash",
+        { command: "echo two" },
+        fakeCallOpts("bypass-2", { decisionReasonType: "safetyCheck" }),
+      );
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls[1].map(String).join(" ")).not.toContain(
+        "undefined",
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
+
+  // A permissions.ask rule from the member's or the project's settings is
+  // their own request for a prompt, so bypass does not answer it.
+  for (const [name, extras] of [
+    ["a plain ask rule", { decisionReasonType: "rule" }],
+    [
+      "an ask rule on top of a safety check",
+      {
+        decisionReason: "shell parse differs",
+        decisionReasonType: "safetyCheck",
+        matchedAskRule: { source: "projectSettings", toolName: "Bash" },
+      },
+    ],
+  ] as const) {
+    it(`bypass still asks the member for ${name}`, async () => {
+      const fake = new FakeSdkClient();
+      const { session, canUseTool, stream } = bypassSession(fake);
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        let settled = false;
+        const result = canUseTool(
+          "Bash",
+          { command: "echo hi" },
+          fakeCallOpts("rule-1", extras),
+        ).then((r) => {
+          settled = true;
+          return r;
+        });
+        // A decision that settles before any event fails here at once,
+        // naming it, instead of waiting for an event that never comes.
+        expect(
+          await Promise.race([
+            nextEvent(stream),
+            result.then((r) => ({ kind: `settled ${r?.behavior}` })),
+          ]),
+        ).toMatchObject({
+          kind: "approval_request",
+          approvalId: "rule-1",
+          toolName: "Bash",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(settled).toBe(false);
+        expect(warn).not.toHaveBeenCalled();
+        await session.approve("rule-1", { kind: "deny" });
+        expect((await result)?.behavior).toBe("deny");
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  }
 
   it("canUseTool emits approval_request and parks until approve()", async () => {
     const fake = new FakeSdkClient();
@@ -1863,25 +1963,32 @@ describe("ClaudeSession plan mode", () => {
     const conv = fake.conversations[0];
     const canUseTool = fake.createCalls[0].opts.canUseTool!;
     const kinds = streamKinds(session);
-    // EnterPlanMode: the CLI reports plan with no /plan from the member.
-    conv.emit({ type: "system", subtype: "status", permissionMode: "plan" });
-    await tick();
-    let result: Awaited<ReturnType<CanUseTool>> | null = null;
-    void canUseTool(
-      "ExitPlanMode",
-      { plan: PLAN },
-      fakeCallOpts("exit-model"),
-    ).then((r) => (result = r));
-    await tick();
-    // Settled with no member answer: nothing waits for an approval.
-    expect(result).toMatchObject({ behavior: "allow" });
-    conv.emit({
-      type: "system",
-      subtype: "status",
-      permissionMode: "bypassPermissions",
-    });
-    conv.finish();
-    expect(await kinds).toEqual(["system_text"]);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // EnterPlanMode: the CLI reports plan with no /plan from the member.
+      conv.emit({ type: "system", subtype: "status", permissionMode: "plan" });
+      await tick();
+      let result: Awaited<ReturnType<CanUseTool>> | null = null;
+      void canUseTool(
+        "ExitPlanMode",
+        { plan: PLAN },
+        fakeCallOpts("exit-model"),
+      ).then((r) => (result = r));
+      await tick();
+      // Settled with no member answer: nothing waits for an approval.
+      expect(result).toMatchObject({ behavior: "allow" });
+      conv.emit({
+        type: "system",
+        subtype: "status",
+        permissionMode: "bypassPermissions",
+      });
+      conv.finish();
+      // The bypass allow goes to the server log, not the chat.
+      expect(await kinds).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("reports the plan state the CLI announces, once per change", async () => {
