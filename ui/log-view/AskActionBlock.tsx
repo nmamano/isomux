@@ -186,6 +186,14 @@ interface Value {
 // arrow.
 const sameValue = (now: Value, asked: Value) => now.value === asked.value;
 
+// The widest a value now draws in a card that reads it (task 8e61bf71):
+// a fixed column, so the value asked keeps its place when it arrives. A
+// longer one wraps.
+const VALUE_NOW = "16em";
+// The least the value asked gets beside it, so on a phone the value now
+// gives way first.
+const VALUE_ASKED = "8em";
+
 // One key of a kind that sets several: its label, the value now (undefined
 // until it is read) and asked for, and what the setting does.
 interface Row {
@@ -556,6 +564,9 @@ export function AskActionBlock({
           return name ? `/api/users/${encodeURIComponent(name)}/os-user` : null;
         })()
       : null;
+  // When the card first drew: whether a sign-in link's stored expiry has
+  // passed, while the live list loads.
+  const [drawnAt] = useState(() => Date.now());
   const [osView, setOsView] = useState<MemberOsUserWire | null>(null);
   const [osPassword, setOsPassword] = useState("");
   // The attempt's stamp at Apply: a failure with another stamp is this run's.
@@ -1290,27 +1301,29 @@ export function AskActionBlock({
 
   // The link's expiry now, from the owners' live invite list (task
   // 8852553c). A link used, replaced or taken back is gone: nothing to
-  // extend.
+  // extend. While the list loads, the expiry the step stored at the create
+  // stands in (task 8e61bf71): an open ask's link still has it, since the
+  // ask closes when the link's expiry passes it.
   function linkExtendView(s: Step<"sign-in-link-extend">): ActionView {
     const member = memberById(s.userId);
     const link = invitesList.find((i) => i.tokenPrefix === s.tokenPrefix);
-    const time = (at: number) => formatDateTime(language, at, "dateTime");
+    const expiry = (expiresAt: number, expired: boolean): Value => {
+      const time = formatDateTime(language, expiresAt, "dateTime");
+      return {
+        value: String(expiresAt),
+        label: expired
+          ? t("asks.action.linkExpiredAt", { time })
+          : t("asks.action.linkExpiresAt", { time }),
+      };
+    };
+    const current = !invitesLoaded
+      ? expiry(s.expiresAt, s.expiresAt < drawnAt)
+      : link
+        ? expiry(link.expiresAt, !!link.expired)
+        : undefined;
     return {
       name: member?.name ?? s.userId,
-      ...(invitesLoaded && link
-        ? {
-            current: {
-              value: String(link.expiresAt),
-              label: link.expired
-                ? t("asks.action.linkExpiredAt", {
-                    time: time(link.expiresAt),
-                  })
-                : t("asks.action.linkExpiresAt", {
-                    time: time(link.expiresAt),
-                  }),
-            },
-          }
-        : {}),
+      ...(current ? { current } : {}),
       loading: !invitesLoaded,
       requested: { value: "extended", label: t("asks.action.linkExtended") },
       lines: [
@@ -2498,21 +2511,153 @@ export function AskActionBlock({
     }
   })();
 
-  // The value now while it loads: a dimmed block where its label goes, so the
-  // row keeps its layout.
-  const placeholder = (
-    <span
-      data-ask-action-loading=""
-      aria-hidden="true"
-      style={{
-        display: "inline-block",
-        width: "4em",
-        height: "0.9em",
-        borderRadius: 4,
-        background: "var(--bg-surface)",
-        alignSelf: "center",
-      }}
-    />
+  // A kind that reads its value now (`loading` set) draws its value rows as
+  // one grid whose columns do not depend on the value now (task 8e61bf71):
+  // name or key, the value now (at most VALUE_NOW wide), the arrow, the
+  // value asked. While it loads, a dimmed block fills the value-now cell, so
+  // nothing moves when the value arrives, whatever its width.
+  const grid = view.loading !== undefined;
+  const cell = { minWidth: 0 };
+
+  // One value row: the name or key, the value now, an arrow and the value
+  // asked.
+  function valueRow(
+    name: ReactNode,
+    current: Value | undefined,
+    requested: Value | undefined,
+    // The value now is the value asked: show the value asked only.
+    same: boolean,
+    // The labels are names or data, not copy: no page translation.
+    raw: boolean,
+  ): ReactNode {
+    const rawProps = raw ? noTranslate() : {};
+    const from = current && !same;
+    const arrow =
+      requested && (current ? !same : view.loading) ? (
+        <span aria-hidden="true">→</span>
+      ) : null;
+    const to = requested && (
+      <span
+        data-ask-action-to=""
+        {...rawProps}
+        style={{ ...cell, fontWeight: 600, overflowWrap: "anywhere" }}
+      >
+        {requested.label}
+      </span>
+    );
+    if (!grid) {
+      return (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            columnGap: 8,
+            alignItems: "baseline",
+          }}
+        >
+          {name}
+          {from ? (
+            <span
+              data-ask-action-from=""
+              {...rawProps}
+              style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}
+            >
+              {current.label}
+            </span>
+          ) : null}
+          {arrow}
+          {to}
+        </div>
+      );
+    }
+    if (!requested)
+      return <div style={{ gridColumn: "1 / -1", ...cell }}>{name}</div>;
+    return (
+      <div style={{ display: "contents" }}>
+        <span style={{ ...cell, overflowWrap: "anywhere" }}>{name}</span>
+        <span
+          style={{
+            ...cell,
+            minHeight: "1.5em",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {from ? (
+            <span
+              key="from"
+              data-ask-action-from=""
+              {...rawProps}
+              style={{
+                ...cell,
+                color: "var(--text-muted)",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {current.label}
+            </span>
+          ) : (
+            !current &&
+            view.loading && (
+              <span
+                key="loading"
+                data-ask-action-loading=""
+                aria-hidden="true"
+                style={{
+                  flex: 1,
+                  height: "0.9em",
+                  borderRadius: 4,
+                  background: "var(--bg-surface)",
+                }}
+              />
+            )
+          )}
+        </span>
+        <span>{arrow}</span>
+        {to}
+      </div>
+    );
+  }
+
+  const valueRows = (
+    <>
+      {valueRow(
+        <span {...noTranslate()} style={{ fontWeight: 600 }}>
+          {view.name}
+        </span>,
+        view.current,
+        view.requested,
+        false,
+        false,
+      )}
+      {view.rows?.map((row) => (
+        <div
+          key={row.key}
+          data-ask-action-key={row.key}
+          {...(row.current
+            ? { "data-ask-action-current": row.current.value }
+            : {})}
+          data-ask-action-requested={row.requested.value}
+          style={grid ? { display: "contents" } : { marginTop: 2 }}
+        >
+          {valueRow(
+            <span>{row.label}</span>,
+            row.current,
+            row.requested,
+            !!row.current && sameValue(row.current, row.requested),
+            true,
+          )}
+          {row.hint && (
+            <div
+              data-ask-action-hint=""
+              style={grid ? { ...muted, gridColumn: "1 / -1" } : muted}
+            >
+              {row.hint}
+            </div>
+          )}
+        </div>
+      ))}
+    </>
   );
 
   return (
@@ -2536,79 +2681,21 @@ export function AskActionBlock({
         color: "var(--text-primary)",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          columnGap: 8,
-          alignItems: "baseline",
-        }}
-      >
-        <span {...noTranslate()} style={{ fontWeight: 600 }}>
-          {view.name}
-        </span>
-        {view.current ? (
-          <span data-ask-action-from="" style={{ color: "var(--text-muted)" }}>
-            {view.current.label}
-          </span>
-        ) : (
-          view.requested && view.loading && placeholder
-        )}
-        {(view.current || (view.requested && view.loading)) && (
-          <span aria-hidden="true">→</span>
-        )}
-        {view.requested && (
-          <span data-ask-action-to="" style={{ fontWeight: 600 }}>
-            {view.requested.label}
-          </span>
-        )}
-      </div>
-      {view.rows?.map((row) => (
+      {grid ? (
         <div
-          key={row.key}
-          data-ask-action-key={row.key}
-          {...(row.current
-            ? { "data-ask-action-current": row.current.value }
-            : {})}
-          data-ask-action-requested={row.requested.value}
-          style={{ marginTop: 2 }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: `auto minmax(0, ${VALUE_NOW}) 1em minmax(${VALUE_ASKED}, 1fr)`,
+            columnGap: 8,
+            rowGap: 2,
+            alignItems: "start",
+          }}
         >
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              columnGap: 8,
-              alignItems: "baseline",
-            }}
-          >
-            <span>{row.label}</span>
-            {row.current && !sameValue(row.current, row.requested) ? (
-              <span
-                {...noTranslate()}
-                style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}
-              >
-                {row.current.label}
-              </span>
-            ) : (
-              !row.current && view.loading && placeholder
-            )}
-            {(row.current
-              ? !sameValue(row.current, row.requested)
-              : view.loading) && <span aria-hidden="true">→</span>}
-            <span
-              {...noTranslate()}
-              style={{ fontWeight: 600, overflowWrap: "anywhere" }}
-            >
-              {row.requested.label}
-            </span>
-          </div>
-          {row.hint && (
-            <div data-ask-action-hint="" style={muted}>
-              {row.hint}
-            </div>
-          )}
+          {valueRows}
         </div>
-      ))}
+      ) : (
+        valueRows
+      )}
       {view.lines}
       {view.gone !== null ? (
         view.goneDone ? (

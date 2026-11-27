@@ -179,3 +179,39 @@ export const levelCard = (current: Level | undefined, requested: Level) => ({
   from: current && en[`settings.room.viewLevel.${current}`],
   to: en[`settings.room.viewLevel.${requested}`],
 });
+
+// Where a value row puts its parts (task 8e61bf71): a card that reads its
+// value now draws its value rows as cells of one grid, so the value asked
+// keeps its cell while the value now loads. For the value asked `to`: whether
+// its row is a run of cells of a grid (every element between them draws no
+// box of its own), and the cell that holds the value asked, the placeholder
+// and the value now (-1: none).
+export function valueSlots(to: HTMLElement) {
+  const row = to.parentElement!;
+  let up = row;
+  let cellsOfGrid = row.style.display === "contents";
+  while (up.parentElement && up.parentElement.style.display !== "grid") {
+    up = up.parentElement;
+    cellsOfGrid &&= up.style.display === "contents";
+    if (up.hasAttribute("data-ask-action")) break;
+  }
+  const cells = [...row.children];
+  const holds = (selector: string) =>
+    cells.findIndex((c) => c.querySelector(selector) !== null);
+  return {
+    cellsOfGrid: cellsOfGrid && up.parentElement?.style.display === "grid",
+    to: cells.indexOf(to),
+    placeholder: holds("[data-ask-action-loading]"),
+    from: cells.findIndex(
+      (c) =>
+        c.matches("[data-ask-action-from]") ||
+        c.querySelector("[data-ask-action-from]") !== null,
+    ),
+  };
+}
+
+// Whether a block draws its value rows as a grid at all.
+export const hasGrid = (b: HTMLElement) =>
+  [...b.querySelectorAll<HTMLElement>("*")].some(
+    (e) => e.style.display === "grid",
+  );
