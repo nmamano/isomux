@@ -35,13 +35,14 @@ export function clickNotPerformedReason(message: string): string {
     const found = CLICK_LOG.find(([pattern]) => pattern.test(lines[i]));
     if (found) return found[1];
   }
-  if (
-    lines.some((line) => /^\s*- waiting for /.test(line)) &&
-    !lines.some((line) => /^\s*- locator resolved to /.test(line))
-  )
-    return CLICK_REASON.missing;
+  if (neverResolved(lines)) return CLICK_REASON.missing;
   return CLICK_REASON.unknown;
 }
+
+// The call log waited for the selector and never resolved it.
+const neverResolved = (lines: string[]) =>
+  lines.some((line) => /^\s*- waiting for /.test(line)) &&
+  !lines.some((line) => /^\s*- locator resolved to /.test(line));
 
 export const SELECT_REASON = {
   missing: CLICK_REASON.missing,
@@ -299,4 +300,63 @@ export function watchNavigation(page: Page, frames: Frame[]) {
       page.off("framenavigated", onNavigated);
     },
   };
+}
+
+// A page narrower or lower than this has no real viewport: a minimized
+// window or a strip. A tab the agent opened then gets EMULATED_VIEWPORT.
+export const VIEWPORT_FLOOR = { width: 200, height: 100 } as const;
+export const EMULATED_VIEWPORT = { width: 1280, height: 720 } as const;
+
+/** True when the page's inner size is under VIEWPORT_FLOOR. */
+export function degenerateViewport(size: {
+  width: number;
+  height: number;
+}): boolean {
+  return (
+    size.width < VIEWPORT_FLOOR.width || size.height < VIEWPORT_FLOOR.height
+  );
+}
+
+export const FILL_REASON = {
+  missing: CLICK_REASON.missing,
+  hidden: CLICK_REASON.hidden,
+  disabled: CLICK_REASON.disabled,
+  readOnly: "the field is read-only",
+} as const;
+
+/**
+ * The reason a timed-out fill never changed the field, or undefined when the
+ * call log does not prove that.
+ */
+export function fillNotPerformedReason(message: string): string | undefined {
+  const lines = message.replace(ANSI_ESCAPE, "").split("\n");
+  if (neverResolved(lines)) return FILL_REASON.missing;
+  // Playwright checks the states and fills in one evaluate. A check still
+  // running at the deadline can have set the value by script, as a date input
+  // takes it: only a state reported after the last check proves no change.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (FILL_CHECK.test(lines[i])) return undefined;
+    const found = FILL_LOG.find(([pattern]) => pattern.test(lines[i]));
+    if (found) return found[1];
+  }
+  return undefined;
+}
+
+const FILL_CHECK = /^\s*-?\s*(\d+ × )?waiting for element to be /;
+const FILL_LOG: [RegExp, string][] = [
+  [/^\s*- element is not visible$/, FILL_REASON.hidden],
+  [/^\s*- element is not enabled$/, FILL_REASON.disabled],
+  [/^\s*- element is not editable$/, FILL_REASON.readOnly],
+];
+
+export const PRESS_REASON = {
+  missing: CLICK_REASON.missing,
+  unknown: "the element did not take the focus before the deadline",
+} as const;
+
+/** The reason a timed-out press with a selector sent no key. */
+export function pressNotPerformedReason(message: string): string {
+  return neverResolved(message.replace(ANSI_ESCAPE, "").split("\n"))
+    ? PRESS_REASON.missing
+    : PRESS_REASON.unknown;
 }

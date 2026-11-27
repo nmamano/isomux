@@ -463,6 +463,8 @@ export class BrowserExtensionBridge {
         grant: string;
         target: string;
         offerOrigin: string | undefined;
+        // A tab the agent opened, or a page its site opened from it.
+        opened: boolean;
       }
     | undefined {
     const chosen =
@@ -477,6 +479,7 @@ export class BrowserExtensionBridge {
           grant,
           target: chosen.tab.target,
           offerOrigin: chosen.connection.offerOrigin(grant),
+          opened: chosen.tab.scope.kind === "opened",
         }
       : undefined;
   }

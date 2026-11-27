@@ -28,11 +28,15 @@ import {
 import {
   CHECK_REASON,
   CLICK_REASON,
+  EMULATED_VIEWPORT,
   SELECT_REASON,
   checkHitTarget,
   checkNotPerformedReason,
   clickNotPerformedReason,
+  degenerateViewport,
+  fillNotPerformedReason,
   firstMatchingOption,
+  pressNotPerformedReason,
   watchNavigation,
 } from "./browser-input";
 import { browserExtensionTransport } from "./browser-extension-transport";
@@ -85,6 +89,8 @@ type Session = {
   pages: Page[];
   parents: Map<Page, Page>;
   opened: boolean;
+  // Pages that got EMULATED_VIEWPORT; they are not measured again.
+  emulated: WeakSet<Page>;
   dialogs?: ActionDialogs;
   // Playwright left a dialog open between actions. 1.62 kept one it did not
   // answer and refused to evaluate on that page after the member answered it;
@@ -434,13 +440,14 @@ function keyedField(element: Element): boolean {
     ["text", "email", "url", "tel", "password"].includes(element.type)
   );
 }
-const notPerformed = (action: "click" | "select", reason: string) =>
-  failure(
-    "action_failed",
-    action === "click"
-      ? `The click was not performed: ${reason}.`
-      : `The option was not selected: ${reason}.`,
-  );
+const NOT_PERFORMED = {
+  click: "The click was not performed",
+  select: "The option was not selected",
+  fill: "The text was not filled",
+  press: "The key was not pressed",
+} as const;
+const notPerformed = (action: keyof typeof NOT_PERFORMED, reason: string) =>
+  failure("action_failed", `${NOT_PERFORMED[action]}: ${reason}.`);
 const notChecked = (wanted: boolean, reason: string) =>
   failure(
     "action_failed",
@@ -479,6 +486,8 @@ type Resolved = {
   grant: string;
   target: string;
   offerOrigin: string | undefined;
+  // A tab the agent opened: only it gets an emulated viewport.
+  opened?: boolean;
 };
 const same = (a: Resolved | undefined, b: Resolved | undefined): boolean =>
   a?.connection === b?.connection && a?.grant === b?.grant;
@@ -1074,6 +1083,7 @@ export class ExtensionBrowserSessions {
           pages: [page],
           parents: new Map(),
           opened: false,
+          emulated: new WeakSet(),
         };
         const owned = session;
         this.sessions.set(key, session);
@@ -1185,6 +1195,83 @@ export class ExtensionBrowserSessions {
         }
       };
       const inputBudget = () => Math.max(1, deadline - performance.now());
+      // Playwright's own timeout for a wait that may not send input, so that
+      // it ends before the action and names what it waited for.
+      const preInputBudget = () =>
+        Math.max(1, deadline - INPUT_RESERVE_MS - performance.now());
+      // A read, or a goto that loaded, waits at most pageAnswer for a title
+      // with no command in flight. After an input the new document can still
+      // be on its way, so the title read keeps the deadline.
+      const answerBound =
+        params.action === "text" ||
+        params.action === "snapshot" ||
+        params.action === "screenshot" ||
+        params.action === "goto";
+      // A tab the agent opened in a minimized window or a strip has no real
+      // viewport: a click lands outside it, and the page shows a narrow
+      // layout. Measured before every action but goto, so that a read and
+      // the click after it see one layout. An offered tab is the member's.
+      if (
+        bound.opened &&
+        params.action !== "goto" &&
+        !session.emulated.has(page)
+      ) {
+        phase = "viewport";
+        // Best effort, at the bound of a read's title: a page with no
+        // context answers nothing, and a navigation can replace the document
+        // during the call. The action then runs as without the check.
+        let measured:
+          | { width: number; height: number; visibilityState: string }
+          | undefined;
+        try {
+          measured = await withinDeadline(
+            page.evaluate(() => ({
+              width: innerWidth,
+              height: innerHeight,
+              visibilityState: document.visibilityState,
+            })),
+            Math.min(this.pageAnswer(), deadline - performance.now()),
+          );
+        } catch (error) {
+          const stalled = error instanceof StalledWaitError;
+          // A read would wait as long again for its title.
+          if (
+            stalled &&
+            answerBound &&
+            performance.now() < deadline &&
+            !connection.pendingCount(grant)
+          )
+            throw new PageUnansweredError();
+          console.info(
+            "[browser-extension] " +
+              JSON.stringify({
+                reason: "viewport_unmeasured",
+                action: params.action,
+                generation: connection.generation,
+                assignment: grant,
+                cause: stalled ? "stalled" : errorClass(error),
+              }),
+          );
+        }
+        if (measured && degenerateViewport(measured)) {
+          await page.setViewportSize(EMULATED_VIEWPORT);
+          session.emulated.add(page);
+          console.info(
+            "[browser-extension] " +
+              JSON.stringify({
+                reason: "viewport_emulated",
+                action: params.action,
+                generation: connection.generation,
+                assignment: grant,
+                width: measured.width,
+                height: measured.height,
+                visibilityState: measured.visibilityState,
+              }),
+          );
+        }
+        if (timedOut) return timedOutResult();
+        phase = "start";
+      }
       switch (params.action) {
         case "goto":
           // After a leave the page is already on its way to the URL.
@@ -1423,31 +1510,47 @@ export class ExtensionBrowserSessions {
           const field = element ?? page.locator(params.selector!).first();
           const text = params.text!;
           const keyDelay = this.pace.keyDelayMs();
-          // Keys go to the focused element: a field that cannot take the
-          // focus (disabled, hidden) gets one fill, which waits until it is
-          // editable.
-          if (
-            keyedText(text) &&
-            // Keys that would outlast the deadline give way to one fill.
-            text.length * (keyDelay + KEY_ROUND_TRIP_MS) <=
-              inputBudget() - INPUT_RESERVE_MS &&
-            (await field.focus({ timeout: inputBudget() }).then(() =>
-              field.evaluate(keyedField, undefined, {
+          const inputs = session.transport.inputs;
+          inputsAtClick = inputs;
+          try {
+            // Keys go to the focused element: a field that cannot take the
+            // focus (disabled, hidden) gets one fill, which waits until it
+            // is editable.
+            if (
+              keyedText(text) &&
+              // Keys that would outlast the deadline give way to one fill.
+              text.length * (keyDelay + KEY_ROUND_TRIP_MS) <=
+                inputBudget() - INPUT_RESERVE_MS &&
+              (await field.focus({ timeout: preInputBudget() }).then(() =>
+                field.evaluate(keyedField, undefined, {
+                  timeout: preInputBudget(),
+                }),
+              ))
+            ) {
+              // Keys replace a selected value; a clear would send a Delete.
+              if (await field.inputValue({ timeout: inputBudget() }))
+                await field.selectText({ timeout: inputBudget() });
+              await field.pressSequentially(text, {
+                delay: keyDelay,
                 timeout: inputBudget(),
-              }),
-            ))
-          ) {
-            // Keys replace a selected value; a clear would send a Delete.
-            if (await field.inputValue({ timeout: inputBudget() }))
-              await field.selectText({ timeout: inputBudget() });
-            await field.pressSequentially(text, {
-              delay: keyDelay,
-              timeout: inputBudget(),
-            });
-            // An input mask or a script rewrote the keys: set the text.
-            if ((await field.inputValue({ timeout: inputBudget() })) !== text)
-              await field.fill(text, { timeout: inputBudget() });
-          } else await field.fill(text, { timeout });
+              });
+              // An input mask or a script rewrote the keys: set the text.
+              if ((await field.inputValue({ timeout: inputBudget() })) !== text)
+                await field.fill(text, { timeout: inputBudget() });
+            } else await field.fill(text, { timeout: preInputBudget() });
+          } catch (error) {
+            // Before any key, and only when the call log proves that the
+            // field was not changed: a fill sets some fields by script.
+            const reason =
+              error instanceof Error &&
+              error.name === "TimeoutError" &&
+              session.transport.inputs === inputs
+                ? fillNotPerformedReason(error.message)
+                : undefined;
+            if (reason === undefined) throw error;
+            diagnostic("fill_not_performed");
+            return notPerformed("fill", reason);
+          }
           break;
         }
         case "upload": {
@@ -1486,22 +1589,34 @@ export class ExtensionBrowserSessions {
           };
           break;
         }
-        case "press":
-          if (element) await element.press(params.key!, { timeout });
-          else if (params.selector)
-            await page.press(params.selector, params.key!, { timeout });
-          else await page.keyboard.press(params.key!);
+        case "press": {
+          const inputs = session.transport.inputs;
+          inputsAtClick = inputs;
+          const options = { timeout: preInputBudget() };
+          try {
+            if (element) await element.press(params.key!, options);
+            else if (params.selector)
+              await page.press(params.selector, params.key!, options);
+            else await page.keyboard.press(params.key!);
+          } catch (error) {
+            // Playwright focuses the element, then sends the key.
+            if (
+              error instanceof Error &&
+              error.name === "TimeoutError" &&
+              session.transport.inputs === inputs
+            ) {
+              diagnostic("press_not_performed");
+              return notPerformed(
+                "press",
+                pressNotPerformedReason(error.message),
+              );
+            }
+            throw error;
+          }
           break;
+        }
       }
       if (timedOut) return timedOutResult();
-      // A read, or a goto that loaded, waits at most pageAnswer for a title
-      // with no command in flight. After an input the new document can still
-      // be on its way, so the title read keeps the deadline.
-      const answerBound =
-        params.action === "text" ||
-        params.action === "snapshot" ||
-        params.action === "screenshot" ||
-        params.action === "goto";
       const readTitle = async (page: Page) => {
         const read = page.title();
         if (answerBound) {

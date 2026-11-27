@@ -280,7 +280,12 @@ const SITE = "https://site.test";
 // opened: the tab is not offered; the member allows agent tabs and the
 // stand-in extension answers each open command with an about:blank tab
 // (task 73a9fb57).
-async function gateSession(actionMs = 5000, opened = false) {
+async function gateSession(
+  actionMs = 5000,
+  opened = false,
+  // Replaces the office's page-answer bound.
+  pageAnswer?: number,
+) {
   const dir = mkdtempSync(join(tmpdir(), "browser-office-gate-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const service = new BrowserExtensionService(store, {
@@ -294,7 +299,7 @@ async function gateSession(actionMs = 5000, opened = false) {
     () => true,
     () => actionMs,
     undefined,
-    undefined,
+    pageAnswer === undefined ? undefined : () => pageAnswer,
     // No wait between page loads: these tests are about the gate.
     { gapMs: () => 0 },
   );
@@ -366,10 +371,33 @@ async function gateSession(actionMs = 5000, opened = false) {
             : clients.at(-1)?.sessions.get(this.targetId),
       };
     }
+    // False: the page has no execution context, as a main frame that never
+    // commits; Playwright waits for one and sends no command.
+    answers = true;
     // A page the current client never set up does not answer.
     async ready() {
-      if (clients.at(-1)?.refused.has(this.targetId))
+      if (!this.answers || clients.at(-1)?.refused.has(this.targetId))
         await new Promise(() => {});
+    }
+    // What a page.evaluate of innerWidth, innerHeight and visibilityState
+    // reads: the viewport check of a tab the agent opened.
+    viewport = { width: 1280, height: 720, visibilityState: "visible" };
+    // Set: the evaluate fails, as one that a navigation cuts.
+    evaluateError: Error | undefined;
+    async evaluate() {
+      this.calls.push("evaluate");
+      await this.ready();
+      if (this.evaluateError) throw this.evaluateError;
+      await playwrightCall(
+        "Runtime.evaluate",
+        { expression: "innerWidth" },
+        this.via(),
+      );
+      return { ...this.viewport };
+    }
+    async setViewportSize(size: { width: number; height: number }) {
+      this.calls.push("setViewportSize");
+      this.viewport = { ...this.viewport, ...size };
     }
     gotos: string[] = [];
     // Playwright page methods the session called, in order.
@@ -776,6 +804,50 @@ test("open makes a tab, navigates it, and names the tab, the browser and the mem
     expect(
       await h.sessions.run("agent", { action: "screenshot" }),
     ).toMatchObject({ ok: true });
+  } finally {
+    h.stop();
+  }
+});
+
+// Task d376e203: the viewport check of an opened tab reads the page before
+// the action. A page that gives no answer must still fail at the page-answer
+// bound, as a read on it did before the check.
+test("a read on an opened tab whose page gives no answer fails at the page-answer bound, not at the deadline", async () => {
+  const h = await gateSession(4000, true, 50);
+  try {
+    expect(
+      await h.sessions.run("agent", { action: "open", url: `${SITE}/page` }),
+    ).toMatchObject({ ok: true });
+    h.page.answers = false;
+    const started = performance.now();
+    const result = await h.sessions.run("agent", { action: "snapshot" });
+    const elapsed = performance.now() - started;
+    // The check ran on the page that does not answer.
+    expect(h.page.calls).toContain("evaluate");
+    expect(result).toMatchObject({ ok: false, code: "action_failed" });
+    // Well before the 4 s deadline.
+    expect(elapsed).toBeLessThan(2000);
+  } finally {
+    h.stop();
+  }
+}, 15_000);
+
+test("an opened tab whose viewport check fails still gets the action", async () => {
+  const h = await gateSession(5000, true);
+  try {
+    expect(
+      await h.sessions.run("agent", { action: "open", url: `${SITE}/page` }),
+    ).toMatchObject({ ok: true });
+    // Playwright's error when a navigation replaces the document during an
+    // evaluate.
+    h.page.evaluateError = new Error(
+      "page.evaluate: Execution context was destroyed, most likely because of a navigation",
+    );
+    expect(
+      await h.sessions.run("agent", { action: "screenshot" }),
+    ).toMatchObject({ ok: true });
+    expect(h.page.calls).toContain("evaluate");
+    expect(h.page.calls).toContain("screenshot");
   } finally {
     h.stop();
   }

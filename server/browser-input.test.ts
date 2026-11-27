@@ -2,8 +2,12 @@ import { expect, test } from "bun:test";
 import {
   CHECK_REASON,
   CLICK_REASON,
+  FILL_REASON,
+  PRESS_REASON,
   checkNotPerformedReason,
   clickNotPerformedReason,
+  fillNotPerformedReason,
+  pressNotPerformedReason,
 } from "./browser-input";
 
 // Call logs as Playwright 1.65.1 reports them for a click that timed out
@@ -162,4 +166,96 @@ test("a known setChecked failure maps to a fixed reason, and any other error to 
     "",
   ])
     expect(checkNotPerformedReason(message)).toBeUndefined();
+});
+
+// Call logs of a fill, a focus and a press that timed out, as Playwright
+// 1.65.1 reports them against real Chrome (recorded 2026-11-27, task
+// d376e203, with a 700 ms timeout).
+const fillLog = (state: string) => [
+  "TimeoutError: fill: Timeout 700ms exceeded.",
+  "Call log:",
+  "  - waiting for locator('#x').first()",
+  '    - locator resolved to <input id="x"/>',
+  '    - fill("x")',
+  "  - attempting fill action",
+  "    2 × waiting for element to be visible, enabled and editable",
+  `      - ${state}`,
+  "    - retrying fill action",
+  "    - waiting 20ms",
+  "    2 × waiting for element to be visible, enabled and editable",
+  `      - ${state}`,
+  "    - retrying fill action",
+  "      - waiting 100ms",
+  "    - waiting for element to be visible, enabled and editable",
+  `    - ${state}`,
+  "  - retrying fill action",
+  "    - waiting 500ms",
+];
+
+test("a fill that timed out names the state that kept it from the field, and only when no check was in flight", () => {
+  const missing = (verb: string) =>
+    [
+      `TimeoutError: ${verb}: Timeout 700ms exceeded.`,
+      "Call log:",
+      "  - waiting for locator('#x').first()",
+    ].join("\n");
+  // The keyed path times out in focus, the other one in fill.
+  expect(fillNotPerformedReason(missing("focus"))).toBe(FILL_REASON.missing);
+  expect(fillNotPerformedReason(missing("fill"))).toBe(FILL_REASON.missing);
+  for (const [state, reason] of [
+    ["element is not visible", FILL_REASON.hidden],
+    ["element is not enabled", FILL_REASON.disabled],
+    ["element is not editable", FILL_REASON.readOnly],
+  ] as const)
+    expect({
+      state,
+      reason: fillNotPerformedReason(fillLog(state).join("\n")),
+    }).toEqual({ state, reason });
+  // A check that was still running when the deadline came can have passed
+  // and set the value by script, as a date input takes it.
+  expect(
+    fillNotPerformedReason(
+      [
+        ...fillLog("element is not visible"),
+        "    - waiting for element to be visible, enabled and editable",
+      ].join("\n"),
+    ),
+  ).toBeUndefined();
+  // A log that names no state, or no log, proves nothing.
+  for (const message of [
+    fillLog("element is not visible").slice(0, 6).join("\n"),
+    "TimeoutError",
+    "",
+  ])
+    expect(fillNotPerformedReason(message)).toBeUndefined();
+  // Color escapes do not change the reason.
+  expect(
+    fillNotPerformedReason(
+      fillLog("element is not editable")
+        .map((line) => "\u001b[2m" + line + "\u001b[22m")
+        .join("\n"),
+    ),
+  ).toBe(FILL_REASON.readOnly);
+});
+
+test("a press that timed out before its key names the missing element, else the focus", () => {
+  expect(
+    pressNotPerformedReason(
+      [
+        "TimeoutError: press: Timeout 700ms exceeded.",
+        "Call log:",
+        "  - waiting for locator('#x')",
+      ].join("\n"),
+    ),
+  ).toBe(PRESS_REASON.missing);
+  for (const message of [
+    [
+      "TimeoutError: press: Timeout 700ms exceeded.",
+      "Call log:",
+      "  - waiting for locator('#x')",
+      '    - locator resolved to <input id="x"/>',
+    ].join("\n"),
+    "",
+  ])
+    expect(pressNotPerformedReason(message)).toBe(PRESS_REASON.unknown);
 });

@@ -275,7 +275,27 @@ closing any page or releasing an unrelated grant.
 
 `POST /api/agents/:id/browser` keeps its existing actions and screenshot-card
 shape. `preview-url` is unchanged. The extension uses the actual desktop viewport;
-it does not apply the headless viewport or download policy. Desktop localhost
+it does not apply the headless viewport or download policy. One exception (task
+d376e203): a tab the agent opened, and the pages its site opens, is measured
+before every action but `goto` until it is emulated. When `innerWidth` is under
+200 or `innerHeight` under 100 (`VIEWPORT_FLOOR`), the session calls
+`page.setViewportSize` with 1280x720 (`EMULATED_VIEWPORT`; one
+`Emulation.setDeviceMetricsOverride`, no `Browser.*` command) and logs
+`viewport_emulated` with the measured size and `visibilityState`. Measuring
+before reads too keeps a snapshot and the click after it on one layout. The
+measure is best effort, bounded as a read's title (`PAGE_ANSWER_MS`): a read on
+a page that does not answer fails there with `page_unanswered`; any other
+stall or error (a navigation that replaces the document) logs
+`viewport_unmeasured` and the action runs without emulation. The
+incident was Windows Chrome with the Agents window probably minimized: clicks
+"outside the viewport", viewport screenshots failing while full-page ones
+worked. Linux keeps a strip window at least 143 px high (inner 57 px) and a
+minimized window at its old size, so the 0 px case is unchecked; the log line
+is the evidence for the next one. The override lasts until the grant ends,
+since the debugger stays attached across clients: the page renders at device
+scale 1, its `screen` size changes mid-session (a bot-detection signal), and
+it keeps the 1280x720 layout after the member restores the window. An offered
+tab is the member's own and is never emulated. Desktop localhost
 means the member's computer. Upload uses the byte-payload workflow below.
 `close` means detach and leave the page open. Extension control
 uses the fixed per-offer expiry selected in the popup, defaulting to Never.
@@ -899,4 +919,4 @@ Sites such as Amazon answer a scraper-like request pattern with a robot check. N
 - **Page-load gap.** Per offer handle (unique across browsers) and origin, the session keeps the end time of the last action during which a main-frame navigation request went to that origin, whatever the action's outcome (a goto, a click that loads a page, a 204). A `goto` to that origin waits until a gap of 2 to 5 s (random, drawn per goto) has passed. The wait runs before the action deadline starts and before every check, so the checks see the state after it. Records older than 60 s go at each write.
 - **In-page goto.** A `goto` within the current `httpOrigin` (an opaque origin never qualifies) on an open gate runs `location.assign` in the page, so the site gets `Sec-Fetch-Site: same-origin` and a `Referer`, as from a link click. A goto through `chrome.debugger` arrives as `cross-site` with no `Referer` whatever its `transitionType`. A change of the hash only stays with `page.goto`. The bridge gate checks only `Page.navigate` URLs; the session refuses an office URL before either path, and the target origin is the current, ungated one, so the in-page path reaches no origin that `Page.navigate` could not. Redirects close the gate at `requestWillBeSent` as before. Endings match `page.goto`: a failed load rejects with its `net::ERR_*` code, a download is a generic failure, a 204 or 205 is `net::ERR_ABORTED`, and an error page that commits is "The page did not load." When no navigation starts within 1 s (Chrome holds the script while another navigation is on its way, or the page cancels it), `page.goto` runs; a held script can run only in the old document.
 - **Click press.** `click` holds mouse-down to mouse-up for 50 to 120 ms (Playwright `delay`), at the element centre as before. `check` keeps Playwright's short press: `setChecked` has no delay option.
-- **Typing.** `fill` types key by key (`pressSequentially`, 80 ms apart) when the text is 1 to 40 characters of 0x20-0x7E and the field is a `textarea` or an `input` of type text, email, url, tel or password, not read-only, with no `list`, no `role=combobox` and `aria-autocomplete` absent or `none`, and it has the focus after Playwright's `focus` (a disabled or hidden field does not, and keys would go to the focused element), and the keys fit in what is left of the deadline (each key counted as its delay plus 50 ms). A filled value is selected first, so the keys replace it with no Delete key. When the value after the keys is not the text (an input mask), `fill` sets it. Everything else keeps one `fill`. An inert field takes no focus, and since Playwright 1.65 its `fill` waits to the deadline; 1.64 returned ok with no text. No log line carries key text.
+- **Typing.** `fill` types key by key (`pressSequentially`, 80 ms apart) when the text is 1 to 40 characters of 0x20-0x7E and the field is a `textarea` or an `input` of type text, email, url, tel or password, not read-only, with no `list`, no `role=combobox` and `aria-autocomplete` absent or `none`, and it has the focus after Playwright's `focus` (a disabled or hidden field does not, and keys would go to the focused element), and the keys fit in what is left of the deadline (each key counted as its delay plus 50 ms). A filled value is selected first, so the keys replace it with no Delete key. When the value after the keys is not the text (an input mask), `fill` sets it. Everything else keeps one `fill`. The waits before any key (focus, the field check, the one `fill`) end `INPUT_RESERVE_MS` before the deadline. A timeout there with no `Input.*` command sent returns `action_failed` "The text was not filled: <reason>" only when Playwright's call log names a state after its last check (missing, hidden, disabled, read-only): a check still running at the deadline can have set the value by script, as for a date input, and keeps `action_timeout`. A `press` with a selector ends its wait the same way and returns "The key was not pressed: <reason>" when no key was sent. The incident behind it (task d376e203) was a selector that matched nothing reported as a timeout with an unknown outcome. An inert field takes no focus, and since Playwright 1.65 its `fill` waits to the deadline; 1.64 returned ok with no text. No log line carries key text.

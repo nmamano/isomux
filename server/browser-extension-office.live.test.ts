@@ -1,6 +1,7 @@
 import { BROWSER_UPLOAD_CHUNK_BYTES } from "./browser-upload";
 import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
 import { BROWSER_ACTION_DEADLINE_MS } from "./browser-actions";
+import { FILL_REASON, PRESS_REASON } from "./browser-input";
 import { test, expect, spyOn } from "bun:test";
 import { ExtensionConnection } from "./browser-extension-bridge";
 import {
@@ -868,17 +869,29 @@ async function runOfficeScenario(
     ).toBe(200);
     expect((await action(second.id, { action: "snapshot" })).status).toBe(200);
     expect((await action(second.id, { action: "text" })).status).toBe(200);
-    for (const selector of [
-      "#missing-timeout-fixture",
-      "#hidden-timeout",
-      "#readonly-timeout",
-    ]) {
-      actionDeadline = 150;
-      expect(
-        (await action(second.id, { action: "fill", selector, text: "unused" }))
-          .body.error.code,
-      ).toBe("action_timeout");
-      actionDeadline = 3000;
+    // A fill that cannot reach its field fails with the reason before the
+    // deadline, sends no input, and the client keeps working (task d376e203;
+    // it was an action_timeout, "outcome may be unknown").
+    actionDeadline = 3000;
+    for (const [selector, reason] of [
+      ["#missing-timeout-fixture", FILL_REASON.missing],
+      ["#hidden-timeout", FILL_REASON.hidden],
+      ["#readonly-timeout", FILL_REASON.readOnly],
+    ] as const) {
+      const started = performance.now();
+      const failed = await action(second.id, {
+        action: "fill",
+        selector,
+        text: "unused",
+      });
+      expect({ selector, code: failed.body.error.code }).toEqual({
+        selector,
+        code: "action_failed",
+      });
+      expect(failed.body.error.message).toContain(reason);
+      expect(performance.now() - started).toBeLessThan(actionDeadline);
+      if (selector !== "#missing-timeout-fixture")
+        expect(await secondPage.locator(selector).inputValue()).toBe("");
       expect((await action(second.id, { action: "snapshot" })).status).toBe(
         200,
       );
@@ -899,6 +912,16 @@ async function runOfficeScenario(
         "after timeout",
       );
     }
+    // A press on a selector that matches nothing: the same rule.
+    const pressStarted = performance.now();
+    const notPressed = await action(second.id, {
+      action: "press",
+      selector: "#missing-timeout-fixture",
+      key: "Enter",
+    });
+    expect(notPressed.body.error.code).toBe("action_failed");
+    expect(notPressed.body.error.message).toContain(PRESS_REASON.missing);
+    expect(performance.now() - pressStarted).toBeLessThan(actionDeadline);
     const beforeNavigationURL = secondPage.url();
     actionDeadline = 150;
     const navigation = action(second.id, {
