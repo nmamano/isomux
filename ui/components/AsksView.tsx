@@ -38,6 +38,7 @@ import { AskCard, AskUndoHost } from "../log-view/AskCard.tsx";
 import { AskResultCard } from "../log-view/AskResultCard.tsx";
 import { PinnedAsk } from "./PinnedAsk.tsx";
 import { AgentInboxItemCard } from "./AgentInboxItemCard.tsx";
+import { AgentAvatar } from "../log-view/chat-avatars.tsx";
 import { useAgentInboxItems, useInboxDismissed } from "../inbox.ts";
 import { failureKey, type AgentInboxItem } from "../inbox-agent-items.ts";
 import { markInboxSeen, useInboxSeenRecord } from "../inbox-seen.ts";
@@ -1022,6 +1023,9 @@ export function AsksView({
                         textAlign: "left",
                       }}
                     >
+                      {/* The agent's face, as the chat shows it beside a
+                          sender. */}
+                      <AgentAvatar agentId={run.agent.id} />
                       {run.agent.name}
                     </button>
                     <span

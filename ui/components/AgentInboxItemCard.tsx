@@ -11,6 +11,7 @@ import { ChoiceInteractionCard } from "../log-view/LogView.tsx";
 import { filledSecondaryBtn } from "./dialog-styles.ts";
 import { logEntryText } from "../../shared/i18n/log-message.ts";
 import type { AgentInfo } from "../../shared/types.ts";
+import { AgentAvatar } from "../log-view/chat-avatars.tsx";
 import { failureFirstLine, type AgentInboxItem } from "../inbox-agent-items.ts";
 
 // The most lines of a permission's reason or input the card shows.
@@ -102,6 +103,7 @@ export function AgentInboxItemCard({
           {...noTranslate()}
           style={{ color: "var(--text-primary)", fontSize: isMobile ? 14 : 13 }}
         >
+          <AgentAvatar agentId={agent.id} />
           {agent.name}
         </span>
         <span

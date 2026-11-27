@@ -37,11 +37,12 @@ function AvatarFrame({ children }: { children: ReactNode }) {
   );
 }
 
-// Nothing for an agent that no longer exists.
+// Nothing for an agent that no longer exists, or that has no outfit to draw
+// (a partial agent record, as test fixtures build).
 export function AgentAvatar({ agentId }: { agentId: string | undefined }) {
   const { agents } = useAppState();
   const agent = agents.find((a) => a.id === agentId);
-  if (!agent) return null;
+  if (!agent?.outfit) return null;
   return (
     <AvatarFrame>
       <Character
