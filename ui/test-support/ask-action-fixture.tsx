@@ -179,3 +179,19 @@ export const levelCard = (current: Level | undefined, requested: Level) => ({
   from: current && en[`settings.room.viewLevel.${current}`],
   to: en[`settings.room.viewLevel.${requested}`],
 });
+
+// The parts of a value line after its name or label (tasks 8e61bf71,
+// ee88b02c): "loading" for the dimmed block, "arrow" for the arrow (the one
+// other part screen readers skip), "text" for a value. A line is the head
+// line of a block (block.firstElementChild) or the first child of a row
+// ([data-ask-action-key]).
+export const lineParts = (line: Element) =>
+  [...line.children]
+    .slice(1)
+    .map((c) =>
+      c.hasAttribute("data-ask-action-loading")
+        ? "loading"
+        : c.getAttribute("aria-hidden") === "true"
+          ? "arrow"
+          : "text",
+    );

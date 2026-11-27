@@ -556,6 +556,9 @@ export function AskActionBlock({
           return name ? `/api/users/${encodeURIComponent(name)}/os-user` : null;
         })()
       : null;
+  // When the card first drew: whether a sign-in link's stored expiry has
+  // passed, while the live list loads.
+  const [drawnAt] = useState(() => Date.now());
   const [osView, setOsView] = useState<MemberOsUserWire | null>(null);
   const [osPassword, setOsPassword] = useState("");
   // The attempt's stamp at Apply: a failure with another stamp is this run's.
@@ -1290,28 +1293,30 @@ export function AskActionBlock({
 
   // The link's expiry now, from the owners' live invite list (task
   // 8852553c). A link used, replaced or taken back is gone: nothing to
-  // extend.
+  // extend. While the list loads, the expiry the step stored at the create
+  // stands in (task 8e61bf71), so the card does not move when the list
+  // comes: an open ask's link still has it, since the ask closes when the
+  // link's expiry passes it.
   function linkExtendView(s: Step<"sign-in-link-extend">): ActionView {
     const member = memberById(s.userId);
     const link = invitesList.find((i) => i.tokenPrefix === s.tokenPrefix);
-    const time = (at: number) => formatDateTime(language, at, "dateTime");
+    const expiry = (expiresAt: number, expired: boolean): Value => {
+      const time = formatDateTime(language, expiresAt, "dateTime");
+      return {
+        value: String(expiresAt),
+        label: expired
+          ? t("asks.action.linkExpiredAt", { time })
+          : t("asks.action.linkExpiresAt", { time }),
+      };
+    };
+    const current = !invitesLoaded
+      ? expiry(s.expiresAt, s.expiresAt < drawnAt)
+      : link
+        ? expiry(link.expiresAt, !!link.expired)
+        : undefined;
     return {
       name: member?.name ?? s.userId,
-      ...(invitesLoaded && link
-        ? {
-            current: {
-              value: String(link.expiresAt),
-              label: link.expired
-                ? t("asks.action.linkExpiredAt", {
-                    time: time(link.expiresAt),
-                  })
-                : t("asks.action.linkExpiresAt", {
-                    time: time(link.expiresAt),
-                  }),
-            },
-          }
-        : {}),
-      loading: !invitesLoaded,
+      ...(current ? { current } : {}),
       requested: { value: "extended", label: t("asks.action.linkExtended") },
       lines: [
         <div key="hint" style={muted}>
@@ -2498,15 +2503,18 @@ export function AskActionBlock({
     }
   })();
 
-  // The value now while it loads: a dimmed block where its label goes, so the
-  // row keeps its layout.
+  // A row whose value now is still read: one dimmed block where the value
+  // now, the arrow and the value asked go (task ee88b02c). They come at once
+  // when it is read, so nothing on the card moves; a block of today's least
+  // width wraps only where a short value would.
   const placeholder = (
     <span
       data-ask-action-loading=""
       aria-hidden="true"
       style={{
         display: "inline-block",
-        width: "4em",
+        flex: "1 0 4em",
+        maxWidth: "min(10em, 100%)",
         height: "0.9em",
         borderRadius: 4,
         background: "var(--bg-surface)",
@@ -2547,20 +2555,25 @@ export function AskActionBlock({
         <span {...noTranslate()} style={{ fontWeight: 600 }}>
           {view.name}
         </span>
-        {view.current ? (
-          <span data-ask-action-from="" style={{ color: "var(--text-muted)" }}>
-            {view.current.label}
-          </span>
+        {!view.current && view.requested && view.loading ? (
+          placeholder
         ) : (
-          view.requested && view.loading && placeholder
-        )}
-        {(view.current || (view.requested && view.loading)) && (
-          <span aria-hidden="true">→</span>
-        )}
-        {view.requested && (
-          <span data-ask-action-to="" style={{ fontWeight: 600 }}>
-            {view.requested.label}
-          </span>
+          <>
+            {view.current && (
+              <span
+                data-ask-action-from=""
+                style={{ color: "var(--text-muted)" }}
+              >
+                {view.current.label}
+              </span>
+            )}
+            {view.current && <span aria-hidden="true">→</span>}
+            {view.requested && (
+              <span data-ask-action-to="" style={{ fontWeight: 600 }}>
+                {view.requested.label}
+              </span>
+            )}
+          </>
         )}
       </div>
       {view.rows?.map((row) => (
@@ -2582,25 +2595,32 @@ export function AskActionBlock({
             }}
           >
             <span>{row.label}</span>
-            {row.current && !sameValue(row.current, row.requested) ? (
-              <span
-                {...noTranslate()}
-                style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}
-              >
-                {row.current.label}
-              </span>
+            {!row.current && view.loading ? (
+              placeholder
             ) : (
-              !row.current && view.loading && placeholder
+              <>
+                {row.current && !sameValue(row.current, row.requested) && (
+                  <>
+                    <span
+                      {...noTranslate()}
+                      style={{
+                        color: "var(--text-muted)",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {row.current.label}
+                    </span>
+                    <span aria-hidden="true">→</span>
+                  </>
+                )}
+                <span
+                  {...noTranslate()}
+                  style={{ fontWeight: 600, overflowWrap: "anywhere" }}
+                >
+                  {row.requested.label}
+                </span>
+              </>
             )}
-            {(row.current
-              ? !sameValue(row.current, row.requested)
-              : view.loading) && <span aria-hidden="true">→</span>}
-            <span
-              {...noTranslate()}
-              style={{ fontWeight: 600, overflowWrap: "anywhere" }}
-            >
-              {row.requested.label}
-            </span>
           </div>
           {row.hint && (
             <div data-ask-action-hint="" style={muted}>

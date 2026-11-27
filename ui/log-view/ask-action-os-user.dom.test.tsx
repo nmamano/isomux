@@ -31,6 +31,7 @@ const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { OS_USER_POLL_MS, OS_USER_POLL_CAP_MS } =
   await import("../components/MemberOsUserSection.tsx");
+const { lineParts } = await import("../test-support/ask-action-fixture.tsx");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type MemberOsUserWire =
   import("../../shared/contract-shapes.ts").MemberOsUserWire;
@@ -411,4 +412,48 @@ it("shows the other members on the user the step names, and on the member's own 
   const leave = await mount({ on: false });
   expect(leave.block().textContent).toContain("Quinn");
   leave.view.unmount();
+});
+
+// Task ee88b02c: while the OS user is read, the row draws one dimmed block
+// after its label in place of "value now -> value asked": the value asked
+// depends on the read too (a plain on names the new user's default name
+// only once the read comes), so nothing of the tail shows until it comes.
+it("while the OS user is read, the row draws one block after its label, then the user now and the user asked for", async () => {
+  let release: (v: MemberOsUserWire) => void = () => {};
+  setApiShim(async (method, path) => {
+    if (method === "GET" && path === VIEW_PATH) {
+      reads++;
+      return new Promise<MemberOsUserWire>((r) => (release = r));
+    }
+    return undefined;
+  });
+  const { view, block } = await mount({ on: true });
+  const row = () =>
+    block().querySelector<HTMLElement>('[data-ask-action-key="osUser"]')!;
+  const line = () => ({
+    label: row().firstElementChild!.firstElementChild!.textContent,
+    parts: lineParts(row().firstElementChild!),
+  });
+  // The enabling condition: the read is out (mount waited for it) and has
+  // not come back.
+  expect(row().dataset.askActionCurrent).toBeUndefined();
+  const loading = line();
+  expect(loading.parts).toEqual(["loading"]);
+  expect(block().textContent).not.toContain("isomux-mia7");
+  await act(async () => {
+    release(osView());
+  });
+  await settle();
+  expect({
+    current: row().dataset.askActionCurrent,
+    requested: row().dataset.askActionRequested,
+    line: line(),
+    loading: block().querySelectorAll("[data-ask-action-loading]").length,
+  }).toEqual({
+    current: "off",
+    requested: "isomux-mia7",
+    line: { label: loading.label, parts: ["text", "arrow", "text"] },
+    loading: 0,
+  });
+  view.unmount();
 });

@@ -15,7 +15,7 @@ setUpDomTestFile();
 const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
-const { NOW, action, memberAsk, mount, seeded } =
+const { NOW, action, lineParts, memberAsk, mount, seeded } =
   await import("../test-support/ask-action-fixture.tsx");
 
 setShim(() => {});
@@ -581,5 +581,136 @@ it("a sign-in-link-extend card names the member, shows the link's expiry now fro
   });
   expect(block("ext00001")!.hasAttribute("data-ask-action-gone")).toBe(true);
   expect(apply("ext00001")).toBe(null);
+  view.unmount();
+});
+
+// Task 8e61bf71: while the invite list loads, the extend card shows the
+// expiry the step stored at the create, so its line is drawn whole from the
+// first frame and does not change when the list comes. An open ask's live
+// expiry is the stored one (the ask closes when the link's expiry passes
+// it). One live link and one expired link: each label branch. A third
+// card's link is not in the loaded list: it turns gone only once the list
+// has loaded, which proves the load in the run.
+it("a sign-in-link-extend card shows the stored expiry while the invite list loads, and the loaded line is the same", async () => {
+  const DAY = 86_400_000;
+  const links = [
+    { id: "ext00002", prefix: "Live1234", userId: "u2", at: NOW + DAY },
+    { id: "ext00003", prefix: "Old12345", userId: "u3", at: NOW - DAY },
+  ];
+  const absent = {
+    id: "ext00004",
+    prefix: "Gone1234",
+    userId: "u2",
+    at: NOW + DAY,
+  };
+  let asked = 0;
+  let release: (v: unknown) => void = () => {};
+  read = (p) => {
+    if (p !== "/api/invites") return undefined;
+    asked++;
+    return new Promise((r) => (release = r));
+  };
+  const { view, block } = await mount(
+    [...links, absent].map((l) =>
+      credAsk(l.id, {
+        kind: "sign-in-link-extend",
+        userId: l.userId,
+        tokenPrefix: l.prefix,
+        expiresAt: l.at,
+      }),
+    ),
+  );
+  const shown = () =>
+    links.map((l) => {
+      const b = block(l.id)!;
+      return {
+        current: b.dataset.askActionCurrent,
+        from: b.querySelector("[data-ask-action-from]")?.textContent ?? "",
+        parts: lineParts(b.firstElementChild!),
+        loading: b.querySelectorAll("[data-ask-action-loading]").length,
+        gone: b.hasAttribute("data-ask-action-gone"),
+      };
+    });
+  const absentGone = () =>
+    block(absent.id)!.hasAttribute("data-ask-action-gone");
+  // The enabling condition: the list was asked for and has not come back.
+  await waitFor(() => expect(asked).toBeGreaterThan(0));
+  expect(absentGone()).toBe(false);
+  const loading = shown();
+  expect(loading.map((v) => ({ ...v, from: v.from !== "" }))).toEqual(
+    links.map((l) => ({
+      current: String(l.at),
+      from: true,
+      parts: ["text", "arrow", "text"],
+      loading: 0,
+      gone: false,
+    })),
+  );
+  await act(async () => {
+    release({
+      invites: links.map((l) => ({
+        tokenPrefix: l.prefix,
+        username: l.userId === "u2" ? "Casey" : "Dana",
+        role: "member",
+        createdBy: "Morgan",
+        createdAt: NOW - 4 * DAY,
+        expiresAt: l.at,
+        ...(l.at < NOW ? { expired: true } : {}),
+        extendable: true,
+      })),
+    });
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  // The list has loaded, and the line the card drew while it loaded still
+  // holds, labels too: the stored expired link reads as the loaded row (the
+  // server's expired flag) does.
+  expect(absentGone()).toBe(true);
+  expect(shown()).toEqual(loading);
+  view.unmount();
+});
+
+// Task ee88b02c: a line whose value now is not read yet draws one dimmed
+// block after its name, in place of "value now -> value asked", so nothing
+// drawn moves when the value comes: the block goes and the whole tail
+// appears. A card whose value now is in the office state (an agent's stop)
+// draws its whole line at once.
+it("a card that loads its value now draws one block after the name while it loads, then the whole line", async () => {
+  let asked = 0;
+  let release: (v: unknown) => void = () => {};
+  read = (p) => {
+    if (p !== "/api/sessions") return undefined;
+    asked++;
+    return new Promise((r) => (release = r));
+  };
+  const { view, block } = await mount([
+    credAsk("load0001", { kind: "member-sessions", userId: "u2" }),
+    action("load0002", "t1", "privileged"),
+  ]);
+  const head = () => block("load0001")!.firstElementChild!;
+  // The enabling condition: the list was asked for and has not come back.
+  await waitFor(() => expect(asked).toBeGreaterThan(0));
+  expect(block("load0001")!.dataset.askActionCurrent).toBeUndefined();
+  const name = head().firstElementChild!.textContent;
+  expect(name).toContain("Casey");
+  expect({
+    parts: lineParts(head()),
+    to: block("load0001")!.querySelector("[data-ask-action-to]") !== null,
+  }).toEqual({ parts: ["loading"], to: false });
+  await act(async () => {
+    release({ sessions: [] });
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(block("load0001")!.dataset.askActionCurrent).toBe("0");
+  expect({
+    name: head().firstElementChild!.textContent,
+    parts: lineParts(head()),
+    loading: block("load0001")!.querySelectorAll("[data-ask-action-loading]")
+      .length,
+  }).toEqual({ name, parts: ["text", "arrow", "text"], loading: 0 });
+  expect(lineParts(block("load0002")!.firstElementChild!)).toEqual([
+    "text",
+    "arrow",
+    "text",
+  ]);
   view.unmount();
 });

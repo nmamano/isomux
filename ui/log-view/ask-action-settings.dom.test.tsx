@@ -13,8 +13,16 @@ const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { en } = await import("../../shared/i18n/en.ts");
-const { flags, levelCard, member, memberAsk, mount, seeded, viewCard } =
-  await import("../test-support/ask-action-fixture.tsx");
+const {
+  flags,
+  levelCard,
+  lineParts,
+  member,
+  memberAsk,
+  mount,
+  seeded,
+  viewCard,
+} = await import("../test-support/ask-action-fixture.tsx");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 setShim(() => {});
@@ -391,5 +399,71 @@ it("an office-settings card reads the settings again when any office setting cha
   await waitFor(() =>
     expect(rows(block("set00008")!).memberUsageShare?.current).toBe("70"),
   );
+  view.unmount();
+});
+
+// Task ee88b02c: a card with one row per key draws, while the settings load,
+// one dimmed block after each row's label in place of "value now -> value
+// asked". When they come, each row draws today's line: the value now, the
+// arrow and the value asked where they differ, the value asked alone where
+// they are the same.
+it("an office-settings card draws one block after each row's label while the settings load, then each row's line", async () => {
+  let asked = 0;
+  let release: (v: unknown) => void = () => {};
+  read = (p) => {
+    if (!p.startsWith("/api/office/settings")) return undefined;
+    asked++;
+    return new Promise((r) => (release = r));
+  };
+  const { view, block } = await mount([
+    memberAsk("load0003", {
+      kind: "office-settings",
+      set: { memberUsageShare: 30, processIsolation: true },
+    }),
+  ]);
+  const lines = (): Record<string, { label: string | null; parts: string[] }> =>
+    Object.fromEntries(
+      [
+        ...block("load0003")!.querySelectorAll<HTMLElement>(
+          "[data-ask-action-key]",
+        ),
+      ].map((r) => [
+        r.dataset.askActionKey,
+        {
+          label: r.firstElementChild!.firstElementChild!.textContent,
+          parts: lineParts(r.firstElementChild!),
+        },
+      ]),
+    );
+  // The enabling condition: the settings were asked for and have not come
+  // back.
+  await waitFor(() => expect(asked).toBeGreaterThan(0));
+  expect(rows(block("load0003")!)).toEqual({
+    memberUsageShare: { current: undefined, requested: "30" },
+    processIsolation: { current: undefined, requested: "true" },
+  });
+  const loading = lines();
+  expect(Object.values(loading).map((l) => l.parts)).toEqual([
+    ["loading"],
+    ["loading"],
+  ]);
+  await act(async () => {
+    release({ ...OFFICE_SETTINGS, processIsolation: true });
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(rows(block("load0003")!)).toEqual({
+    memberUsageShare: { current: "50", requested: "30" },
+    processIsolation: { current: "true", requested: "true" },
+  });
+  expect(lines()).toEqual({
+    memberUsageShare: {
+      label: loading.memberUsageShare!.label,
+      parts: ["text", "arrow", "text"],
+    },
+    processIsolation: {
+      label: loading.processIsolation!.label,
+      parts: ["text"],
+    },
+  });
   view.unmount();
 });
