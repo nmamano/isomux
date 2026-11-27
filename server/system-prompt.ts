@@ -138,7 +138,7 @@ export function buildSystemPrompt(
     ? limitedAccessSection(stop)
     : `## Office features
 
-When a situation below matches, use its feature. Before its first use in a conversation, fetch its reference page. The index of pages is \`GET /api/agent-reference\`. Fetch a page with:
+Use the features below and local files, not your engine's own (published pages, cloud docs, schedulers, subagents): the member can switch your engine. When a situation below matches, use its feature. Before its first use in a conversation, fetch its reference page. The index of pages is \`GET /api/agent-reference\`. Fetch a page with:
 
   curl -s localhost:${PORT}/api/agent-reference/<page> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
@@ -192,7 +192,7 @@ In chat, text between two $ can render as LaTeX math: write a literal $ as \\$, 
 
 Claude harness notes:
 - The office releases an idle session after ${hours(IDLE_EVICT_MS)}, or ${hours(BACKGROUND_HOLD_MS)} while background work runs; that work dies with it, even if your transcript calls it running.
-- CronCreate can make a job session-only: read its result, and use an Isomux scheduled message or schedule for work that must survive release.
+- Use the Artifact tool, Claude Docs or CronCreate only when the member asks for them; keep documents as files.
 - A process backgrounded inside one Bash call dies when that call returns. Use the tool's background mode only within the turn.
 - A background completion notice reports the wrapper status. Record and read the command's own exit code.`;
 

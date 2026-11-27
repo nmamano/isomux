@@ -515,6 +515,75 @@ describe("spawning steer", () => {
   });
 });
 
+// Task ac5c19c0 (Nil, 2026-11-28): an agent uses the Isomux features and
+// local files, not its engine's own (published pages, cloud docs, schedulers,
+// subagents), because the member can switch the agent's engine at the next
+// message. The rule is not tied to a situation line: saving a document, the
+// case that started the task, has no line of its own. The Claude prompt also
+// names the tools its harness pushes, and leaves them to a member's request,
+// since a member can turn the Artifact tool on or type /loop on purpose.
+describe("engine features steer", () => {
+  const sentences = (text: string) => text.split(/(?<=\.)\s+/);
+  const claudeTools = [/\bArtifact\b/, /\bClaude Docs\b/, /\bCronCreate\b/];
+
+  it("prefers the office features and local files to the engine's own on every engine, for any situation", () => {
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const privileged of [false, true]) {
+        const prompt = build(engine, privileged);
+        const intro = prompt
+          .split("## Office features\n\n")[1]
+          ?.split("\n\n")[0];
+        const steer = sentences(intro ?? "").filter(
+          (s) => /\bengine\b/.test(s) && /\bfiles\b/.test(s),
+        );
+        expect({ engine, privileged, steer: steer.length }).toEqual({
+          engine,
+          privileged,
+          steer: 1,
+        });
+        // Not gated by a situation line.
+        expect(steer[0]).not.toMatch(/\b(situation|when|if)\b/i);
+        // The reason: the member can switch the engine.
+        expect(steer[0]).toMatch(/\bmember\b[^.]*\bswitch\b/);
+      }
+    }
+  });
+
+  it("leaves the Claude harness tools to a member's request, and names them only to Claude", () => {
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const privileged of [false, true]) {
+        const lines = build(engine, privileged).split("\n");
+        const naming = lines.filter((l) => claudeTools.some((t) => t.test(l)));
+        if (engine !== "claude") {
+          expect({ engine, privileged, naming }).toEqual({
+            engine,
+            privileged,
+            naming: [],
+          });
+          continue;
+        }
+        // One line, in the Claude harness notes, names all three, so no
+        // other line offers CronCreate for any use.
+        expect({ privileged, naming: naming.length }).toEqual({
+          privileged,
+          naming: 1,
+        });
+        const at = lines.indexOf(naming[0]);
+        const notes = lines.findIndex((l) => /^Claude harness notes:/.test(l));
+        expect(notes).toBeGreaterThan(-1);
+        expect(at).toBeGreaterThan(notes);
+        expect(
+          lines.slice(notes + 1, at).every((l) => l.startsWith("- ")),
+        ).toBe(true);
+        for (const tool of claudeTools) expect(naming[0]).toMatch(tool);
+        // Only on the member's request, and documents go to files.
+        expect(naming[0]).toMatch(/\bonly\b[^.;]*\bmember\b/);
+        expect(naming[0]).toMatch(/\bdocuments?\b[^.]*\bfiles\b/);
+      }
+    }
+  });
+});
+
 describe("spawning a member's agent", () => {
   it("seats it at a front desk and says what to do when the front is full", () => {
     const identity: Identity = {
