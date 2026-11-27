@@ -3,7 +3,7 @@
 // usage: bun probe2.ts <ok|throw|timeout|subagent>
 import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
 import { makePushableInput } from "../../../server/backends/claude.ts";
-import { CLAUDE_NATIVE_BIN } from "../../../server/cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../../../server/engine-binaries.ts";
 const mode = process.argv[2];
 const dir = "/tmp/steer-repro/probe"; // needs slow.sh from this folder copied in
 const t0 = Date.now();

@@ -62,7 +62,7 @@ import {
 import { resetStateRoot } from "./temp-state.ts";
 import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
 import { type OfficeAuth, type OfficeLoginSync } from "../office-login-sync.ts";
-import { effectiveProviderDirectory } from "../provider-account-manager.ts";
+import { effectiveProviderDirectory } from "../provider-folders.ts";
 import {
   FakeBackend,
   type FakeBackendConfig,

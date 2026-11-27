@@ -8,9 +8,9 @@ import {
   cwdProblem,
   diagnoseProcessExit,
   inspectCodexStoredSession,
-  pathWithBundledClaude,
   validateCwd,
 } from "./cwd-utils.ts";
+import { pathWithBundledClaude } from "./engine-binaries.ts";
 import { renderLogText } from "../shared/i18n/log-message.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 

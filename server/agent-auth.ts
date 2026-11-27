@@ -32,11 +32,11 @@ import {
 } from "./internal-types.ts";
 import { getSessionClaudeConfigDir } from "./persistence.ts";
 import { holdBackend } from "./queue-flush.ts";
-import { memberOfficeFolderOwner } from "./office-login-sync.ts";
 import {
+  memberOfficeFolderOwner,
   effectiveProviderDirectory,
-  type EffectiveProviderAccountTarget,
-} from "./provider-account-manager.ts";
+} from "./provider-folders.ts";
+import { type EffectiveProviderAccountTarget } from "./provider-account-manager.ts";
 
 export function detectAuthErrorForEnvironment(
   agentType: AgentBackendType,

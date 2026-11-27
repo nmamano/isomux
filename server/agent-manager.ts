@@ -276,7 +276,7 @@ import {
 } from "./opencode-free-limit.ts";
 import { OpenCodeFreeLimitError } from "./backends/opencode/errors.ts";
 import { OneShotUsageLimitError } from "./backends/one-shot-errors.ts";
-import { effectiveProviderDirectory } from "./provider-account-manager.ts";
+import { effectiveProviderDirectory } from "./provider-folders.ts";
 import {
   BackendNotConfiguredError,
   StoredSessionNotFoundError,

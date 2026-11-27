@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { usageAccountKey } from "./usage-account.ts";
-import { effectiveProviderDirectory } from "./provider-account-manager.ts";
+import { effectiveProviderDirectory } from "./provider-folders.ts";
 
 const CLAUDE_AUTH_VARS = [
   "ANTHROPIC_API_KEY",

@@ -208,8 +208,7 @@ write_stubs() {
   cat > "$dir/install.ts" <<'EOF'
 // Copy each stub over the binary the office would start.
 import { chmodSync, copyFileSync } from "fs";
-import { CLAUDE_NATIVE_BIN } from "/opt/isomux/server/cwd-utils.ts";
-import { resolveCodexLauncherPath } from "/opt/isomux/server/backends/codex/native-bin.ts";
+import { CLAUDE_NATIVE_BIN, resolveCodexLauncherPath } from "/opt/isomux/server/engine-binaries.ts";
 import { resolveOpenCodeBinary } from "/opt/isomux/server/backends/opencode/runtime.ts";
 
 for (const [stub, target] of [

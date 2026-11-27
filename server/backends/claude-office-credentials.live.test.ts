@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 import { writeFileAtomic } from "../agent-runner/atomic-write.ts";
 import { MEMBER_OFFICE_DUMMY_REFRESH } from "../office-login-sync.ts";
 import { LIVE } from "../test-support/live-gate.ts";

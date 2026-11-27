@@ -12,13 +12,15 @@ import { readdirSync, lstatSync } from "fs";
 import * as fsp from "fs/promises";
 import { constants } from "fs";
 import { dirname, join, relative, sep } from "path";
-import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
+import {
+  resolveCodexLauncherPath,
+  CLAUDE_NATIVE_BIN,
+} from "./engine-binaries.ts";
 import {
   OpenCodeUnsupportedHostError,
   openCodeUnsupportedReason,
   resolveOpenCodeBinary,
 } from "./backends/opencode/runtime.ts";
-import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
 import {
   checkMemberShare,
   RUNTIME_HASH_PATTERN,
@@ -244,14 +246,25 @@ const DEFAULT_RUNTIME_DEPS: MemberRuntimeDeps = {
   bunPath: process.execPath,
   modules: NODE_MODULES,
   packages: enginePackages,
-  // Imported when used: the hook module reaches the member hosts.
-  codexHook: async () =>
-    (
-      await import("./backends/codex/safety-hook-install.ts")
-    ).codexHookArtifact(),
+  // Read at each build: the server registers the source at boot.
+  codexHook: () =>
+    codexHookSource
+      ? codexHookSource()
+      : Promise.reject(new Error("no Codex safety hook source is registered")),
 };
 let runtimeDeps = DEFAULT_RUNTIME_DEPS;
 let source: Promise<RuntimeSource> | null = null;
+let codexHookSource: (() => Promise<CodexHookArtifact>) | null = null;
+
+// The prepared Codex safety hook (backends/codex/safety-hook-install.ts
+// codexHookArtifact), which startServer registers: this module does not
+// import the engine. null clears it. Until one is registered, a built source
+// has no hook and is not kept.
+export function setMemberRuntimeCodexHook(
+  hook: (() => Promise<CodexHookArtifact>) | null,
+): void {
+  codexHookSource = hook;
+}
 
 // Tests: replace some dependencies and forget the cached source; null
 // restores the defaults.

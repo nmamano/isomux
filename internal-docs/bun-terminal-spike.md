@@ -71,7 +71,7 @@ Checked 2026-10-10 for the dependency removal:
   runs `npm install --ignore-scripts` for a platform package. It invokes no
   compiler or Python. The bundled Codex launcher uses Bun and a native
   platform binary (`server/backends/codex/client.ts`, `native-bin.ts`).
-- Claude SDK execution selects its native platform binary (`cwd-utils.ts`).
+- Claude SDK execution selects its native platform binary (`engine-binaries.ts`).
   The public Claude Code 2.1.296 package has no regular dependencies. Its
   `install.cjs` copies an optional platform binary; its only spawned command
   is macOS `sysctl`. It invokes no compiler or Python.

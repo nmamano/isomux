@@ -13,7 +13,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { buildOfficeEnv } from "../env-loader.ts";
-import { effectiveProviderDirectory } from "../provider-account-manager.ts";
+import { effectiveProviderDirectory } from "../provider-folders.ts";
 import {
   createMemberUsageCap,
   memberUsageCap,

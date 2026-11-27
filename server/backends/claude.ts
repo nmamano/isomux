@@ -132,11 +132,8 @@ import {
   claudeToolsForStop,
   stopHasFolder,
 } from "../../shared/agent-access.ts";
-import {
-  CLAUDE_NATIVE_BIN,
-  claudeProjectDir,
-  claudeStoredSessionState,
-} from "../cwd-utils.ts";
+import { claudeProjectDir, claudeStoredSessionState } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 import {
   claudeProviderId,
   claudeSignInState,

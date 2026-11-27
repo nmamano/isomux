@@ -23,7 +23,7 @@ import { spawnClaudeThroughHost } from "../backends/claude/agent-spawn.ts";
 import { JsonRpcLiteClient } from "../backends/codex/client.ts";
 import { configureCodexHooks } from "../backends/codex/safety-hook-install.ts";
 import { inspectOpenCodeDatabaseInAgentSpace } from "../backends/opencode/storage.ts";
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
 import { RunnerAgentHost, RunnerProcess } from "./client.ts";
 import { STDIN_WINDOW_BYTES } from "./frames.ts";

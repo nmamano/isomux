@@ -10,7 +10,7 @@
 // subscription. Tests use Haiku + short prompts to keep this minimal.
 
 import { realV1SdkClient } from "../server/backends/claude";
-import { CLAUDE_NATIVE_BIN } from "../server/cwd-utils";
+import { CLAUDE_NATIVE_BIN } from "../server/engine-binaries";
 import { FAMILY_TO_MODEL } from "../shared/types";
 import type {
   SDKMessage,

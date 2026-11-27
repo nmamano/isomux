@@ -4,13 +4,16 @@
 // of createAgentManager (server/agent-manager.ts), which wires it.
 import { hasMemberOsUser } from "./member-os-users.ts";
 import {
-  memberOfficeFolder,
   membersOnOfficeClaude,
   officeAuthFor as officeAuthOf,
   prepareOfficeLogin as prepareOfficeLoginIn,
   type OfficeAuth,
   type OfficeLoginSync,
 } from "./office-login-sync.ts";
+import {
+  memberOfficeFolder,
+  effectiveProviderDirectory,
+} from "./provider-folders.ts";
 import { resolve } from "path";
 import type {
   AgentBackendType,
@@ -56,7 +59,6 @@ import {
   getSessionClaudeConfigDir,
   setSessionClaudeConfigDir,
 } from "./persistence.ts";
-import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
   entryCovers,
   FALLBACK_CONTINUE_TEXT,

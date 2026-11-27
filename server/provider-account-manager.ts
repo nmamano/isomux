@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
-import { hostForEnv } from "./member-hosts.ts";
-import { memberOfficeFolder } from "./office-login-sync.ts";
+import {
+  memberOfficeFolder,
+  effectiveProviderDirectory,
+} from "./provider-folders.ts";
 import { unlinkSync } from "node:fs";
 import type { MemberProviderStatus } from "../shared/contract-shapes.ts";
 import { isAbsolute, resolve } from "node:path";
@@ -91,17 +93,6 @@ export type EffectiveProviderAccountTarget = Pick<
   "provider" | "scope" | "dir"
 >;
 
-export function effectiveProviderDirectory(
-  provider: ProviderAccountProvider,
-  env: Record<string, string | undefined>,
-): string {
-  return provider === "claude"
-    ? resolve(
-        env.CLAUDE_CONFIG_DIR?.trim() ||
-          resolve(hostForEnv(env).home(), ".claude"),
-      )
-    : resolve(withIsomuxCodexHome(env).CODEX_HOME ?? ISOMUX_CODEX_HOME);
-}
 type LoginStartOutcome =
   | { ok: true; value: ProviderLoginStartRes }
   | {

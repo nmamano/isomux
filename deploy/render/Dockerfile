@@ -14,7 +14,7 @@ RUN ! command -v node && ! command -v npm && ! command -v npx && bun install --f
     && chmod -R go-w /opt/isomux
 COPY . .
 RUN bun run build:ui && mkdir -p /var/data && chown node:node /var/data \
-    && ln -s "$(bun -e 'import { CLAUDE_NATIVE_BIN } from "./server/cwd-utils.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)')" /usr/local/bin/claude \
+    && ln -s "$(bun -e 'import { CLAUDE_NATIVE_BIN } from "./server/engine-binaries.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)')" /usr/local/bin/claude \
     && install -o root -g root -m 755 deploy/isomux-member-user.sh /usr/local/sbin/isomux-member-user \
     && install -d -o root -g root -m 755 /etc/isomux \
     && install -o root -g root -m 644 deploy/container/member-user-container.conf /etc/isomux/member-user-container.conf \

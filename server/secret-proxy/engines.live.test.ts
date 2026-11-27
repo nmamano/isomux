@@ -28,12 +28,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { STATE_ROOT } from "../config.ts";
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import {
+  CLAUDE_NATIVE_BIN,
+  resolveCodexLauncherPath,
+} from "../engine-binaries.ts";
 import {
   buildEnvForUserId,
   setSecretEnvironmentProvider,
 } from "../env-loader.ts";
-import { resolveCodexLauncherPath } from "../backends/codex/native-bin.ts";
 import { openCodeMcpServerConfig } from "../backends/opencode/config-layers.ts";
 import { resolveOpenCodeBinary } from "../backends/opencode/runtime.ts";
 import { createSecretStore } from "../secret-store.ts";

@@ -38,6 +38,7 @@ import {
   pruneMemberRuntime,
   runtimeHash,
   runtimeSource,
+  setMemberRuntimeCodexHook,
   setMemberRuntimeDeps,
   writeMemberCaBundle,
   type ManifestEntry,
@@ -85,6 +86,7 @@ beforeEach(() => {
 afterEach(() => {
   process.umask(umask);
   setMemberRuntimeDeps(null);
+  setMemberRuntimeCodexHook(null);
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -547,6 +549,30 @@ describe("runtimeSource", () => {
     expect(withHook.hash).not.toBe(without.hash);
     expect(await runtimeSource()).toBe(withHook);
     expect(state.builds).toBe(3);
+  });
+
+  // Task 52b70fe1: member-runtime does not import the Codex hook module; the
+  // server registers the hook source at boot. Until it does, a member's Codex
+  // is refused (no hook) and the source is not kept; a source registered
+  // later, after the deps were set, is read on the next build.
+  it("takes the Codex hook from the registered source, read at each build", async () => {
+    let hookCalls = 0;
+    setMemberRuntimeDeps({
+      build: async () => new TextEncoder().encode("bundle\n"),
+      bunPath: bunFile,
+      modules,
+      packages: () => PACKAGES,
+    });
+    const without = await runtimeSource();
+    expect(without.codexHook).toBeNull();
+    setMemberRuntimeCodexHook(async () => {
+      hookCalls++;
+      return { path: bunFile, sha256: "registered" };
+    });
+    const withHook = await runtimeSource();
+    expect(withHook).not.toBe(without);
+    expect(withHook.codexHook).toEqual({ path: bunFile, sha256: "registered" });
+    expect(hookCalls).toBe(1);
   });
 
   it("is never built by an office with no isolated member", async () => {

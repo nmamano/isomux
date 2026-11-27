@@ -1,9 +1,8 @@
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import { hostForEnv, isMemberEnv, refuseMemberEnv } from "./member-hosts.ts";
-import { delimiter, dirname, resolve, join } from "path";
+import { resolve, join } from "path";
 import { homedir } from "os";
 import { AGENT_ROOT } from "./split/roots.ts";
-import { RUNTIME_ROOT } from "./runtime-root.ts";
 import {
   closeSync,
   existsSync,
@@ -17,45 +16,6 @@ import {
   claudeProjectDirIn,
   moveSessionFilesBetween,
 } from "./claude-session-files.ts";
-
-// Path to the Claude CLI native binary that ships with the Agent SDK.
-// The SDK's auto-resolver tries the musl variant first on Linux, which fails
-// on glibc systems (ENOENT on /lib/ld-musl-*.so.1 when execve runs the binary).
-// We resolve explicitly and pass it as pathToClaudeCodeExecutable so every
-// libc gets the right binary.
-function resolveClaudeNativeBinary(): string {
-  const anthropicDir = join(RUNTIME_ROOT, "node_modules", "@anthropic-ai");
-  const binName = process.platform === "win32" ? "claude.exe" : "claude";
-  if (process.platform === "linux") {
-    const muslArch = process.arch === "arm64" ? "aarch64" : "x86_64";
-    const isMusl = existsSync(`/lib/ld-musl-${muslArch}.so.1`);
-    const variants = isMusl
-      ? [`linux-${process.arch}-musl`, `linux-${process.arch}`]
-      : [`linux-${process.arch}`, `linux-${process.arch}-musl`];
-    for (const v of variants) {
-      const p = join(anthropicDir, `claude-agent-sdk-${v}`, binName);
-      if (existsSync(p)) return p;
-    }
-  }
-  return join(
-    anthropicDir,
-    `claude-agent-sdk-${process.platform}-${process.arch}`,
-    binName,
-  );
-}
-
-export const CLAUDE_NATIVE_BIN = resolveClaudeNativeBinary();
-
-// PATH with the bundled binary's directory appended, so `claude` in the
-// office's terminals and agent shells runs the agents' version. Last, so a
-// claude earlier on PATH wins.
-export function pathWithBundledClaude(path: string, bin: string): string {
-  const dir = dirname(bin);
-  if (path === "") return dir;
-  return path.split(delimiter).includes(dir)
-    ? path
-    : `${path}${delimiter}${dir}`;
-}
 
 // Resolve ~ in paths
 export function resolveCwd(cwd: string): string {

@@ -6,8 +6,10 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { AgentBackendType } from "../shared/types.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
-import { memberOfficeFolderOwner } from "./office-login-sync.ts";
-import { effectiveProviderDirectory } from "./provider-account-manager.ts";
+import {
+  memberOfficeFolderOwner,
+  effectiveProviderDirectory,
+} from "./provider-folders.ts";
 
 // The keys and tokens that bypass the config directory's sign-in. Whoever set
 // one pays for the agent's work (session-accounts.ts signInOf).

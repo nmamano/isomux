@@ -43,15 +43,17 @@ import {
   hostFor as memberHostFor,
   memberHostConnected,
 } from "./member-hosts.ts";
-import { hasMemberOsUser, memberOsUserIds } from "./member-os-users.ts";
-import { effectiveProviderDirectory } from "./provider-account-manager.ts";
+import { memberOsUserIds } from "./member-os-users.ts";
+import {
+  effectiveProviderDirectory,
+  memberOfficeFolder,
+  type OfficeLoginProvider,
+} from "./provider-folders.ts";
 import { providerFallback } from "./provider-fallback.ts";
 import {
   activatePersonalProvider,
   ensurePersonalProviderHomeOnHost,
 } from "./provider-homes.ts";
-
-export type OfficeLoginProvider = "claude" | "codex";
 
 // The office's Codex ChatGPT access token, as the app-server's
 // chatgptAuthTokens login and refresh answer take it.
@@ -79,35 +81,6 @@ export interface OfficeAuth {
 
 // The fixed refresh token of a member office file: never a real one.
 export const MEMBER_OFFICE_DUMMY_REFRESH = "isomux-office-managed";
-
-// The member office folder of an isolated member for `provider`, or null
-// for a member without their own OS user (they use the office's folder).
-export function memberOfficeFolder(
-  userId: string | null | undefined,
-  provider: AgentBackendType,
-): string | null {
-  if (!userId || !hasMemberOsUser(userId)) return null;
-  const host = memberHostFor(userId);
-  if (provider === "claude") return resolve(host.home(), ".claude");
-  if (provider === "codex") return resolve(host.agentRoot(), "codex-home");
-  return null;
-}
-
-// The isolated member and provider whose member office folder `dir` is, or
-// null. Billing, the usage key and the sign-in label map such a folder to
-// the office account. Members on one OS user share the folder (task
-// 12c796b2): `userId` is the first of them, and the callers read only
-// `provider`.
-export function memberOfficeFolderOwner(
-  dir: string,
-): { userId: string; provider: OfficeLoginProvider } | null {
-  const wanted = resolve(dir);
-  for (const userId of memberOsUserIds())
-    for (const provider of ["claude", "codex"] as const)
-      if (memberOfficeFolder(userId, provider) === wanted)
-        return { userId, provider };
-  return null;
-}
 
 type Env = { [key: string]: string | undefined };
 

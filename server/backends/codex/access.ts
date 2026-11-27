@@ -22,7 +22,7 @@ import {
 import { CODEX_EMPTY_CWD_ROOT, codexEmptyCwdRoot } from "../empty-folder.ts";
 import { hostForEnv } from "../../member-hosts.ts";
 import { makeEmptyFolder } from "../empty-folder-host.ts";
-import { getCodexPinnedVersion } from "./native-bin.ts";
+import { getCodexPinnedVersion } from "../../engine-binaries.ts";
 
 // The Codex version the probe ran on. getCodexPinnedVersion() must equal it.
 export const CODEX_BELOW_STANDARD_PROVEN_VERSION = "0.170.0";

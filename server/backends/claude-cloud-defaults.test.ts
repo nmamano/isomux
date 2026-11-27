@@ -18,7 +18,7 @@ import {
   limitedClaudeFamilies,
   withCloudModelDefaults,
 } from "./claude-install-check.ts";
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 
 // The ids in `ids` that do not occur in the file at `path`. The CLI binary is
 // hundreds of MB, so this reads it in chunks and stops at the first match of

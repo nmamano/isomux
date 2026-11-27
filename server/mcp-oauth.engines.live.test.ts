@@ -17,10 +17,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import {
+  CLAUDE_NATIVE_BIN,
+  resolveCodexLauncherPath,
+} from "./engine-binaries.ts";
 import { sdkMcpRegistration } from "./backends/claude.ts";
 import { codexThreadConfig } from "./backends/codex/adapter.ts";
-import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
 import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
 import { openCodeMcpServerConfig } from "./backends/opencode/config-layers.ts";
 import { createMcpOAuth } from "./mcp-oauth.ts";

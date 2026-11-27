@@ -102,7 +102,11 @@ import { armStopReap } from "./stop-reap.ts";
 import { restartOfficeProcess, runAtServerStop } from "./server-stop.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
-import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
+import {
+  codexHookArtifact,
+  prepareCodexSafetyHookArtifact,
+} from "./backends/codex/safety-hook-install.ts";
+import { setMemberRuntimeCodexHook } from "./member-runtime.ts";
 import { engineRunsAccessHere } from "./backends/access-here.ts";
 import { type AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
@@ -156,11 +160,8 @@ import {
 } from "./backup.ts";
 import { getVersionInfo, PROJECT_ROOT } from "./version.ts";
 import { setTrustedProxy } from "./proxy-trust.ts";
-import {
-  CLAUDE_NATIVE_BIN,
-  pathWithBundledClaude,
-  resolveCwd,
-} from "./cwd-utils.ts";
+import { resolveCwd } from "./cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN, pathWithBundledClaude } from "./engine-binaries.ts";
 import {
   agentCwdProblem,
   memberFolderHost,
@@ -433,11 +434,11 @@ import { OAUTH_SECRET_NAME } from "../shared/mcp-servers.ts";
 import { createSecretsRuntime } from "./secret-proxy/runtime.ts";
 import { setSecretValuesForRedaction } from "./log-redaction.ts";
 import {
-  memberOfficeFolder,
   officeAuthFor,
   officeLoginSync,
   removeLegacyMemberToken,
 } from "./office-login-sync.ts";
+import { memberOfficeFolder } from "./provider-folders.ts";
 import { SHARE_ROOT } from "./split/roots.ts";
 import {
   createConnectionTester,
@@ -780,6 +781,13 @@ import {
   setAgentHostMoveWiring,
   type ManagerTransferResult,
 } from "./agent-host-move.ts";
+
+// A member runtime carries the Codex safety hook. Wired when this module
+// loads, not in startServer: runOfficeMain connects the member hosts (which
+// build the runtime) before it calls startServer. It only stores the
+// function, so importing this module still does no boot work.
+// member-runtime.ts needs no engine import.
+setMemberRuntimeCodexHook(codexHookArtifact);
 
 // Boot is extracted into startServer() at the end of this file. The CLI
 // fast-path (`bun run server/isomux-office.ts owner-login`) and the production

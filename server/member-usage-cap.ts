@@ -28,8 +28,10 @@ import {
   saveMemberUsageCap,
   saveMemberUsageShare,
 } from "./persistence.ts";
-import { memberOfficeFolderOwner } from "./office-login-sync.ts";
-import { effectiveProviderDirectory } from "./provider-account-manager.ts";
+import {
+  memberOfficeFolderOwner,
+  effectiveProviderDirectory,
+} from "./provider-folders.ts";
 import {
   createAccountUsageReader,
   FRESH_MS,

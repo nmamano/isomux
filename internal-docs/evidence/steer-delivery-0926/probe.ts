@@ -3,7 +3,7 @@
 // usage: bun probe.ts <priority|none> <pushDelayMs>
 import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
 import { makePushableInput } from "../../../server/backends/claude.ts";
-import { CLAUDE_NATIVE_BIN } from "../../../server/cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../../../server/engine-binaries.ts";
 import { rmSync, existsSync, readFileSync } from "node:fs";
 const [prio, delay, mode] = [process.argv[2], Number(process.argv[3] ?? 12000), process.argv[4] ?? "tool"];
 const dir = "/tmp/steer-repro/probe"; // needs slow.sh from this folder copied in

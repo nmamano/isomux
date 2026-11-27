@@ -43,7 +43,7 @@ import {
   buildEnvForUserId,
   setPersonalProviderActiveProvider,
 } from "../env-loader.ts";
-import { effectiveProviderDirectory } from "../provider-account-manager.ts";
+import { effectiveProviderDirectory } from "../provider-folders.ts";
 import { personalProviderHome } from "../provider-homes.ts";
 import type { OfficeAuth, OfficeLoginSync } from "../office-login-sync.ts";
 

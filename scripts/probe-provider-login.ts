@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { CodexAccountClient } from "../server/backends/codex/account.ts";
-import { CLAUDE_NATIVE_BIN } from "../server/cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../server/engine-binaries.ts";
 
 function assertHttps(value: unknown): void {
   if (typeof value !== "string" || new URL(value).protocol !== "https:")

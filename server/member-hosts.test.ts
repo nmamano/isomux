@@ -62,8 +62,10 @@ import {
   setMemberShareRoot,
 } from "./member-runtime.ts";
 import { checkMemberShare, realShareProbe } from "./member-share-check.ts";
-import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
-import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
+import {
+  CLAUDE_NATIVE_BIN,
+  resolveCodexLauncherPath,
+} from "./engine-binaries.ts";
 import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
 import { _testResetUsers, claimUser, deleteUserById } from "./users.ts";
 import {

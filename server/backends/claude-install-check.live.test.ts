@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 import { LIVE } from "../test-support/live-gate.ts";
 import { runClaudeAuthStatus } from "./claude-install-check.ts";
 

@@ -12,7 +12,8 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { officeAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
-import { resolveCodexLauncherPath, withIsomuxCodexHome } from "./native-bin.ts";
+import { withIsomuxCodexHome } from "./native-bin.ts";
+import { resolveCodexLauncherPath } from "../../engine-binaries.ts";
 
 export type CodexSandboxProbeResult = "available" | "denied" | "unknown";
 

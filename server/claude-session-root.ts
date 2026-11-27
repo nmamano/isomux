@@ -10,7 +10,7 @@ import { msg } from "../shared/i18n/log-message.ts";
 import { LocalizedError } from "./localized-error.ts";
 import { hostForEnv } from "./member-hosts.ts";
 import { hasMemberOsUser } from "./member-os-users.ts";
-import { memberOfficeFolder } from "./office-login-sync.ts";
+import { memberOfficeFolder } from "./provider-folders.ts";
 
 type Env = Record<string, string | undefined>;
 export function claudeConfigRoot(env: Env = process.env): string {

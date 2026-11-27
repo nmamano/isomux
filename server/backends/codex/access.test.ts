@@ -26,7 +26,7 @@ import {
   codexSkillPaths,
   codexStopThreadConfig,
 } from "./access.ts";
-import { getCodexPinnedVersion } from "./native-bin.ts";
+import { getCodexPinnedVersion } from "../../engine-binaries.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 

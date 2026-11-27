@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import type { ProviderAccountProvider } from "../shared/types.ts";
 import type { SubscriptionUsageWindow } from "./backends/types.ts";
-import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "./engine-binaries.ts";
 import {
   CLAUDE_LAUNCH_SETTINGS,
   normalizeClaudeSubscriptionUsage,

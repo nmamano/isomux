@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { tmpdir } from "node:os";
-import { CLAUDE_NATIVE_BIN } from "../../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../../engine-binaries.ts";
 import { CLAUDE_LAUNCH_SETTINGS } from "../claude.ts";
 import { withAgentSpawn } from "./agent-spawn.ts";
 

@@ -140,6 +140,11 @@ imports `member-hosts.ts`, which reaches `cwd-utils.ts` again through
 lookups to leaf modules. Removes: the 10 imports under `U48` at (1, 6), and the
 cycle inside row 7. The co-change mark stays until Hosts and Engines stop
 changing together (Hosts has only 42 commits, so that share moves fast).
+Done 2026-11-27 (task 52b70fe1): `engine-binaries.ts` and `provider-folders.ts`
+are the leaves, and `isomux-office.ts` wires the Codex hook into
+`member-runtime.ts` when it loads. Left: `codex/client.ts`, `safety-hook-install.ts` and
+`safety-hook-trust-probe.ts` still import each other, a recursion inside the
+Codex engine (the start check measures the hook with a client that skips it).
 
 ## One-way, but wide
 

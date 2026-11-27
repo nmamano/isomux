@@ -1,11 +1,5 @@
-// Resolution for the bundled @openai/codex CLI launcher and Isomux's
-// isolated CODEX_HOME.
-//
-// The Codex CLI ships as @openai/codex (a JS launcher) plus per-platform
-// optional-dependency packages that contain the native binary and a bundled
-// ripgrep. We spawn the launcher with `process.execPath` (Bun) rather than
-// relying on `node` being on PATH; the launcher's PATH-munging keeps codex's
-// internal ripgrep call working without us having to replicate that here.
+// Isomux's isolated CODEX_HOME, the codex wrapper script and the sign-in
+// checks. The bundled launcher's path is in server/engine-binaries.ts.
 //
 // Isolation: codex subprocesses default to the isomux state root's codex-home
 // (`CODEX_HOME=~/.isomux/codex-home/` in production; follows ISOMUX_HOME when
@@ -33,12 +27,9 @@ import {
 import { join } from "path";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "../../split/roots.ts";
 
-import { errMessage } from "../../../shared/errors.ts";
 import { officeAgentHost } from "../../agent-host.ts";
 import { stableBunPath } from "../../stable-bun-path.ts";
-import { RUNTIME_ROOT } from "../../runtime-root.ts";
-
-const ISOMUX_ROOT = join(import.meta.dir, "..", "..", "..");
+import { resolveCodexLauncherPath } from "../../engine-binaries.ts";
 
 // Agent space: in split mode these stay at the old state root (design
 // section 3.1.2), so the paths the wrapper and sessions hold do not change.
@@ -46,8 +37,6 @@ export const ISOMUX_CODEX_HOME = join(AGENT_ROOT, "codex-home");
 const ISOMUX_BIN_DIR = join(AGENT_ROOT, "bin");
 const ISOMUX_CODEX_WRAPPER_PATH = join(ISOMUX_BIN_DIR, "codex");
 
-let cachedLauncherPath: string | null = null;
-let cachedPinnedVersion: string | null = null;
 let ensuredIsomuxCodexHome = false;
 let ensuredCodexWrapper = false;
 
@@ -63,64 +52,6 @@ function ensureIsomuxCodexHomeExists(): void {
   if (ensuredIsomuxCodexHome && existsSync(ISOMUX_CODEX_HOME)) return;
   mkdirSync(ISOMUX_CODEX_HOME, { recursive: true, mode: 0o700 });
   ensuredIsomuxCodexHome = true;
-}
-
-// Resolve the bundled @openai/codex launcher path. Lazy + cached: module-load
-// resolution would crash server boot on a corrupt install, which is the wrong
-// failure mode for an optional backend. On miss we throw a targeted error
-// the spawn / login-card paths can translate into a user-actionable hint.
-export function resolveCodexLauncherPath(): string {
-  if (cachedLauncherPath) return cachedLauncherPath;
-  let resolved: string;
-  try {
-    resolved = Bun.resolveSync("@openai/codex/bin/codex.js", RUNTIME_ROOT);
-  } catch (err) {
-    throw new Error(
-      `Bundled @openai/codex launcher could not be resolved (${errMessage(err)}). ` +
-        `Run \`bun install\` in the Isomux checkout.`,
-      { cause: err },
-    );
-  }
-  if (!existsSync(resolved)) {
-    throw new Error(
-      `Bundled @openai/codex launcher missing at ${resolved}. ` +
-        `Run \`bun install\` in the Isomux checkout.`,
-    );
-  }
-  cachedLauncherPath = resolved;
-  // Happy-path resolve is silent - users don't need a per-boot
-  // confirmation that the bundled launcher resolved. Set
-  // ISOMUX_CODEX_LAUNCHER_LOG=1 to emit the one-shot breadcrumb when
-  // debugging whether a stray global codex is shadowing the bundled one.
-  if (process.env.ISOMUX_CODEX_LAUNCHER_LOG === "1") {
-    try {
-      console.log(
-        `[codex] using bundled launcher: ${resolved} (pinned ${getCodexPinnedVersion()})`,
-      );
-    } catch {}
-  }
-  return resolved;
-}
-
-// Pinned codex CLI version, derived from package.json so version-bumps stay
-// single-edit (the failure mode this whole task is about eliminating). Cached
-// because the package.json doesn't change at runtime.
-export function getCodexPinnedVersion(): string {
-  if (cachedPinnedVersion) return cachedPinnedVersion;
-  const pkgPath = join(ISOMUX_ROOT, "package.json");
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
-    dependencies?: Record<string, string>;
-  };
-  const spec = pkg.dependencies?.["@openai/codex"];
-  if (!spec) {
-    throw new Error(
-      "Could not find @openai/codex in package.json dependencies",
-    );
-  }
-  // Strip leading ^/~/= so callers get a bare semver. `bun add` writes
-  // an exact pin by default (no ^), but tolerate both forms.
-  cachedPinnedVersion = spec.replace(/^[\^~=]/, "");
-  return cachedPinnedVersion;
 }
 
 // Build the codex spawn env: caller-provided baseEnv overlaid with an

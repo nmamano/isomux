@@ -1,7 +1,7 @@
 // Synchronous check for whether the standalone Claude Code CLI is on PATH.
 //
 // The Claude Agent SDK ships its own native binary (see CLAUDE_NATIVE_BIN in
-// server/cwd-utils.ts), so agent runtime does NOT require the user-facing
+// server/engine-binaries.ts), so agent runtime does NOT require the user-facing
 // `claude` CLI to be installed. The terminal sign-out prefers that CLI when
 // it is on PATH and otherwise runs the bundled binary, so
 // `isClaudeCodeInstalled()` only picks which command the logout card shows.
@@ -13,7 +13,7 @@
 import { accessSync, constants, existsSync } from "fs";
 import { homedir } from "os";
 import { delimiter, join } from "path";
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 import { officeAgentHost } from "../agent-host.ts";
 import { hostForEnv, isMemberEnv, refuseMemberEnv } from "../member-hosts.ts";
 import {

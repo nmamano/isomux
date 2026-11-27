@@ -20,11 +20,8 @@ import {
   writeFile,
 } from "fs/promises";
 import { homedir, userInfo } from "os";
-import { join } from "path";
 import { Readable, Writable } from "stream";
-import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
-import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
-import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import { officeEnginePaths } from "./engine-binaries.ts";
 import { writeFileAtomic } from "./agent-runner/atomic-write.ts";
 import { AGENT_ROOT } from "./split/roots.ts";
 import {
@@ -287,34 +284,6 @@ export interface AgentHost {
 
 // A member's agent space, in their home (AgentHost.agentRoot).
 export const MEMBER_AGENT_DIR = ".isomux-agent";
-
-export const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
-export const OPENCODE_HELPER_PATH = join(
-  import.meta.dir,
-  "backends",
-  "opencode",
-  "start-server.ts",
-);
-
-// The office's engine paths, for the local host and the split runner, which
-// both run from the code tree. The terminal sidecar runs under the host's
-// own Bun (`this.bunPath()`).
-export const officeEnginePaths: Pick<
-  AgentHost,
-  | "claudeBin"
-  | "codexLauncher"
-  | "openCodeBin"
-  | "ptySidecarArgv"
-  | "openCodeHelperArgv"
-> = {
-  claudeBin: () => CLAUDE_NATIVE_BIN,
-  codexLauncher: () => resolveCodexLauncherPath(),
-  openCodeBin: (platform) => resolveOpenCodeBinary(platform),
-  ptySidecarArgv(this: AgentHost) {
-    return [this.bunPath(), PTY_SIDECAR_PATH];
-  },
-  openCodeHelperArgv: () => [process.execPath, "run", OPENCODE_HELPER_PATH],
-};
 
 function spawnLocalChild(
   argv: string[],

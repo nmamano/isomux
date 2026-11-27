@@ -36,7 +36,7 @@ import {
   ISOMUX_CODEX_HOME,
   isCodexAuthenticated,
 } from "./codex/native-bin.ts";
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN } from "../engine-binaries.ts";
 import { opencodeBackend } from "./opencode/adapter.ts";
 import type { LoginInstructions } from "./types.ts";
 

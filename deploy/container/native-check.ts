@@ -1,6 +1,6 @@
 // Run as UID/GID 1000 in an isolated image, with networking disabled and no credentials.
 import { spawn, spawnSync } from "node:child_process";
-import { resolveCodexLauncherPath } from "../../server/backends/codex/native-bin.ts";
+import { resolveCodexLauncherPath } from "../../server/engine-binaries.ts";
 import { resolveOpenCodeBinary } from "../../server/backends/opencode/runtime.ts";
 import { createServer } from "node:http";
 import { capturePreview } from "../../server/preview-capture.ts";
@@ -121,7 +121,7 @@ await new Promise<void>((resolve, reject) => {
         // The complete sentinel is absent from the echoed command.
         send({
           type: "input",
-          data: `sdk_binary=$(bun -e 'import { CLAUDE_NATIVE_BIN } from "/opt/isomux/server/cwd-utils.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)') && cli_version=$(claude --version) && sdk_version=$("$sdk_binary" --version) && [ "$cli_version" = "$sdk_version" ] && printf 'native-%s-ready\\n' pty; exit\r`,
+          data: `sdk_binary=$(bun -e 'import { CLAUDE_NATIVE_BIN } from "/opt/isomux/server/engine-binaries.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)') && cli_version=$(claude --version) && sdk_version=$("$sdk_binary" --version) && [ "$cli_version" = "$sdk_version" ] && printf 'native-%s-ready\\n' pty; exit\r`,
         });
       } else if (message.type === "output") {
         output += message.data || "";

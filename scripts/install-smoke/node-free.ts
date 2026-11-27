@@ -17,7 +17,7 @@ for (const command of ["node", "npm", "npx"]) {
   console.log(`PASS command -v ${command}: exit=${result.status}`);
 }
 const { CLAUDE_NATIVE_BIN } = await import(
-  pathToFileURL(join(repo, "server/cwd-utils.ts")).href
+  pathToFileURL(join(repo, "server/engine-binaries.ts")).href
 );
 const native = spawnSync(CLAUDE_NATIVE_BIN, ["--version"], {
   encoding: "utf8",

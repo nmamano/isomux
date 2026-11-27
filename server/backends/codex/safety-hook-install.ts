@@ -27,7 +27,7 @@ import {
   buildCodexSafetyHook,
   hashCodexSafetyHookSources,
 } from "./safety-hook-build.ts";
-import { getCodexPinnedVersion } from "./native-bin.ts";
+import { getCodexPinnedVersion } from "../../engine-binaries.ts";
 
 // The installed hook. In split mode it is in the share, where the agent user
 // can run it and cannot change it (design section 3.1.1); the golden copy

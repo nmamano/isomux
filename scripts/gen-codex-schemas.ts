@@ -11,7 +11,7 @@
 import { spawnSync } from "child_process";
 import { rmSync } from "fs";
 
-import { resolveCodexLauncherPath } from "../server/backends/codex/native-bin.ts";
+import { resolveCodexLauncherPath } from "../server/engine-binaries.ts";
 
 const launcher = resolveCodexLauncherPath();
 const outDir = "server/backends/codex/_generated";

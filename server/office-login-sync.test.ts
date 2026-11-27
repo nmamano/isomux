@@ -32,12 +32,14 @@ import { STATE_ROOT } from "./config.ts";
 import {
   createOfficeLoginSync,
   MEMBER_OFFICE_DUMMY_REFRESH,
-  memberOfficeFolder,
-  memberOfficeFolderOwner,
   type ClaudeOauth,
   type OfficeCodexTokens,
   type OfficeLoginSyncDeps,
 } from "./office-login-sync.ts";
+import {
+  memberOfficeFolder,
+  memberOfficeFolderOwner,
+} from "./provider-folders.ts";
 import {
   activatePersonalProvider,
   isPersonalProviderActive,

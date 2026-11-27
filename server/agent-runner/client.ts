@@ -21,10 +21,14 @@ import {
   fileTooBig,
   MEMBER_AGENT_DIR,
   memberEnvRefusal,
-  officeEnginePaths,
   tagMemberEnv,
   notifyIsolationSetupFailure,
 } from "../agent-host.ts";
+import {
+  officeEnginePaths,
+  CLAUDE_NATIVE_BIN,
+  pathWithBundledClaude,
+} from "../engine-binaries.ts";
 import {
   memberRuntimePaths,
   type MemberRuntimePaths,
@@ -33,7 +37,6 @@ import { RUNTIME_HASH_PATTERN } from "../member-share-check.ts";
 import { AGENT_ROOT } from "../split/roots.ts";
 import { join } from "path";
 import { readPeerCredentials } from "../unix-socket-server.ts";
-import { CLAUDE_NATIVE_BIN, pathWithBundledClaude } from "../cwd-utils.ts";
 import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
 import { ISOLATION_SETUP_FAILED } from "../process-isolation.ts";
 import {
