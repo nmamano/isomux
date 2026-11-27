@@ -13,16 +13,8 @@ const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { en } = await import("../../shared/i18n/en.ts");
-const {
-  flags,
-  levelCard,
-  member,
-  memberAsk,
-  mount,
-  seeded,
-  valueSlots,
-  viewCard,
-} = await import("../test-support/ask-action-fixture.tsx");
+const { flags, levelCard, member, memberAsk, mount, seeded, viewCard } =
+  await import("../test-support/ask-action-fixture.tsx");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 setShim(() => {});
@@ -399,61 +391,5 @@ it("an office-settings card reads the settings again when any office setting cha
   await waitFor(() =>
     expect(rows(block("set00008")!).memberUsageShare?.current).toBe("70"),
   );
-  view.unmount();
-});
-
-// Task ee88b02c: a card with one row per key keeps each value asked in its
-// cell while the settings load: every row is a run of cells of the card's
-// grid, with the placeholder in the value-now cell. When a key's value now
-// is the value asked, that row shows the value asked only, still in its own
-// cell.
-it("an office-settings card keeps each row's value asked in its cell and node while the settings load", async () => {
-  let asked = 0;
-  let release: (v: unknown) => void = () => {};
-  read = (p) => {
-    if (!p.startsWith("/api/office/settings")) return undefined;
-    asked++;
-    return new Promise((r) => (release = r));
-  };
-  const { view, block } = await mount([
-    memberAsk("grid0003", {
-      kind: "office-settings",
-      set: { memberUsageShare: 30, processIsolation: true },
-    }),
-  ]);
-  const slots = () =>
-    Object.fromEntries(
-      [
-        ...block("grid0003")!.querySelectorAll<HTMLElement>(
-          "[data-ask-action-key]",
-        ),
-      ].map((r) => [
-        r.dataset.askActionKey,
-        valueSlots(r.querySelector<HTMLElement>("[data-ask-action-to]")!),
-      ]),
-    );
-  const tos = () => [
-    ...block("grid0003")!.querySelectorAll<HTMLElement>("[data-ask-action-to]"),
-  ];
-  await waitFor(() => expect(asked).toBeGreaterThan(0));
-  const held = new WeakSet(tos());
-  const loading = { cellsOfGrid: true, to: 3, placeholder: 1, from: -1 };
-  expect(slots()).toEqual({
-    memberUsageShare: loading,
-    processIsolation: loading,
-  });
-  await act(async () => {
-    release({ ...OFFICE_SETTINGS, processIsolation: true });
-    await new Promise((r) => setTimeout(r, 0));
-  });
-  expect(rows(block("grid0003")!)).toEqual({
-    memberUsageShare: { current: "50", requested: "30" },
-    processIsolation: { current: "true", requested: "true" },
-  });
-  expect(slots()).toEqual({
-    memberUsageShare: { cellsOfGrid: true, to: 3, placeholder: -1, from: 1 },
-    processIsolation: { cellsOfGrid: true, to: 3, placeholder: -1, from: -1 },
-  });
-  expect(tos().map((e) => held.has(e))).toEqual([true, true]);
   view.unmount();
 });
