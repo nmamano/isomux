@@ -116,7 +116,7 @@ export const OFFICE_SETTINGS_SWITCHES = [
 
 // Why a switch or the member share of a settings write is refused, or null.
 // An omitted field is fine. Shared with the office-settings ask
-// (server/step-asks.ts).
+// (server/step-asks-office.ts).
 export function officeSettingsFieldError(
   b: Record<string, unknown>,
 ): string | null {

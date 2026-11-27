@@ -232,8 +232,9 @@ interface WhatsAppCandidate {
 
 // The member's chats that match the step's name or number: those the bridge
 // saw, and those with a row, matched by the seen name, the row's name or the
-// chat's number (the server's rule, step-asks.ts). With a number that no such
-// chat has, the number's chat itself, under the step's name (task a23a66d3).
+// chat's number (the server's rule, step-asks-messaging.ts). With a number
+// that no such chat has, the number's chat itself, under the step's name
+// (task a23a66d3).
 export function whatsappCandidates(
   step: { chatName: string; phone?: string },
   seen: readonly WhatsAppChatSeen[],

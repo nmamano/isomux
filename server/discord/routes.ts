@@ -114,7 +114,7 @@ type SettingKey = "trigger" | "replyMode" | "prefix" | "includeBots" | "react";
 // The settings of a create or an update, checked: the keys to set and the
 // keys to delete (false and a blank prefix are the default, stored as no
 // key), or a refusal. The messaging-route step checks its `set` with it
-// (server/step-asks.ts).
+// (server/step-asks-messaging.ts).
 export function discordRouteSettings(req: {
   trigger?: unknown;
   replyMode?: unknown;

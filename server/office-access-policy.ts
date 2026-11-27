@@ -422,7 +422,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
 
   // The refusal agents.setAccess gives past its guards for moving `agent` to
   // `access`: the folder rules at a stop with the folder, then the engine and
-  // model. An action ask checks it at create (server/step-asks.ts).
+  // model. An action ask checks it at create (server/step-asks-members.ts).
   function accessChangeRefusal(
     agent: AgentInfo,
     access: AgentAccess,

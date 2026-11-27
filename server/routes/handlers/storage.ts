@@ -89,8 +89,9 @@ function isPositiveInt(value: unknown, min: number): value is number {
 }
 
 // The body of a prune, as the route takes it: the route and an action ask
-// (server/step-asks.ts) read it here, so both refuse alike. `forApply`: the
-// action ask always applies, so it needs what an apply needs.
+// (server/step-asks-office.ts) read it here, so both refuse alike.
+// `forApply`: the action ask always applies, so it needs what an apply
+// needs.
 export function parsePruneRequest(
   body: unknown,
   forApply = false,

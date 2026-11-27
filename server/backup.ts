@@ -251,8 +251,8 @@ function backupDirError(dir: string, stateRoot: string): string | null {
 
 // Why a settings input is refused on its shape alone, or null: the interval
 // and the count in range, the folder an absolute path or null. It touches no
-// disk, so the backup-settings ask (server/step-asks.ts) checks with it at
-// create; the save checks the folder itself after it.
+// disk, so the backup-settings ask (server/step-asks-office.ts) checks with
+// it at create; the save checks the folder itself after it.
 export function backupSettingsShapeError(input: {
   intervalHours?: unknown;
   retention?: unknown;

@@ -526,43 +526,54 @@ describe("the reconcile", () => {
     expect(openIds(next)).toEqual([]);
   });
 
-  it("a step of a later kind loads with the other asks and never closes itself", async () => {
-    const t = setup();
-    await open(t, { kind: "browser-pairing" });
-    const plain = t.asks.create({
-      agentId: "a1",
-      memberUserId: ALICE,
-      prompt: "Go?",
-    });
-    if (!plain.ok) throw new Error("plain ask refused");
-    const file = JSON.parse(readFileSync(t.asksPath, "utf-8")) as AskEntry[];
-    writeFileSync(
-      t.asksPath,
-      JSON.stringify(
-        file.map((e) =>
-          e.step
-            ? {
-                ...e,
-                step: { kind: "later-step" } as unknown as StepAskRequest,
-              }
-            : e,
+  // The store loads any kind (server/asks.ts); "constructor" is a key every
+  // object inherits, so a lookup by kind that is not an own-key one finds it.
+  it.each(["later-step", "constructor"])(
+    "a step of a later kind (%s) loads with the other asks, has no route to run and never closes itself",
+    async (later) => {
+      const t = setup();
+      await open(t, { kind: "browser-pairing" });
+      const plain = t.asks.create({
+        agentId: "a1",
+        memberUserId: ALICE,
+        prompt: "Go?",
+      });
+      if (!plain.ok) throw new Error("plain ask refused");
+      const file = JSON.parse(readFileSync(t.asksPath, "utf-8")) as AskEntry[];
+      writeFileSync(
+        t.asksPath,
+        JSON.stringify(
+          file.map((e) =>
+            e.step
+              ? {
+                  ...e,
+                  step: { kind: later } as unknown as StepAskRequest,
+                }
+              : e,
+          ),
+          null,
+          2,
         ),
-        null,
-        2,
-      ),
-    );
-    const next = t.boot();
-    expect(
-      next.asks
-        .listAll()
-        .map((e) => (e.step as { kind?: string } | undefined)?.kind ?? null)
-        .sort(),
-    ).toEqual(["later-step", null].sort());
-    t.state.paired.add(ALICE);
-    await next.steps.reconcile();
-    expect(t.settled).toEqual([]);
-    expect(next.asks.listAll()).toHaveLength(2);
-  });
+      );
+      const next = t.boot();
+      expect(
+        next.asks
+          .listAll()
+          .map((e) => (e.step as { kind?: string } | undefined)?.kind ?? null)
+          .sort(),
+      ).toEqual([later, null].sort());
+      const stored = next.asks.listAll().find((e) => e.step);
+      if (!stored?.step) throw new Error("the later step did not load");
+      const entry = { ...stored, step: stored.step };
+      // The run route answers 409 not_runnable on null.
+      expect(next.steps.routeOf(entry.step, ALICE)).toBeNull();
+      expect(await next.steps.isStepDone(entry)).toBe(false);
+      t.state.paired.add(ALICE);
+      await next.steps.reconcile();
+      expect(t.settled).toEqual([]);
+      expect(next.asks.listAll()).toHaveLength(2);
+    },
+  );
 });
 
 // Part 4 (task e3d1bc63): the create waits until the clock passes the newest

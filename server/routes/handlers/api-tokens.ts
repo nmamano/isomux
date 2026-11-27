@@ -63,7 +63,7 @@ export interface ApiTokenDeps {
 // A token mint's body, checked: the name trimmed, an offered expiry, and the
 // limits with rooms the member may limit a token to (read only when the
 // limits name rooms). apiTokens.mint and the api-token action ask
-// (server/step-asks.ts) both take a body through it.
+// (server/step-asks-credentials.ts) both take a body through it.
 export function parseApiTokenCreate(
   raw: unknown,
   limitableRoomIds: () => ReadonlySet<string>,

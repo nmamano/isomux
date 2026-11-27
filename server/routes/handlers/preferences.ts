@@ -84,7 +84,7 @@ export type ParsedPreferences =
   | { ok: false; code: string; message: string };
 
 // The one parser for both writes and the member-preferences ask
-// (server/step-asks.ts): `keys` is what the caller accepts.
+// (server/step-asks-members.ts): `keys` is what the caller accepts.
 export function parsePreferenceChange(
   raw: unknown,
   keys: readonly string[],
