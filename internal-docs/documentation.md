@@ -101,7 +101,7 @@ Keep these consistent across all surfaces below.
 - **File:** `site/compare.html`.
 - **Audience:** Visitors and AI search answers that compare Isomux with other agent tools ("Isomux vs X", "alternatives to X").
 - **Structure:** a one-paragraph definition, a table with a row per tool (Isomux first) and columns only for facts that rarely change (license, agents it runs, where it runs, phone, several people in one conversation), one "Checked <date>" line under the table, and one short section per tool. Every non-Isomux cell links the tool's own repo, docs or site, never a roundup. The page owns the per-tool text; the about page (section 2d) keeps only the Competitors row, with the same tools. Styled like the about page, with a wider layout for the table.
-- **Update when:** a tool is added or removed, or a fact in the table changes. Recheck every cell and change the date when you edit the table. No schedule refreshes it.
+- **Update when:** a tool is added or removed, or a fact in the table changes. Recheck every cell and change the date when you edit the table. A row added alone may carry its own date; a full recheck sets one date again. No schedule refreshes it.
 - **Language:** English only. All footers link it under Product; the Spanish, Catalan and Chinese footers translate the link label (Comparativa, Comparativa, 对比).
 - **Deploy note:** static, `cleanUrls`, served at `/compare`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
